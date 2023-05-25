@@ -2,15 +2,17 @@ import pandas as pd
 import os
 import locale
 from datetime import datetime
+from dateutil import parser
 from xlrd import XLRDError
 
-def load_data(files, format="%Y/%m/%d %H:%M:%S,%f", sep='\t', header=0, datetimeind=0, type=None):
+def load_data(files, datetimeindex=None, timeindex=None, dateindex=None, header=0, valueindex=1, sep='\t', type=None):
 
     df = pd.DataFrame()
 
     for fp in files:   
         ext = os.path.splitext(fp)[-1].lower()
 
+        # Reading datasheet with pandas
         if ext == '.xls':
             try:
                 temp = pd.read_excel(fp, engine='xlrd', header=header)
@@ -21,15 +23,33 @@ def load_data(files, format="%Y/%m/%d %H:%M:%S,%f", sep='\t', header=0, datetime
         elif ext == '.csv':
             temp = pd.read_csv(fp, sep=sep, header=header)
 
-        temp = temp.loc[:, ~temp.columns.str.contains('^Unnamed')]
-        temp.iloc[:, datetimeind] = temp.iloc[:, datetimeind].map(lambda a: datetime.strptime(a, format))
 
-        if type == 'NoiseSentry':
-            temp.iloc[:, 1:4] = temp.iloc[:, 1:4].applymap(lambda a: locale.atof(a.replace(',', '.')))
+        try:
+            temp = temp.loc[:, ~temp.columns.str.contains('^Unnamed')]
+        except TypeError:
+            pass
 
-        temp = temp.rename(columns={temp.columns[datetimeind]: 'datetime'})
+        if datetimeindex is not None:
+            if not isinstance(temp.iloc[0, datetimeindex], pd.Timestamp):
+                temp.iloc[:, datetimeindex] = temp.iloc[:, datetimeindex].map(lambda a: parser.parse(a))
+                temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime'})
+        elif all(ind is not None for ind in [dateindex, timeindex]): 
+            temp.iloc[:, dateindex] = temp.iloc[:, dateindex].map(lambda a: parser.parse(a).date())
+            temp.iloc[:, timeindex] = temp.iloc[:, timeindex].map(lambda a: parser.parse(a).time())
+            temp.iloc[:, dateindex] = temp.apply(lambda a: datetime.combine(a.iloc[:, dateindex], a.iloc[:, timeindex]))
+            datetimeindex = dateindex
+        else:
+            raise Exception("You must provide either a datetime index or time and date indexes.")
+
+        temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime', 
+                                    temp.columns[valueindex]: 'sound level'})
         temp = temp.set_index('datetime')
 
+        if type == 'NoiseSentry':
+            temp.iloc[:, valueindex-1] = temp.iloc[:, valueindex-1].map(lambda a: locale.atof(a.replace(',', '.')))
+
+        temp = temp[[temp.columns[valueindex-1]]]
+        temp = temp.dropna()
         df = pd.concat([df, temp])
         
     return df
