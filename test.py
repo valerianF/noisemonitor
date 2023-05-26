@@ -14,15 +14,15 @@ df = load_data([path3], datetimeindex=0, valueindex=2, header=1, type='NoiseSent
 
 # time, mean = sliding_mean(df.iloc[:,0], df.iloc[:,2])
 
-Av = Average(df)
+Av = LevelMonitor(df)
 
 mean = Av.daily(23, 7, win=3600, step=1200)
 
 mean2 = Av.weekly(0, 23, 'monday', 'friday', win=3600, step=1200)
 mean3 = Av.weekly(0, 23, 'saturday', 'sunday', win=3600, step=1200)
 
-mean4 = Av.overall(step=1200)
+mean4 = Av.sliding_overall(step=1200)
 
-l1 = Av.Lden('monday', 'friday')
-l2 = Av.Lden('saturday', 'sunday')
-l3, d, e, n = Av.Lden(values=True)
+l1 = Av.lden('monday', 'friday')
+l2 = Av.lden('saturday', 'sunday')
+l3, d, e, n = Av.lden(values=True)
