@@ -1,95 +1,9 @@
-from datetime import datetime, time
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import numpy as np
 import pandas as pd
+import numpy as np
 
-def equivalent_level(array):
-    """Compute the equivalent sound level from the input array."""
-    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
+from datetime import time
 
-def week_indexes(day1, day2):
-    """Return datetime compatible weekday indexes from weekday strings."""
-    week = [
-        'monday', 'tuesday', 'wednesday', 'thursday', 
-        'friday', 'saturday', 'sunday'
-        ]            
-    day1 = day1.lower()
-    day2 = day2.lower()
-    
-    if any(d not in week for d in [day1, day2]):
-        raise ValueError("Arguments day1 and day2 must be a day of the week.")
-    d1 = week.index(day1)
-    d2 = week.index(day2)
-    return d1, d2
-
-def datetime_index(df):
-    """Converts time index from dataframe to datetime array for plotting."""
-
-    if df.index[-1] < df.index[0]:
-        x1 = df.iloc[(df.index >= df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 9), a))
-        x2 = df.iloc[(df.index < df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 10), a))
-        x = x1.union(x2)
-
-    else:
-        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
-    
-    return x.to_pydatetime() 
-
-
-
-def level_plot(df, *args, weighting="A", ylim=[0,0]):
-    """Plot columns of a dataframe according to the index, using matplotlib.
-
-    Parameters
-    ---------- 
-    df: DataFrame
-        a compatible DataFrame (typically generated with functions load_data(),
-        LevelMonitor.daily() or LevelMonitor.weekly()),
-        with a datetime, time or pd.Timestamp index.
-    *args: str
-        column name(s) to be plotted.
-    weighting: str, default "A"
-        type of sound level data, typically A, C or Z. 
-    ylim: list of int, default [0,0]
-        ylim arguments to be passed to matplotlib. By default no arguments
-        are passed.
-    """
-    if isinstance(df.index[0], pd.Timestamp):
-        x = df.index.to_pydatetime()
-    elif isinstance(df.index[0], time):
-        x = datetime_index(df)
-    elif not isinstance(df.index[0], datetime):
-        raise TypeError(f'DataFrame index must be of type datetime,\
-                        time or pd.Timestamp not {type(df.index[0])}')
-    
-    plt.rcParams.update({'font.size': 16})
-    plt.figure(figsize=(10,8))
-
-    for i in args:
-        plt.plot(x, df.loc[:, i], label=i)
-
-    if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
-        plt.gcf().autofmt_xdate()
-        plt.xlabel('Date (y-m-d)')
-    elif isinstance(df.index[0], time):
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        plt.xlabel('Time (h:m)')
-
-    plt.ylabel(f'Sound Level (dB{weighting})')
-
-    if not all(i == 0 for i in ylim):
-        plt.ylim(ylim)
-
-    plt.grid(linestyle='--')
-    plt.xticks(rotation = 45)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-    return
-
+from .utilities import *
 
 class LevelMonitor:
     """Compute discrete values and different types of sliding mean averages
@@ -399,12 +313,31 @@ class LevelMonitor:
 
         if stats:
             return {
-                'leq': equivalent_level(array),
-                'l10': np.percentile(array, 90),
-                'l50': np.percentile(array, 50),
-                'l90': np.percentile(array, 10)
+                'leq': np.round(equivalent_level(array), 2),
+                'l10': np.round(np.percentile(array, 90), 2),
+                'l50': np.round(np.percentile(array, 50), 2),
+                'l90': np.round(np.percentile(array, 10), 2)
             }
         return {'leq': equivalent_level(array)}
+    
+def equivalent_level(array):
+    """Compute the equivalent sound level from the input array."""
+    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
+
+def week_indexes(day1, day2):
+    """Return datetime compatible weekday indexes from weekday strings."""
+    week = [
+        'monday', 'tuesday', 'wednesday', 'thursday', 
+        'friday', 'saturday', 'sunday'
+        ]            
+    day1 = day1.lower()
+    day2 = day2.lower()
+    
+    if any(d not in week for d in [day1, day2]):
+        raise ValueError("Arguments day1 and day2 must be a day of the week.")
+    d1 = week.index(day1)
+    d2 = week.index(day2)
+    return d1, d2
 
 
 
