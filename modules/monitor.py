@@ -21,10 +21,26 @@ def week_indexes(day1, day2):
         raise ValueError("Arguments day1 and day2 must be a day of the week.")
     d1 = week.index(day1)
     d2 = week.index(day2)
-
     return d1, d2
 
-def level_plot(df, *args):
+def datetime_index(df):
+    """Converts time index from dataframe to datetime array for plotting."""
+
+    if df.index[-1] < df.index[0]:
+        x1 = df.iloc[(df.index >= df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 9), a))
+        x2 = df.iloc[(df.index < df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 10), a))
+        x = x1.union(x2)
+
+    else:
+        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
+    
+    return x.to_pydatetime() 
+
+
+
+def level_plot(df, *args, weighting="A", ylim=[0,0]):
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -35,29 +51,42 @@ def level_plot(df, *args):
         with a datetime, time or pd.Timestamp index.
     *args: str
         column name(s) to be plotted.
-    
+    weighting: str, default "A"
+        type of sound level data, typically A, C or Z. 
+    ylim: list of int, default [0,0]
+        ylim arguments to be passed to matplotlib. By default no arguments
+        are passed.
     """
     if isinstance(df.index[0], pd.Timestamp):
         x = df.index.to_pydatetime()
     elif isinstance(df.index[0], time):
-        x = [datetime.combine(datetime(10, 10, 10), i) for i in df.index]
-    else:
-        raise TypeError(f"DataFrame index must be of type datetime,\
-                        time or pd.Timestamp not {type(df.index[0])}")
-
-    plt.figure(figsize=(10,8), dpi=100)
+        x = datetime_index(df)
+    elif not isinstance(df.index[0], datetime):
+        raise TypeError(f'DataFrame index must be of type datetime,\
+                        time or pd.Timestamp not {type(df.index[0])}')
+    
+    plt.rcParams.update({'font.size': 16})
+    plt.figure(figsize=(10,8))
 
     for i in args:
         plt.plot(x, df.loc[:, i], label=i)
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         plt.gcf().autofmt_xdate()
+        plt.xlabel('Date (y-m-d)')
     elif isinstance(df.index[0], time):
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.xlabel('Time (h:m)')
+
+    plt.ylabel(f'Sound Level (dB{weighting})')
+
+    if not all(i == 0 for i in ylim):
+        plt.ylim(ylim)
 
     plt.grid(linestyle='--')
     plt.xticks(rotation = 45)
     plt.legend()
+    plt.tight_layout()
     plt.show()
     return
 
@@ -203,7 +232,7 @@ class LevelMonitor:
             
         return weeklymeandf
     
-    def sliding_overall(self, win=3600, step=0):
+    def sliding_average(self, win=3600, step=0):
         """Sliding average of the entire sound level array, in terms of
         equivalent level (LEQ), and percentiles (L10, L50 and L90).
 
@@ -241,18 +270,11 @@ class LevelMonitor:
         overalltime = []
 
         for i in range(0, NLim):
-            overallmean[i] = equivalent_level(
-                self.df.iloc[int(i*step):int(i*step+win), 0]
-                )
-            overallL10[i] = np.percentile(
-                self.df.iloc[int(i*step):int(i*step+win), 0], 90
-                )
-            overallL50[i] = np.percentile(
-                self.df.iloc[int(i*step):int(i*step+win), 0], 50
-                )
-            overallL90[i] = np.percentile(
-                self.df.iloc[int(i*step):int(i*step+win), 0], 10
-                )
+            temp = self.df.iloc[int(i*step):int(i*step+win), 0]
+            overallmean[i] = equivalent_level(temp)
+            overallL10[i] = np.percentile(temp, 90)
+            overallL50[i] = np.percentile(temp, 50)
+            overallL90[i] = np.percentile(temp, 10)
             overalltime.append(self.df.index[int(i*step+win/2)])
 
         meandf = pd.DataFrame(
@@ -266,12 +288,12 @@ class LevelMonitor:
 
         return meandf
     
-    def lden(self, day1=None, day2=None, values=False):
+    def lden(self, day1=None, day2=None, values=True):
         """Return the Lden, a descriptor of noise level based on Leq over
         a whole day with a penalty for evening (19h-23h) and night (23h-7h)
         time noise. By default, an average Lden is computed that is 
         representative of all the sound level data. Can return a Lden value
-        at specific days of the week.
+        corresponding to specific days of the week.
 
         Parameters
         ---------- 
@@ -287,7 +309,7 @@ class LevelMonitor:
 
         Returns
         ---------- 
-        float: daily or weekly lden rounded to two decimals. Daily day,
+        dict: daily or weekly lden rounded to two decimals. Associated day,
             evening and night values are returned if values is set to True.
 
 
@@ -326,11 +348,63 @@ class LevelMonitor:
         ) 
 
         if values:
-            return np.round(lden,2), np.round(lday,2), \
-                   np.round(levening,2), np.round(lnight,2)
-        return lden
+            return {
+            'lden': np.round(lden,2),
+            'lday': np.round(lday,2),
+            'levening': np.round(levening,2),
+            'lnight': np.round(lnight,2)
+            }
+        return {'lden': lden}
+    
+    def leq(self, hour1, hour2, day1=None, day2=None, stats=True):
+        """Return the equivalent level (and optionally statistical indicators)
+        between two hours of the day. Can return a value corresponding to 
+        specific days of the week.
+
+        Parameters
+        ---------- 
+        day1 (optional): str, a day of the week in english, case-insensitive
+            first day of the week included in the Lden computation.
+        day2 (optional): str, a day of the week in english, case-insensitive
+            last (included) day of the week in the Lden computation. If day2 
+            happens later in the week than day1 the average will be computed 
+            outside of these days.
+        stats: bool, default True
+            If set to True, the function will return L10, L50 and L90 
+            together with the Leq.
+
+        Returns
+        ---------- 
+        float: daily or weekly lden rounded to two decimals. Daily day,
+            evening and night values are returned if values is set to True.
 
 
+        """
+
+
+        if all(day is not None for day in [day1, day2]):
+            d1, d2 = week_indexes(day1, day2)
+
+            if d1 <= d2:
+                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                   & (self.df.index.dayofweek >= d2)]
+            else:
+                temp = self.df.loc[(self.df.index.dayofweek <= d1) 
+                                   & (self.df.index.dayofweek >= d2)]
+        else:
+            temp = self.df
+
+        
+        array = temp.between_time(time(hour=hour1), time(hour=hour2)).iloc[:,0]
+
+        if stats:
+            return {
+                'leq': equivalent_level(array),
+                'l10': np.percentile(array, 90),
+                'l50': np.percentile(array, 50),
+                'l90': np.percentile(array, 10)
+            }
+        return {'leq': equivalent_level(array)}
 
 
 

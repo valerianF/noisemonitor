@@ -38,12 +38,12 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         weighted or unweighted and integrated over a period corresponding to
         the refresh rate of the sound level meter (typically between 1 second
         and one minute, though the module will work with higher or smaller 
-        refresh rate)
+        refresh rates).
     header: int, None, default 0
         row index for datasheet header. If None, the datasheet has 
         no header.
     sep: str, default '\t'
-        separator if reading .csv file(s)
+        separator if reading .csv file(s).
     type: str, default None
         performs specific parsing operation for known sound level monitor
         manufacturers. For now will only respond to 'NoiseSentry' as input, 
@@ -82,27 +82,23 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         if datetimeindex is not None:
             if not isinstance(temp.iloc[0, datetimeindex], pd.Timestamp):
                 temp.iloc[:, datetimeindex] = temp.iloc[:, datetimeindex].map(
-                    lambda a: parser.parse(a)
-                )
+                    lambda a: parser.parse(a))
                 temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime'})
         elif all(ind is not None for ind in [dateindex, timeindex]): 
             temp.iloc[:, dateindex] = temp.iloc[:, dateindex].map(
-                lambda a: parser.parse(a).date()
-            )
+                lambda a: parser.parse(a).date())
             temp.iloc[:, timeindex] = temp.iloc[:, timeindex].map(
-                lambda a: parser.parse(a).time()
-            )
+                lambda a: parser.parse(a).time())
             temp.iloc[:, dateindex] = temp.apply(
                 lambda a: datetime.combine(
-                    a.iloc[:, dateindex], a.iloc[:, timeindex]
-            ))
+                    a.iloc[:, dateindex], a.iloc[:, timeindex]))
             datetimeindex = dateindex
         else:
             raise Exception("You must provide either a datetime index \
                             or time and date indexes.")
 
         temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime', 
-                                    temp.columns[valueindex]: 'sound level'})
+                                    temp.columns[valueindex]: 'Leq'})
         temp = temp.set_index('datetime')
 
         if type == 'NoiseSentry':
