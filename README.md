@@ -30,3 +30,15 @@ Once sound level data is parsed into a proper dataframe, you can create a SoundM
 ```python
 average = sm.SoundMonitor(df)
 ```
+
+### Data analysis and plotting
+
+The hard part is over, now you can just compute the descriptors you want from the SoundMonitor class instance. Individual average descriptors are returned as dictionnaries:
+
+```python
+leq_am = average.leq(7, 12) # Equivalent level and percentiles between 7am and 12am
+leq_pm_weekends = average.leq(15, 19, day1='saturday', day2='sunday') # Same between 3pm and 7pm on weekends
+
+lden_all = average.lden() # Lden overall
+lden_weekdays = average.lden(day1='monday', day2='friday') # Lden from mondays to fridays
+```
