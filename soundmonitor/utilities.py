@@ -174,8 +174,8 @@ def level_plot(df, *args, weighting="A", ylim=[0,0]):
 
     colors = ["#E51079", "#6344F0", "#5A89FF", "#F3C900"]
 
-    for i in args:
-        plt.plot(x, df.loc[:, i], label=i, color=colors[args.index[i]])
+    for i in range(0, len(args)):
+        plt.plot(x, df.loc[:, args[i]], label=args[i], color=colors[i])
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         plt.gcf().autofmt_xdate()
