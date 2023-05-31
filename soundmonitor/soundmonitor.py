@@ -137,10 +137,10 @@ class SoundMonitor:
         d1, d2 = week_indexes(day1, day2)
         if d1 <= d2:
             temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                               & (self.df.index.dayofweek <= d2)]
+                                & (self.df.index.dayofweek <= d2)]
         else:
-            temp = self.df.loc[(self.df.index.dayofweek <= d1) 
-                               & (self.df.index.dayofweek >= d2)]
+            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                | (self.df.index.dayofweek <= d2)]
 
         weeklymeandf = self.daily(hour1, hour2, temp, win=win, step=step)
             
@@ -233,10 +233,10 @@ class SoundMonitor:
 
             if d1 <= d2:
                 temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   & (self.df.index.dayofweek >= d2)]
+                                   & (self.df.index.dayofweek <= d2)]
             else:
-                temp = self.df.loc[(self.df.index.dayofweek <= d1) 
-                                   & (self.df.index.dayofweek >= d2)]
+                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                   | (self.df.index.dayofweek <= d2)]
         else:
             temp = self.df
 
@@ -301,10 +301,10 @@ class SoundMonitor:
 
             if d1 <= d2:
                 temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   & (self.df.index.dayofweek >= d2)]
+                                   & (self.df.index.dayofweek <= d2)]
             else:
-                temp = self.df.loc[(self.df.index.dayofweek <= d1) 
-                                   & (self.df.index.dayofweek >= d2)]
+                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                   | (self.df.index.dayofweek <= d2)]
         else:
             temp = self.df
 
