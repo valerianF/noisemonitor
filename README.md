@@ -64,12 +64,19 @@ these sliding averages can be plotted using level_plot() function:
 ```python
 sm.utilities.level_plot(general, 'Leq') # Showing general Leq values
 ```
+<img src="tests/data/example_general_average.png" width=400 />
+
 ```python
 sm.utilities.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
 ```
+<img src="tests/data/example_dailynight.png" width=400 />
+
 ```python
 sm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
 ```
+<img src="tests/data/example_weekday.png" width=400 />
+
 ```python
 sm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
+<img src="tests/data/example_weekend.png" width=400 />
