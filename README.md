@@ -10,7 +10,7 @@ TBD
 
 ### Read sound level monitor data
 
-A function is included to read data in the form of either .csv, .xls, .xlsx or .txt files from a sound level monitor and convert them to a DataFrame with datetime or pandas TimeStamp index. Multiple files can be read at once, and the resulting data will be concatenated in a single DataFrame. Note that you must indicate the datasheet's indexes corresponding to date, time and captured equivalent sound level. Reading .xls or .xls files with pandas and automatic parsing into datetime values is computationaly expensive and the process can last a few minutes, depending on the input data.
+A function is included to read data in the form of either .csv, .xls, .xlsx or .txt files from a sound level monitor and convert them to a DataFrame with datetime or pandas TimeStamp index. Multiple files can be read at once, and the resulting data will be concatenated in a single DataFrame. Note that you must indicate the datasheet's indexes corresponding to date, time and captured equivalent sound level. Reading files with pandas and automatic parsing into datetime values can be computationaly expensive and the process can last a few minutes, depending on the input data.
 
 ```python
 import os
