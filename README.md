@@ -18,7 +18,7 @@ from datetime import datetime
 
 import soundmonitor as sm
 
-# Load .xslx data associated with path
+# Load example .xslx data within the package
 path = os.path.join('tests', 'data', 'test.xlsx')
 df = sm.utilities.load_data([path], datetimeindex=0, valueindex=1)
 
@@ -41,4 +41,35 @@ leq_pm_weekends = average.leq(15, 19, day1='saturday', day2='sunday') # Same bet
 
 lden_all = average.lden() # Lden overall
 lden_weekdays = average.lden(day1='monday', day2='friday') # Lden from mondays to fridays
+```
+
+while general, daily or weekly sliding averages are returned as DataFrames with datetime (for general averages) or time (for daily and weekly averages) index, and with columns including the corresponding Leq, L10, L50 and L90 values, respectively:
+
+```python
+# sliding average with a window size of 3600s (1 hour) and a step size of 1200s (20 minutes)
+general = average.sliding_average(win=3600, step=1200) 
+
+# daily average from 9pm to 7am
+daily = average.daily(21, 7, win=3600, step=1200)
+
+# weekday average from 2am to 11pm
+weekday = average.weekly(2, 23, 'monday', 'friday', win=3600, step=1200)
+
+# weekend average from 2am to 11pm
+weekend = average.weekly(2, 23, 'saturday', 'sunday', win=3600, step=1200)
+```
+
+these sliding averages can be plotted using level_plot() function:
+
+```python
+sm.utilities.level_plot(general, 'Leq') # Showing general Leq values
+```
+```python
+sm.utilities.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
+```
+```python
+sm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
+```
+```python
+sm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
