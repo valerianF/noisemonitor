@@ -33,7 +33,7 @@ average = sm.SoundMonitor(df)
 
 ### Data analysis and plotting
 
-The hard part is over, now you can just compute the descriptors you want from the SoundMonitor class instance. Individual average descriptors are returned as dictionnaries:
+The hard part is over, now you can just compute the descriptors you want from the SoundMonitor class instance. Individual average descriptors are returned as dictionnaries.
 
 ```python
 leq_am = average.leq(7, 12) # Equivalent level and percentiles between 7am and 12am
@@ -43,7 +43,7 @@ lden_all = average.lden() # Lden overall
 lden_weekdays = average.lden(day1='monday', day2='friday') # Lden from mondays to fridays
 ```
 
-while general, daily or weekly sliding averages are returned as DataFrames with datetime (for general averages) or time (for daily and weekly averages) index, and with columns including the corresponding Leq, L10, L50 and L90 values, respectively:
+General, daily or weekly sliding averages are returned as DataFrames with datetime (for general averages) or time (for daily and weekly averages) index, and with columns including the corresponding Leq, L10, L50 and L90 values, respectively.
 
 ```python
 # sliding average with a window size of 3600s (1 hour) and a step size of 1200s (20 minutes)
@@ -59,7 +59,7 @@ weekday = average.weekly(2, 23, 'monday', 'friday', win=3600, step=1200)
 weekend = average.weekly(2, 23, 'saturday', 'sunday', win=3600, step=1200)
 ```
 
-these sliding averages can be plotted using level_plot() function:
+These sliding averages can be plotted using level_plot function.
 
 ```python
 sm.utilities.level_plot(general, 'Leq') # Showing general Leq values
