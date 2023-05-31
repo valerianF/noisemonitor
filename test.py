@@ -14,7 +14,7 @@ df = load_data([path], datetimeindex=1, valueindex=5, header=0)
 
 # time, mean = sliding_mean(df.iloc[:,0], df.iloc[:,2])
 
-Av = LevelMonitor(df)
+Av = SoundMonitor(df)
 
 mean = Av.daily(23, 7, win=3600, step=1200)
 
