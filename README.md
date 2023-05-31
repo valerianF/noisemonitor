@@ -10,15 +10,23 @@ TBD
 
 ### Read sound level monitor data
 
-A function is included to read data in the form of either .csv, .xls or .xlsx files from a sound level monitor and convert them to such a DataFrame with datetime or pandas TimeStamp index. Multiple files can be read at once, and the resulting data will be concatenated in a single DataFrame. Note that you must indicate the datasheet's indexes corresponding to date, time and captured equivalent sound level. Reading .xls or .xls files with pandas and automatic parsing into datetime values is computationaly expensive and the process can last a few minutes, depending on the input data.
+A function is included to read data in the form of either .csv, .xls, .xlsx or .txt files from a sound level monitor and convert them to such a DataFrame with datetime or pandas TimeStamp index. Multiple files can be read at once, and the resulting data will be concatenated in a single DataFrame. Note that you must indicate the datasheet's indexes corresponding to date, time and captured equivalent sound level. Reading .xls or .xls files with pandas and automatic parsing into datetime values is computationaly expensive and the process can last a few minutes, depending on the input data.
 
 ```python
-import soundmonitor as sm
+import os
 from datetime import datetime
 
-# Load .csv data
-df = sm.utilities.load_data(["test.csv"], datetimeindex=0, valueindex=1)
+import soundmonitor as sm
 
-# Filter out data between specified dates if required
-df = sm.utilities.filter_data(df, datetime(2020,19,05,10,12), datetime(2020,19,06,10,12))
+# Load .xslx data associated with path
+path = os.path.join('tests', 'data', 'test.xlsx')
+df = sm.utilities.load_data([path], datetimeindex=0, valueindex=1)
+
+# Filter out data between or outside specified dates and times if required
+df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
+```
+Once sound level data is parsed into a proper dataframe, you can create a SoundMonitor class instance from it, which will be used for further analyses. 
+
+```python
+average = sm.SoundMonitor(df)
 ```
