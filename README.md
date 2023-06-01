@@ -28,7 +28,7 @@ df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), 
 Once sound level data is parsed into a proper dataframe, you can create a SoundMonitor class instance from it, which will be used for further analyses. 
 
 ```python
-average = sm.SoundMonitor(df)
+average = sm.modules.SoundMonitor(df)
 ```
 
 ### Data analysis and plotting
