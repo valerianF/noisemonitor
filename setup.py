@@ -30,7 +30,6 @@ setup(
     packages=["soundmonitor"],
     install_requires=["matplotlib>=3.7.0", "numpy>=1.21.6", "pandas>=1.3.5"],
     include_package_data=True,
-    license="Apache",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
