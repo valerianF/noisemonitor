@@ -26,5 +26,5 @@ classifiers = [
 "Bug Tracker" = "https://github.com/valerianF/soundmonitor/issues"
 
 [build-system]
-requires = ["setuptools", “wheel”]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
