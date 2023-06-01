@@ -1,6 +1,6 @@
 [project]
 name = "soundmonitor"
-version = "0.0.4"
+version = "0.0.5"
 authors = [
   { name="Valérian Fraisse", email="valerian.fraisse@mail.mcgill.ca" },
 ]
@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.7.0",
     "numpy>=1.21.6",
     "pandas>=1.3.5",
+    "xlrd>=2.0.1",
 ]
 
 classifiers = [

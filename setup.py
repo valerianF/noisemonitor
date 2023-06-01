@@ -7,7 +7,7 @@ URL = "https://github.com/valerianF/soundmonitor"
 EMAIL = "valerian.fraisse@mail.mcgill.ca"
 AUTHOR = "Valérian Fraisse"
 REQUIRES_PYTHON = ">=3.7"
-VERSION = "0.0.4"
+VERSION = "0.0.5"
 
 HERE = Path(__file__).parent
 
@@ -28,7 +28,7 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=["soundmonitor"],
-    install_requires=["matplotlib>=3.7.0", "numpy>=1.21.6", "pandas>=1.3.5"],
+    install_requires=["matplotlib>=3.7.0", "numpy>=1.21.6", "pandas>=1.3.5", "xlrd>=2.0.1"],
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
