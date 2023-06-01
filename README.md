@@ -86,3 +86,10 @@ sm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percenti
 sm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
 <img src="tests/data/example_weekend.png" width=400 />
+
+## Dependencies
+
+- **NumPy** ([http://www.numpy.org/](http://www.numpy.org/))
+- **pandas** ([https://pandas.pydata.org/](https://pandas.pydata.org/))
+- **Matplotlib** ([https://matplotlib.org/](https://matplotlib.org/))
+
