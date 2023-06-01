@@ -1,6 +1,6 @@
 [project]
 name = "soundmonitor"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
   { name="Valérian Fraisse", email="valerian.fraisse@mail.mcgill.ca" },
 ]
@@ -26,5 +26,5 @@ classifiers = [
 "Bug Tracker" = "https://github.com/valerianF/soundmonitor/issues"
 
 [build-system]
-requires = ["setuptools>=58.0"]
+requires = ["setuptools", “wheel”]
 build-backend = "setuptools.build_meta"
