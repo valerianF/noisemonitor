@@ -4,7 +4,15 @@ Python package for sound level monitor (long-term sound level meter) data analys
 
 ## Installation
 
-TBD
+You can install with pip as follows
+```
+pip install soundmonitor
+```
+
+For the latest releases install from the GitHub repo
+```
+pip install git+https://github.com/valerianF/soundmonitor
+```
 
 ## Usage
 
