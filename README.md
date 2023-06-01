@@ -38,11 +38,13 @@ The hard part is over, now you can just compute the descriptors you want from th
 ```python
 # Equivalent level and percentiles between 7am and 12am
 leq_am = average.leq(7, 12) 
+
 # Same between 3pm and 7pm on weekends
 leq_pm_weekends = average.leq(15, 19, day1='saturday', day2='sunday') 
 
 # Lden overall
 lden_all = average.lden() 
+
 # Lden from mondays to fridays
 lden_weekdays = average.lden(day1='monday', day2='friday') 
 ```
