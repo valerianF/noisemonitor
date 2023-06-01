@@ -14,14 +14,12 @@ A function is included to read data in the form of either .csv, .xls, .xlsx or .
 
 ```python
 import os
-import pkg_resources
 from datetime import datetime
 
 import soundmonitor as sm
 
-# Load example .xslx data within the package
-path = pkg_resources.resource_filename('soundmonitor', 'tests/data/test.xlsx')
-df = sm.utilities.load_data([path], datetimeindex=0, valueindex=1)
+# Load example .xslx data within the github repository
+df = sm.utilities.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
 
 # Filter out data between or outside specified dates and times if required
 df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
@@ -29,7 +27,7 @@ df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), 
 Once sound level data is parsed into a proper dataframe, you can create a SoundMonitor class instance from it, which will be used for further analyses. 
 
 ```python
-average = sm.SoundMonitor(df)
+average = sm.modules.SoundMonitor(df)
 ```
 
 ### Data analysis and plotting
