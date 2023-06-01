@@ -19,9 +19,8 @@ from datetime import datetime
 
 import soundmonitor as sm
 
-# Load example .xslx data within the package
-path = pkg_resources.resource_filename('soundmonitor', 'tests/data/test.xlsx')
-df = sm.utilities.load_data([path], datetimeindex=0, valueindex=1)
+# Load example .xslx data within the github repository
+df = sm.utilities.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
 
 # Filter out data between or outside specified dates and times if required
 df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
