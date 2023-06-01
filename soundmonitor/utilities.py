@@ -24,7 +24,7 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         list of absolute or relative pathnames to convert as a sound level
         DataFrame. If more than one pathname is in the list, they will be
         sequentially combined in the same DataFrame. File(s) format can either
-        be .csv, .xls or .xlsx.
+        be .csv, .xls, .xlsx or .txt
     datetimeindex: int
         column index for date and time if combined in a single column. Not to 
         be indicated if date and time are in different columns.
@@ -74,7 +74,7 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
                 temp = pd.read_csv(fp, sep=sep, header=header)
         elif ext == '.xlsx':
             temp = pd.read_excel(fp, engine='openpyxl', header=header)
-        elif ext == '.csv':
+        elif ext in ['.csv', '.txt']:
             temp = pd.read_csv(fp, sep=sep, header=header)
 
 
@@ -144,7 +144,7 @@ def filter_data(df, start_datetime, end_datetime, between=False):
 
 
 
-def level_plot(df, *args, weighting="A", ylim=[0,0]):
+def level_plot(df, *args, weighting="A", **kwargs):
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -157,9 +157,8 @@ def level_plot(df, *args, weighting="A", ylim=[0,0]):
         column name(s) to be plotted.
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
-    ylim: list of int, default [0,0]
-        ylim arguments to be passed to matplotlib. By default no arguments
-        are passed.
+    **kwargs: any
+        ylim argument can be passed to matplotlib. 
     """
     if isinstance(df.index[0], pd.Timestamp):
         x = df.index.to_pydatetime()
@@ -186,8 +185,8 @@ def level_plot(df, *args, weighting="A", ylim=[0,0]):
 
     plt.ylabel(f'Sound Level (dB{weighting})')
 
-    if not all(i == 0 for i in ylim):
-        plt.ylim(ylim)
+    if "ylim" in kwargs:
+        plt.ylim(kwargs["ylim"])
 
     plt.grid(linestyle='--')
     plt.xticks(rotation = 45)
