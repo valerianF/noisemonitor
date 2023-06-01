@@ -14,7 +14,6 @@ A function is included to read data in the form of either .csv, .xls, .xlsx or .
 
 ```python
 import os
-import pkg_resources
 from datetime import datetime
 
 import soundmonitor as sm
