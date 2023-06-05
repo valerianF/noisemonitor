@@ -5,7 +5,7 @@ from datetime import time
 
 from .utilities import *
 
-class SoundMonitor:
+class NoiseMonitor:
     """Compute discrete values and different types of sliding mean averages
     for various kinds of sound level descriptors, including LEQ, L10, L50,
     L90, LDEN, overall or at daily or weekly rates, from sound level monitor

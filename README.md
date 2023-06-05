@@ -6,12 +6,12 @@ Python package for sound level monitor (long-term sound level meter) data analys
 
 You can install with pip as follows
 ```
-pip install soundmonitor
+pip install noisemonitor
 ```
 
 For the latest releases install from the GitHub repo
 ```
-pip install git+https://github.com/valerianF/soundmonitor
+pip install git+https://github.com/valerianF/noisemonitor
 ```
 
 ## Usage
@@ -22,23 +22,23 @@ A function is included to read data in the form of either .csv, .xls, .xlsx or .
 
 ```python
 from datetime import datetime
-import soundmonitor as sm
+import noisemonitor as nm
 
 # Load example .xslx data within the github repository
-df = sm.utilities.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
+df = nm.utilities.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
 
 # Filter out data between or outside specified dates and times if required
-df = sm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
+df = nm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
 ```
-Once sound level data is parsed into a proper dataframe, you can create a SoundMonitor class instance from it, which will be used for further analyses. 
+Once sound level data is parsed into a proper dataframe, you can create a NoiseMonitor class instance from it, which will be used for further analyses. 
 
 ```python
-average = sm.modules.SoundMonitor(df)
+average = nm.modules.NoiseMonitor(df)
 ```
 
 ### Data analysis and plotting
 
-The hard part is over, now you can just compute the descriptors you want from the SoundMonitor class instance. Individual average descriptors are returned as dictionnaries.
+The hard part is over, now you can just compute the descriptors you want from the NoiseMonitor class instance. Individual average descriptors are returned as dictionnaries.
 
 ```python
 # Equivalent level and percentiles between 7am and 12am
@@ -73,22 +73,22 @@ weekend = average.weekly(2, 23, 'saturday', 'sunday', win=3600, step=1200)
 These sliding averages can be plotted using level_plot function.
 
 ```python
-sm.utilities.level_plot(general, 'Leq') # Showing general Leq values
+nm.utilities.level_plot(general, 'Leq') # Showing general Leq values
 ```
 <img src="tests/data/example_general_average.png" width=400 />
 
 ```python
-sm.utilities.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
+nm.utilities.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
 ```
 <img src="tests/data/example_dailynight.png" width=400 />
 
 ```python
-sm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
+nm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
 ```
 <img src="tests/data/example_weekday.png" width=400 />
 
 ```python
-sm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
+nm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
 <img src="tests/data/example_weekend.png" width=400 />
 
