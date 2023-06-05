@@ -1,4 +1,4 @@
-# soundmonitor
+# noisemonitor
 
 Python package for sound level monitor (long-term sound level meter) data analysis. Contains various fonctions to analyze and plot sliding averages, weekly and daily averages for noise descriptors such as the Lden, Leq and statistical indicators such as L10, L50 and L90 (see this [paper](https://hal.science/hal-01373857v3/file/doc00025834.pdf) for more details on these descriptors). The package works with equivalent sound level data (weighted or un-weighted) captured at regular intervals, typically ranging from 1 second to 1 minute.
 
