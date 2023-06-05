@@ -83,7 +83,7 @@ nm.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
 <img src="https://github.com/valerianF/noisemonitor/blob/main/tests/data/example_dailynight.png" width=400 />
 
 ```python
-nm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
+nm.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percentiles values
 ```
 <img src="https://github.com/valerianF/noisemonitor/blob/main/tests/data/example_weekday.png" width=400 />
 
