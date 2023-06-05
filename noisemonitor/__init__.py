@@ -1,4 +1,4 @@
 """Top-level module for soundmonitor"""
 
-from . import modules
-from . import utilities
+from .modules import *
+from .utilities import *

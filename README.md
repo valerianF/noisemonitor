@@ -25,15 +25,15 @@ from datetime import datetime
 import noisemonitor as nm
 
 # Load example .xslx data within the github repository
-df = nm.utilities.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
+df = nm.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
 
 # Filter out data between or outside specified dates and times if required
-df = nm.utilities.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
+df = nm.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)
 ```
 Once sound level data is parsed into a proper dataframe, you can create a NoiseMonitor class instance from it, which will be used for further analyses. 
 
 ```python
-average = nm.modules.NoiseMonitor(df)
+average = nm.NoiseMonitor(df)
 ```
 
 ### Data analysis and plotting
@@ -73,12 +73,12 @@ weekend = average.weekly(2, 23, 'saturday', 'sunday', win=3600, step=1200)
 These sliding averages can be plotted using level_plot function.
 
 ```python
-nm.utilities.level_plot(general, 'Leq') # Showing general Leq values
+nm.level_plot(general, 'Leq') # Showing general Leq values
 ```
 <img src="tests/data/example_general_average.png" width=400 />
 
 ```python
-nm.utilities.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
+nm.level_plot(daily, 'Leq', 'L10', 'L50', 'L90') # Showing daily night values
 ```
 <img src="tests/data/example_dailynight.png" width=400 />
 
@@ -88,7 +88,7 @@ nm.utilities.level_plot(weekday, 'L10', 'L50', 'L90') # Showing weekday percenti
 <img src="tests/data/example_weekday.png" width=400 />
 
 ```python
-nm.utilities.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
+nm.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
 <img src="tests/data/example_weekend.png" width=400 />
 
