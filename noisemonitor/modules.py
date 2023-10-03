@@ -276,7 +276,12 @@ class NoiseMonitor:
         specific days of the week.
 
         Parameters
-        ---------- 
+        ----------
+        hour1: int, between 0 and 24
+            hour for the starting time of the daily average.
+        hour2: int, between 0 and 24
+            hour for the ending time of the daily average. If hour2 > hour1 
+            the average will be computed outside of these hours.
         day1 (optional): str, a day of the week in english, case-insensitive
             first day of the week included in the Lden computation.
         day2 (optional): str, a day of the week in english, case-insensitive
@@ -289,8 +294,8 @@ class NoiseMonitor:
 
         Returns
         ---------- 
-        float: daily or weekly lden rounded to two decimals. Daily day,
-            evening and night values are returned if values is set to True.
+        float: daily or weekly equivalent level rounded to two decimals. 
+        Statistical indicators are included if stats is set to True.
 
 
         """
@@ -308,8 +313,17 @@ class NoiseMonitor:
         else:
             temp = self.df
 
-        
-        array = temp.between_time(time(hour=hour1), time(hour=hour2)).iloc[:,0]
+        if hour1 == 24:
+            t1 = time(hour=23, minute=59, second=59)
+            t2 = time(hour=hour2)
+        elif hour2 == 24:
+            t1 = time(hour=hour1)
+            t2 = time(hour=23, minute=59, second=59)
+        else:
+            t1 = time(hour=hour1)
+            t2 = time(hour=hour2)
+
+        array = temp.between_time(t1, t2).iloc[:,0]
 
         if stats:
             return {
