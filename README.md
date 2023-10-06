@@ -92,6 +92,16 @@ nm.level_plot(weekend, 'L10', 'L50', 'L90') # Showing weekend percentiles values
 ```
 <img src="https://github.com/valerianF/noisemonitor/blob/main/tests/data/example_weekend.png" width=400 />
 
+## Citation
+
+If you use noisemonitor in your work please consider citing us.
+
+@inproceedings{fraisse2023noisemonitor,
+        title={noisemonitor: A Python Package For Sound Level Monitor Analysis},
+        author={Fraisse, Valérian},
+        booktitle={Acoustics week in Canada},
+        year={2023}}
+
 ## Dependencies
 
 - **NumPy** ([http://www.numpy.org/](http://www.numpy.org/))
