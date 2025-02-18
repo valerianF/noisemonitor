@@ -24,8 +24,8 @@ A function is included to read data in the form of either .csv, .xls, .xlsx or .
 from datetime import datetime
 import noisemonitor as nm
 
-# Load example .xslx data within the github repository
-df = nm.load_data(['tests/data/test.xlsx'], datetimeindex=0, valueindex=1)
+# Load example .xslx data within the github repository (possibility to load a list of paths)
+df = nm.load_data('tests/data/test.xlsx', datetimeindex=0, valueindex=1)
 
 # Filter out data between or outside specified dates and times if required
 df = nm.filter_data(df, datetime(2022,8,10,3), datetime(2022,8,10,4), between=True)

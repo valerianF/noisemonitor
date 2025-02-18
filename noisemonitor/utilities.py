@@ -9,8 +9,8 @@ from datetime import datetime, time
 from dateutil import parser
 from xlrd import XLRDError
 
-def load_data(files, datetimeindex=None, timeindex=None, dateindex=None, 
-    valueindex=1, header=0, sep='\t', type=None, timezone=None):
+def load_data(path, datetimeindex=None, timeindex=None, dateindex=None, 
+    valueindex=1, header=0, sep='\t', slm_type=None, timezone=None):
     """Take one or severall datasheets with date and time indicators
     in combined in one column or across to columns, and sound level measured 
     with a sound level monitor as input and return a DataFrame suitable for 
@@ -20,11 +20,10 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
 
     Parameters
     ---------- 
-    files: list of str
-        list of absolute or relative pathnames to convert as a sound level
-        DataFrame. If more than one pathname is in the list, they will be
-        sequentially combined in the same DataFrame. File(s) format can either
-        be .csv, .xls, .xlsx or .txt
+    path: str or list of str
+        absolute or relative pathname (or list of pathnames) to convert as a 
+        sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx, 
+        or .txt
     datetimeindex: int
         column index for date and time if combined in a single column. Not to 
         be indicated if date and time are in different columns.
@@ -48,7 +47,7 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         no header.
     sep: str, default '\t'
         separator if reading .csv file(s).
-    type: str, default None
+    slm_type: str, default None
         performs specific parsing operation for known sound level monitor
         manufacturers. For now will only respond to 'NoiseSentry' as input, 
         replacing the commas by dots in the sound level data to convert sound
@@ -66,7 +65,10 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
 
     df = pd.DataFrame()
 
-    for fp in files:   
+    if type(path) is not list:
+        path = [path]
+
+    for fp in path:   
         ext = os.path.splitext(fp)[-1].lower()
 
         # Reading datasheet with pandas
@@ -112,7 +114,7 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
                                     temp.columns[valueindex]: 'Leq'})
         temp = temp.set_index('datetime')
 
-        if type == 'NoiseSentry':
+        if slm_type == 'NoiseSentry':
             temp.iloc[:, valueindex-1] = temp.iloc[:, valueindex-1].map(
                 lambda a: locale.atof(a.replace(',', '.'))
             )
