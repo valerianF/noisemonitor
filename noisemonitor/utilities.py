@@ -10,7 +10,7 @@ from dateutil import parser
 from xlrd import XLRDError
 
 def load_data(files, datetimeindex=None, timeindex=None, dateindex=None, 
-    valueindex=1, header=0, sep='\t', type=None):
+    valueindex=1, header=0, sep='\t', type=None, timezone=None):
     """Take one or severall datasheets with date and time indicators
     in combined in one column or across to columns, and sound level measured 
     with a sound level monitor as input and return a DataFrame suitable for 
@@ -53,6 +53,9 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         manufacturers. For now will only respond to 'NoiseSentry' as input, 
         replacing the commas by dots in the sound level data to convert sound
         levels to floats.
+    timezone: str, default None
+        when indicated, will convert the datetime index from the specified 
+        timezone to a timezone unaware format.
 
     Returns
     ---------- 
@@ -100,6 +103,10 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         else:
             raise Exception("You must provide either a datetime index \
                             or time and date indexes.")
+        
+        if timezone is not None:
+            temp['datetime'] = temp['datetime'].dt.tz_convert(timezone).dt.tz_localize(None)
+        
 
         temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime', 
                                     temp.columns[valueindex]: 'Leq'})
@@ -113,6 +120,8 @@ def load_data(files, datetimeindex=None, timeindex=None, dateindex=None,
         temp = temp[[temp.columns[valueindex-1]]]
         temp = temp.dropna()
         df = pd.concat([df, temp])
+
+    df = df.sort_index()
         
     return df
 
