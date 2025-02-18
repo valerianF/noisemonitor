@@ -153,7 +153,7 @@ def filter_data(df, start_datetime, end_datetime, between=False):
 
 
 
-def level_plot(df, *args, weighting="A", **kwargs):
+def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), **kwargs):
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -162,6 +162,10 @@ def level_plot(df, *args, weighting="A", **kwargs):
         a compatible DataFrame (typically generated with functions load_data(),
         LevelMonitor.daily() or LevelMonitor.weekly()),
         with a datetime, time or pd.Timestamp index.
+    step: bool, default False
+        if set to True, will plot the data as a step function.
+    figsize: tuple, default (10,8)
+        figure size in inches.
     *args: str
         column name(s) to be plotted.
     weighting: str, default "A"
@@ -178,12 +182,15 @@ def level_plot(df, *args, weighting="A", **kwargs):
                         time or pd.Timestamp not {type(df.index[0])}')
     
     plt.rcParams.update({'font.size': 16})
-    plt.figure(figsize=(10,8))
+    plt.figure(figsize=figsize)
 
     colors = ["#E51079", "#6344F0", "#5A89FF", "#F3C900"]
 
     for i in range(0, len(args)):
-        plt.plot(x, df.loc[:, args[i]], label=args[i], color=colors[i])
+        if step:
+            plt.step(x, df.loc[:, args[i]], label=args[i], color=colors[i])
+        else:
+            plt.plot(x, df.loc[:, args[i]], label=args[i], color=colors[i])
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         plt.gcf().autofmt_xdate()
