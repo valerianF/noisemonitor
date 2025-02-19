@@ -83,9 +83,9 @@ class NoiseMonitor:
             ))
 
             dailymean[i] = equivalent_level(temp.iloc[:, 0])
-            dailyL10[i] = np.percentile(temp.iloc[:, 0], 90)
-            dailyL50[i] = np.percentile(temp.iloc[:, 0], 50)
-            dailyL90[i] = np.percentile(temp.iloc[:, 0], 10)
+            dailyL10[i] = np.nanpercentile(temp.iloc[:, 0], 90)
+            dailyL50[i] = np.nanpercentile(temp.iloc[:, 0], 50)
+            dailyL90[i] = np.nanpercentile(temp.iloc[:, 0], 10)
             dailytime.append(time(
                 hour=(t//3600)%24, 
                 minute=(t%3600)//60, 
@@ -166,9 +166,6 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
-        # Ensure the index is unique
-        if not self.df.index.is_unique:
-            self.df = self.df[~self.df.index.duplicated(keep='first')]
 
         interval = (self.df.index[2] - self.df.index[1]).seconds
         
@@ -201,9 +198,14 @@ class NoiseMonitor:
             temp = self.df.iloc[
                 int(start_index + i * step):int(start_index + i * step + win), 0]
             overallmean[i] = equivalent_level(temp)
-            overallL10[i] = np.percentile(temp, 90)
-            overallL50[i] = np.percentile(temp, 50)
-            overallL90[i] = np.percentile(temp, 10)
+            if np.isnan(temp).all():
+                overallL10[i] = np.nan
+                overallL50[i] = np.nan
+                overallL90[i] = np.nan
+            else:
+                overallL10[i] = np.nanpercentile(temp, 90)
+                overallL50[i] = np.nanpercentile(temp, 50)
+                overallL90[i] = np.nanpercentile(temp, 10)
             overalltime.append(self.df.index[int(start_index + i * step + win / 2)])
 
         meandf = pd.DataFrame(
@@ -311,9 +313,9 @@ class NoiseMonitor:
         if stats:
             return {
                 'leq': np.round(equivalent_level(array), 2),
-                'l10': np.round(np.percentile(array, 90), 2),
-                'l50': np.round(np.percentile(array, 50), 2),
-                'l90': np.round(np.percentile(array, 10), 2)
+                'l10': np.round(np.nanpercentile(array, 90), 2),
+                'l50': np.round(np.nanpercentile(array, 50), 2),
+                'l90': np.round(np.nanpercentile(array, 10), 2)
             }
         return {'leq': equivalent_level(array)}
     

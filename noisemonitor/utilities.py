@@ -125,7 +125,16 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
         temp = temp.dropna()
         df = pd.concat([df, temp])
 
+    # Ensure the index is unique and sorted
+    if not df.index.is_unique:
+        df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index()
+
+    # Resample the data to fill gaps based on the interval between rows
+    if len(df) > 2:
+        interval = df.index[2] - df.index[1]
+        resample_freq = f'{interval.total_seconds()}S'
+        df = df.resample(resample_freq).asfreq()
         
     return df
 
