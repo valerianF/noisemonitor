@@ -92,7 +92,8 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
             if not isinstance(temp.iloc[0, datetimeindex], pd.Timestamp):
                 temp.iloc[:, datetimeindex] = temp.iloc[:, datetimeindex].map(
                     lambda a: parser.parse(a))
-                temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime'})
+                temp = temp.rename(
+                    columns={temp.columns[datetimeindex]: 'datetime'})
         elif all(ind is not None for ind in [dateindex, timeindex]): 
             temp.iloc[:, dateindex] = temp.iloc[:, dateindex].map(
                 lambda a: parser.parse(a).date())
@@ -107,7 +108,8 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
                             or time and date indexes.")
         
         if timezone is not None:
-            temp['datetime'] = temp['datetime'].dt.tz_convert(timezone).dt.tz_localize(None)
+            temp['datetime'] = temp['datetime'].dt.tz_convert(
+                timezone).dt.tz_localize(None)
         
 
         temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime', 
@@ -134,6 +136,10 @@ def filter_data(df, start_datetime, end_datetime, between=False):
 
     Parameters
     ---------- 
+    df: DataFrame
+        a compatible DataFrame (typically generated with functions load_data(),
+        NoiseMonitor.daily() or NoiseMonitor.weekly() ),
+        with a datetime, time or pandas.Timestamp index.
     start_datetime: datetime object
         first date from which to filter the data. 
         Must be earlier than end_datetime.
@@ -148,73 +154,128 @@ def filter_data(df, start_datetime, end_datetime, between=False):
     ---------- 
     DataFrame: input dataframe filtered to the specified dates range.
     """
-    
-    if between: 
-        return df.loc[(df.index < start_datetime) | (df.index > end_datetime)]
-    return df.loc[(df.index >= start_datetime) & (df.index <= end_datetime)]
+    try:
+        if between: 
+            return df.loc[(df.index < start_datetime) | (df.index > end_datetime)]
+        return df.loc[(df.index >= start_datetime) & (df.index <= end_datetime)]
+    except TypeError as e:
+        raise TypeError("Invalid comparison. Please check whether a timezone "
+                        "argument should be indicated when creating the "
+                        "NoiseMonitor instance.") from e
 
-
-
-def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), **kwargs):
+def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
+               **kwargs):
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
     ---------- 
     df: DataFrame
         a compatible DataFrame (typically generated with functions load_data(),
-        LevelMonitor.daily() or LevelMonitor.weekly()),
-        with a datetime, time or pd.Timestamp index.
+        NoiseMonitor.daily() or NoiseMonitor.weekly() ),
+        with a datetime, time or pandas.Timestamp index.
     step: bool, default False
         if set to True, will plot the data as a step function.
     figsize: tuple, default (10,8)
         figure size in inches.
+    ax: matplotlib.axes.Axes, default None
+        Axes object to plot on. If None, a new figure and axes are created.
     *args: str
         column name(s) to be plotted.
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
     **kwargs: any
-        ylim argument can be passed to matplotlib. 
+        ylim and title arguments can be passed to matplotlib. 
     """
-    if isinstance(df.index[0], pd.Timestamp):
-        x = df.index.to_pydatetime()
-    elif isinstance(df.index[0], time):
-        x = datetime_index(df)
-    elif not isinstance(df.index[0], datetime):
-        raise TypeError(f'DataFrame index must be of type datetime,\
-                        time or pd.Timestamp not {type(df.index[0])}')
+    x = get_datetime_index(df)
     
-    plt.rcParams.update({'font.size': 16})
-    plt.figure(figsize=figsize)
-
-    colors = ["#E51079", "#6344F0", "#5A89FF", "#F3C900"]
+    if ax is None:
+        plt.rcParams.update({'font.size': 16})
+        fig, ax = plt.subplots(figsize=figsize)
 
     for i in range(0, len(args)):
         if step:
-            plt.step(x, df.loc[:, args[i]], label=args[i], color=colors[i])
+            ax.step(x, df.loc[:, args[i]], label=args[i])
         else:
-            plt.plot(x, df.loc[:, args[i]], label=args[i], color=colors[i])
+            ax.plot(x, df.loc[:, args[i]], label=args[i])
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
-        plt.gcf().autofmt_xdate()
-        plt.xlabel('Date (y-m-d)')
+        ax.figure.autofmt_xdate()
+        ax.set_xlabel('Date (y-m-d)')
     elif isinstance(df.index[0], time):
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        plt.xlabel('Time (h:m)')
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlabel('Time (h:m)')
 
-    plt.ylabel(f'Sound Level (dB{weighting})')
+    ax.set_ylabel(f'Sound Level (dB{weighting})')
 
     if "ylim" in kwargs:
-        plt.ylim(kwargs["ylim"])
+        ax.set_ylim(kwargs["ylim"])
+    if "title" in kwargs:
+        ax.set_title(kwargs["title"])
 
-    plt.grid(linestyle='--')
-    plt.xticks(rotation = 45)
-    plt.legend()
+    ax.grid(linestyle='--')
+    ax.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    return ax
+
+def compare_plots(dfs, labels, *args, weighting="A", step=False, 
+                  figsize=(10,8), fill_between=None, **kwargs):
+    """Compare multiple DataFrames by plotting their columns in the same plot.
+
+    Parameters
+    ---------- 
+    dfs: list of DataFrames
+        list of compatible DataFrames (typically generated with functions 
+        load_data(), NoiseMonitor.daily() or NoiseMonitor.weekly() ),
+        with a datetime, time or pandas.Timestamp index.
+    labels: list of str
+        list of labels for each DataFrame.
+    step: bool, default False
+        if set to True, will plot the data as a step function.
+    figsize: tuple, default (10,8)
+        figure size in inches.
+    fill_between: list of tuples, default None
+        list of tuples specifying the columns to use for filling in-between
+        values. Each tuple should contain three column names: (lower_bound, 
+        upper_bound, column_to_plot).
+    *args: str
+        column name(s) to be plotted.
+    weighting: str, default "A"
+        type of sound level data, typically A, C or Z. 
+    **kwargs: any
+        ylim and title arguments can be passed to matplotlib. 
+    """
+    plt.rcParams.update({'font.size': 16})
+    fig, ax = plt.subplots(figsize=figsize)
+
+    for df, label in zip(dfs, labels):
+        for arg in args:
+            ax = level_plot(df, arg, weighting=weighting, step=step,
+                            figsize=figsize, ax=ax, **kwargs)
+            ax.lines[-1].set_label(f"{label} - {arg}")
+
+        if fill_between:
+            for lower, upper, column in fill_between:
+                if lower in df.columns and upper in df.columns and column in \
+                df.columns:
+                    x = get_datetime_index(df)
+                    ax.fill_between(x, df[lower], df[upper], alpha=0.15,
+                                    label=f"{label} - {lower} to {upper}")
+
+    ax.legend()
+    plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
     return
 
-def datetime_index(df):
-    """Converts time index from dataframe to datetime array for plotting."""
+def convert_datetime_index(df):
+    """Converts time index from dataframe to datetime array for plotting.
+
+    Parameters
+    ----------
+    df: DataFrame
+        DataFrame with a datetime, time, or pandas.Timestamp index.
+    """
 
     if df.index[-1] < df.index[0]:
         x1 = df.iloc[(df.index >= df.index[0])].index.map(
@@ -226,7 +287,28 @@ def datetime_index(df):
     else:
         x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
     
-    return x.to_pydatetime() 
+    return x.to_pydatetime()
+
+def get_datetime_index(df):
+    """Get the datetime index for plotting.
+
+    Parameters
+    ----------
+    df: DataFrame
+        DataFrame with a datetime, time, or pandas.Timestamp index.
+
+    Returns
+    ----------
+    x: array-like
+        Array of datetime objects for plotting.
+    """
+    if isinstance(df.index[0], pd.Timestamp):
+        return df.index.to_pydatetime()
+    elif isinstance(df.index[0], time):
+        return convert_datetime_index(df)
+    elif not isinstance(df.index[0], datetime):
+        raise TypeError(f'DataFrame index must be of type datetime, \
+                        time or pd.Timestamp not {type(df.index[0])}')
 
 
 

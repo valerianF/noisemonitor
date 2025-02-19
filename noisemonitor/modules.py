@@ -153,10 +153,10 @@ class NoiseMonitor:
         Parameters
         ---------- 
         win: int, default 3600
-            window size for the averaging function, in seconds.
+            window size (in seconds) for the averaging function.
         step: int, default 0
-            step size to compute a sliding average. If set to 0 (default value),
-            the function will compute non-sliding averages.
+            step size (in seconds) to compute a sliding average. If set to 0
+            (default value), the function will compute non-sliding averages.
 
         Returns
         ---------- 
@@ -164,7 +164,7 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
-        interval = (self.df.index[1] - self.df.index[0]).seconds
+        interval = (self.df.index[2] - self.df.index[1]).seconds
         
         step = step // interval
         win = win // interval
