@@ -173,7 +173,7 @@ def filter_data(df, start_datetime, end_datetime, between=False):
                         "NoiseMonitor instance.") from e
 
 def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
-               **kwargs):
+               fill_between=None, **kwargs):
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -188,6 +188,10 @@ def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
         figure size in inches.
     ax: matplotlib.axes.Axes, default None
         Axes object to plot on. If None, a new figure and axes are created.
+    fill_between: list of tuples, default None
+        list of tuples specifying the columns to use for filling in-between
+        values. Each tuple should contain three column names: (lower_bound, 
+        upper_bound, column_to_plot).
     *args: str
         column name(s) to be plotted.
     weighting: str, default "A"
@@ -206,6 +210,12 @@ def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
             ax.step(x, df.loc[:, args[i]], label=args[i])
         else:
             ax.plot(x, df.loc[:, args[i]], label=args[i])
+
+    if fill_between:
+        for lower, upper, column in fill_between:
+            if lower in df.columns and upper in df.columns and column in df.columns:
+                ax.fill_between(x, df[lower], df[upper], alpha=0.15,
+                                label=f"{column} - {lower} to {upper}")
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         ax.figure.autofmt_xdate()
@@ -260,16 +270,9 @@ def compare_plots(dfs, labels, *args, weighting="A", step=False,
     for df, label in zip(dfs, labels):
         for arg in args:
             ax = level_plot(df, arg, weighting=weighting, step=step,
-                            figsize=figsize, ax=ax, **kwargs)
+                            figsize=figsize, ax=ax, fill_between=fill_between,
+                            **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
-
-        if fill_between:
-            for lower, upper, column in fill_between:
-                if lower in df.columns and upper in df.columns and column in \
-                df.columns:
-                    x = get_datetime_index(df)
-                    ax.fill_between(x, df[lower], df[upper], alpha=0.15,
-                                    label=f"{label} - {lower} to {upper}")
 
     ax.legend()
     plt.xticks(rotation=45)
