@@ -21,12 +21,14 @@ class NoiseMonitor:
     def __init__(self, df):
         self.df = df
 
-    def daily(self, hour1, hour2, *args, win=3600, step=0):
+    def daily(self, column, hour1, hour2, *args, win=3600, step=0):
         """Compute daily, sliding average of the sound level, in terms of
         equivalent level (Leq), and percentiles (L10, L50 and L90).
 
         Parameters
         ---------- 
+        column: str
+            column name to use for calculations.
         hour1: int, between 0 and 23
             hour for the starting time of the daily average.
         hour2: int, between 0 and 23
@@ -82,10 +84,10 @@ class NoiseMonitor:
                     second=(t2%3600)%60
             ))
 
-            dailymean[i] = equivalent_level(temp.iloc[:, 0])
-            dailyL10[i] = np.nanpercentile(temp.iloc[:, 0], 90)
-            dailyL50[i] = np.nanpercentile(temp.iloc[:, 0], 50)
-            dailyL90[i] = np.nanpercentile(temp.iloc[:, 0], 10)
+            dailymean[i] = equivalent_level(temp.iloc[:][column])
+            dailyL10[i] = np.nanpercentile(temp.iloc[:][column], 90)
+            dailyL50[i] = np.nanpercentile(temp.iloc[:][column], 50)
+            dailyL90[i] = np.nanpercentile(temp.iloc[:][column], 10)
             dailytime.append(time(
                 hour=(t//3600)%24, 
                 minute=(t%3600)//60, 
@@ -103,13 +105,15 @@ class NoiseMonitor:
 
         return dailymeandf
     
-    def weekly(self, hour1, hour2, day1, day2, win=3600, step=0):
+    def weekly(self, column, hour1, hour2, day1, day2, win=3600, step=0):
         """Compute weekly, sliding average of the sound level, in terms of
         equivalent level (Leq), and percentiles (L10, L50 and L90). In other
         terms, computes daily averages at specific days of the week.
 
         Parameters
         ---------- 
+        column: str
+            column name to use for calculations.
         hour1: int, between 0 and 23
             hour for the starting time of the daily average.
         hour2: int, between 0 and 23
@@ -142,16 +146,20 @@ class NoiseMonitor:
             temp = self.df.loc[(self.df.index.dayofweek >= d1) 
                                 | (self.df.index.dayofweek <= d2)]
 
-        weeklymeandf = self.daily(hour1, hour2, temp, win=win, step=step)
+        weeklymeandf = self.daily(column, hour1, hour2, temp, win=win, 
+                                  step=step)
             
         return weeklymeandf
     
-    def sliding_average(self, win=3600, step=0, start_at_midnight=False):
+    def sliding_average(self, column, win=3600, step=0, 
+                        start_at_midnight=False):
         """Sliding average of the entire sound level array, in terms of
         equivalent level (LEQ), and percentiles (L10, L50 and L90).
 
         Parameters
         ---------- 
+        column: str
+            column name to use for calculations.
         win: int, default 3600
             window size (in seconds) for the averaging function.
         step: int, default 0
@@ -196,7 +204,8 @@ class NoiseMonitor:
 
         for i in range(0, NLim):
             temp = self.df.iloc[
-                int(start_index + i * step):int(start_index + i * step + win), 0]
+                int(start_index + i * step):int(start_index + i * step + win)
+                ][column]
             overallmean[i] = equivalent_level(temp)
             if np.isnan(temp).all():
                 overallL10[i] = np.nan
@@ -219,7 +228,7 @@ class NoiseMonitor:
 
         return meandf
     
-    def lden(self, day1=None, day2=None, values=True):
+    def lden(self, column, day1=None, day2=None, values=True):
         """Return the Lden, a descriptor of noise level based on Leq over
         a whole day with a penalty for evening (19h-23h) and night (23h-7h)
         time noise. By default, an average Lden is computed that is 
@@ -227,7 +236,9 @@ class NoiseMonitor:
         corresponding to specific days of the week.
 
         Parameters
-        ---------- 
+        ----------
+        column: str
+            column name to use for calculations. Should contain LAeq values.
         day1 (optional): str, a day of the week in english, case-insensitive
             first day of the week included in the Lden computation.
         day2 (optional): str, a day of the week in english, case-insensitive
@@ -255,15 +266,17 @@ class NoiseMonitor:
         else:
             temp = self.df
 
-        return compute_lden(temp, values=values)
+        return compute_lden(temp, column, values=values)
     
-    def leq(self, hour1, hour2, day1=None, day2=None, stats=True):
+    def leq(self, column, hour1, hour2, day1=None, day2=None, stats=True):
         """Return the equivalent level (and optionally statistical indicators)
         between two hours of the day. Can return a value corresponding to 
         specific days of the week.
 
         Parameters
         ----------
+        column: str
+            column name to use for calculations.
         hour1: int, between 0 and 24
             hour for the starting time of the daily average.
         hour2: int, between 0 and 24
@@ -308,7 +321,7 @@ class NoiseMonitor:
             t1 = time(hour=hour1)
             t2 = time(hour=hour2)
 
-        array = temp.between_time(t1, t2).iloc[:,0]
+        array = temp.between_time(t1, t2).iloc[:][column]
 
         if stats:
             return {
@@ -319,15 +332,17 @@ class NoiseMonitor:
             }
         return {'leq': equivalent_level(array)}
     
-    def daily_weekly_indicators(self, freq='D', values=False):
+    def daily_weekly_indicators(self, column, freq='D', values=False):
         """Compute Leq,24h and Lden on a daily or weekly basis.
 
         Parameters
         ----------
+        column: str
+            Column name to use for calculations.
         freq: str, default 'D'
-            Frequency for the computation. 'D' for daily and 'W' for weekly.
+            frequency for the computation. 'D' for daily and 'W' for weekly.
         values: bool, default False
-            If set to True, the function will return individual day, evening
+            if set to True, the function will return individual day, evening
             and night values in addition to the lden.
 
         Returns
@@ -346,8 +361,8 @@ class NoiseMonitor:
 
         for period, group in resampled:
             if len(group) > 0:
-                leq_value = equivalent_level(group.iloc[:, 0])
-                lden_values = compute_lden(group, values=values)
+                leq_value = equivalent_level(group[column])
+                lden_values = compute_lden(group, column, values=values)
                 result = {
                     'Period': period,
                     'Leq': leq_value,
@@ -383,13 +398,15 @@ def week_indexes(day1, day2):
     d2 = week.index(day2)
     return d1, d2
 
-def compute_lden(df, values=False):
+def compute_lden(df, column, values=False):
     """Compute the Lden value for a given DataFrame.
 
     Parameters
     ----------
     df: DataFrame
         DataFrame with a datetime index and sound level values.
+    column: str
+        column name to use for calculations. Should contain LAeq values.
     values: bool, default False
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
@@ -400,15 +417,15 @@ def compute_lden(df, values=False):
     """
     lday = equivalent_level(df.between_time(
         time(hour=7), 
-        time(hour=19)).iloc[:, 0]
+        time(hour=19)).iloc[:][column]
         )
     levening = equivalent_level(df.between_time(
         time(hour=19), 
-        time(hour=23)).iloc[:, 0]
+        time(hour=23)).iloc[:][column]
         )
     lnight = equivalent_level(df.between_time(
         time(hour=23), 
-        time(hour=7)).iloc[:, 0]
+        time(hour=7)).iloc[:][column]
         )
 
     lden = 10 * np.log10(

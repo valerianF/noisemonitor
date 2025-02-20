@@ -10,9 +10,9 @@ from dateutil import parser
 from xlrd import XLRDError
 
 def load_data(path, datetimeindex=None, timeindex=None, dateindex=None, 
-    valueindex=1, header=0, sep='\t', slm_type=None, timezone=None):
-    """Take one or severall datasheets with date and time indicators
-    in combined in one column or across to columns, and sound level measured 
+    valueindices=1, header=0, sep='\t', slm_type=None, timezone=None):
+    """Take one or several datasheets with date and time indicators
+    in combined in one column or across two columns, and sound level measured 
     with a sound level monitor as input and return a DataFrame suitable for 
     sound level averaging and descriptors computation provided in
     the LevelMonitor class. Date and time are automatically parsed with 
@@ -35,13 +35,14 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
         column index for date. Not to be indicated if date and time are
         combined in a single column. Must be entered conjointly 
         with timeindex.
-    valueindex: int, default 1
-        column index for sound level values to which averages are to be
-        computed. The column should contain equivalent sound levels (Leq),
-        weighted or unweighted and integrated over a period corresponding to
-        the refresh rate of the sound level meter (typically between 1 second
-        and one minute, though the module will work with higher or smaller 
-        refresh rates).
+    valueindices: int or list of int, default 1.
+        column index or list of column indices for sound level values to which 
+        averages are to be computed. The columns should contain sound levels 
+        values, either weighted or unweighted and integrated over a period 
+        corresponding to the refresh rate of the sound level meter (typically 
+        between 1 second and several minutes, though the module will work with
+        higher or smaller refresh rates). Example of relevant indices: LAeq, 
+        LCeq, LZeq, LAmax, LAmin, LCpeak, etc.
     header: int, None, default 0
         row index for datasheet header. If None, the datasheet has 
         no header.
@@ -67,6 +68,8 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
 
     if type(path) is not list:
         path = [path]
+    if type(valueindices) is not list:
+        valueindices = [valueindices]
 
     for fp in path:   
         ext = os.path.splitext(fp)[-1].lower()
@@ -111,17 +114,16 @@ def load_data(path, datetimeindex=None, timeindex=None, dateindex=None,
             temp['datetime'] = temp['datetime'].dt.tz_convert(
                 timezone).dt.tz_localize(None)
         
-
-        temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime', 
-                                    temp.columns[valueindex]: 'Leq'})
+        temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime'})
         temp = temp.set_index('datetime')
 
-        if slm_type == 'NoiseSentry':
-            temp.iloc[:, valueindex-1] = temp.iloc[:, valueindex-1].map(
-                lambda a: locale.atof(a.replace(',', '.'))
-            )
+        for valueindex in valueindices:
+            if slm_type == 'NoiseSentry':
+                temp.iloc[:, valueindex-1] = temp.iloc[:, valueindex-1].map(
+                    lambda a: locale.atof(a.replace(',', '.'))
+                )
 
-        temp = temp[[temp.columns[valueindex-1]]]
+        temp = temp.iloc[:, [i-1 for i in valueindices]]
         temp = temp.dropna()
         df = pd.concat([df, temp])
 
