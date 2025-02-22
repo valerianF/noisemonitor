@@ -105,128 +105,53 @@ class NoiseMonitor:
 
         return dailymeandf
     
-    def weekly(self, column, hour1, hour2, day1, day2, win=3600, step=0):
-        """Compute weekly, sliding average of the sound level, in terms of
-        equivalent level (Leq), and percentiles (L10, L50 and L90). In other
-        terms, computes daily averages at specific days of the week.
-
-        Parameters
-        ---------- 
-        column: str
-            column name to use for calculations.
-        hour1: int, between 0 and 23
-            hour for the starting time of the daily average.
-        hour2: int, between 0 and 23
-            hour for the ending time of the daily average. Included in the 
-            computation. If hour2 > hour1 the average will be computed outside of
-            these hours.
-        day1: str, a day of the week in english, case-insensitive
-            first day of the week included in the weekly average.
-        day2: str, a day of the week in english, case-insensitive
-            last (included) day of the week in the weekly average. If day2 
-            happens later in the week than day1 the average will be computed 
-            outside of these days.
-        win: int, default 3600
-            window size for the averaging function, in seconds.
-        step: int, default 0
-            step size to compute a sliding average. If set to 0 (default value),
-            the function will compute non-sliding averages.
-
-        Returns
-        ---------- 
-        DataFrame: dataframe containing time index and weekly averaged
-            Leq, L10, L50 and L90 at the corresponding columns
-
-        """
-        d1, d2 = week_indexes(day1, day2)
-        if d1 <= d2:
-            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                & (self.df.index.dayofweek <= d2)]
-        else:
-            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                | (self.df.index.dayofweek <= d2)]
-
-        weeklymeandf = self.daily(column, hour1, hour2, temp, win=win, 
-                                  step=step)
-            
-        return weeklymeandf
     
-    def sliding_average(self, column, win=3600, step=0, 
-                        start_at_midnight=False):
-        """Sliding average of the entire sound level array, in terms of
-        equivalent level (LEQ), and percentiles (L10, L50 and L90).
+    def daily_weekly_indicators(self, column, freq='D', values=False):
+        """Compute Leq,24h and Lden on a daily or weekly basis.
 
         Parameters
-        ---------- 
+        ----------
         column: str
-            column name to use for calculations.
-        win: int, default 3600
-            window size (in seconds) for the averaging function.
-        step: int, default 0
-            step size (in seconds) to compute a sliding average. If set to 0
-            (default value), the function will compute non-sliding averages.
-        start_at_midnight: bool, default False
-            if set to True, the computation will start at midnight.
+            Column name to use for calculations.
+        freq: str, default 'D'
+            frequency for the computation. 'D' for daily and 'W' for weekly.
+        values: bool, default False
+            if set to True, the function will return individual day, evening
+            and night values in addition to the lden.
 
         Returns
-        ---------- 
-        DataFrame: dataframe containing datetime index and averaged
-            Leq, L10, L50 and L90 at the corresponding columns
-
+        ----------
+        DataFrame: DataFrame with Leq and Lden values for each day or week.
         """
-
-        interval = (self.df.index[2] - self.df.index[1]).seconds
         
-        step = step // interval
-        win = win // interval
+        results = []
 
-        N = len(self.df)
-
-        if step == 0:
-            step = win
-
-        if start_at_midnight:
-            # Align the start time to the nearest midnight
-            start_time = self.df.index[0].replace(hour=0, minute=0, second=0, microsecond=0)
-            if self.df.index[0] > start_time:
-                start_time += pd.Timedelta(days=1)
-            start_index = self.df.index.get_indexer([start_time], method='nearest')[0]
+        if freq == 'D':
+            resampled = self.df.resample('D')
+        elif freq == 'W':
+            resampled = self.df.resample('W-MON')
         else:
-            start_index = 0
+            raise ValueError("Invalid frequency. Use 'D' for daily or 'W' for weekly.")
 
-        NLim = max((N - start_index - win) // step + 1, 1)
+        for period, group in resampled:
+            if len(group) > 0:
+                leq_value = equivalent_level(group[column])
+                lden_values = compute_lden(group, column, values=values)
+                result = {
+                    'Period': period,
+                    'Leq': leq_value,
+                    'Lden': lden_values['lden']
+                }
+                if values:
+                    result.update({
+                        'Lday': lden_values['lday'],
+                        'Levening': lden_values['levening'],
+                        'Lnight': lden_values['lnight']
+                    })
+                results.append(result)
 
-        overallmean = np.zeros(NLim) 
-        overallL10 = np.zeros(NLim) 
-        overallL50 = np.zeros(NLim)
-        overallL90 = np.zeros(NLim)
-        overalltime = []
-
-        for i in range(0, NLim):
-            temp = self.df.iloc[
-                int(start_index + i * step):int(start_index + i * step + win)
-                ][column]
-            overallmean[i] = equivalent_level(temp)
-            if np.isnan(temp).all():
-                overallL10[i] = np.nan
-                overallL50[i] = np.nan
-                overallL90[i] = np.nan
-            else:
-                overallL10[i] = np.nanpercentile(temp, 90)
-                overallL50[i] = np.nanpercentile(temp, 50)
-                overallL90[i] = np.nanpercentile(temp, 10)
-            overalltime.append(self.df.index[int(start_index + i * step + win / 2)])
-
-        meandf = pd.DataFrame(
-            index=overalltime, 
-            data={
-                'Leq': overallmean, 
-                'L10': overallL10,
-                'L50': overallL50,
-                'L90': overallL90
-            })
-
-        return meandf
+        result_df = pd.DataFrame(results).set_index('Period')
+        return result_df
     
     def lden(self, column, day1=None, day2=None, values=True):
         """Return the Lden, a descriptor of noise level based on Leq over
@@ -332,72 +257,131 @@ class NoiseMonitor:
             }
         return {'leq': equivalent_level(array)}
     
-    def daily_weekly_indicators(self, column, freq='D', values=False):
-        """Compute Leq,24h and Lden on a daily or weekly basis.
+    def sliding_average(self, column, win=3600, step=0, 
+                        start_at_midnight=False):
+        """Sliding average of the entire sound level array, in terms of
+        equivalent level (LEQ), and percentiles (L10, L50 and L90).
 
         Parameters
-        ----------
+        ---------- 
         column: str
-            Column name to use for calculations.
-        freq: str, default 'D'
-            frequency for the computation. 'D' for daily and 'W' for weekly.
-        values: bool, default False
-            if set to True, the function will return individual day, evening
-            and night values in addition to the lden.
+            column name to use for calculations.
+        win: int, default 3600
+            window size (in seconds) for the averaging function. For averages
+            at a daily or weekly window, we recommend using the
+            daily_weekly_indicators function instead.
+        step: int, default 0
+            step size (in seconds) to compute a sliding average. If set to 0
+            (default value), the function will compute non-sliding averages.
+        start_at_midnight: bool, default False
+            if set to True, the computation will start at midnight.
 
         Returns
-        ----------
-        DataFrame: DataFrame with Leq and Lden values for each day or week.
+        ---------- 
+        DataFrame: dataframe containing datetime index and averaged
+            Leq, L10, L50 and L90 at the corresponding columns
+
         """
+
+        interval = (self.df.index[2] - self.df.index[1]).seconds
         
-        results = []
+        step = step // interval
+        win = win // interval
 
-        if freq == 'D':
-            resampled = self.df.resample('D')
-        elif freq == 'W':
-            resampled = self.df.resample('W-MON')
+        N = len(self.df)
+
+        if step == 0:
+            step = win
+
+        if start_at_midnight:
+            # Align the start time to the nearest midnight
+            start_time = self.df.index[0].replace(hour=0, minute=0, second=0, microsecond=0)
+            if self.df.index[0] > start_time:
+                start_time += pd.Timedelta(days=1)
+            start_index = self.df.index.get_indexer([start_time], method='nearest')[0]
         else:
-            raise ValueError("Invalid frequency. Use 'D' for daily or 'W' for weekly.")
+            start_index = 0
 
-        for period, group in resampled:
-            if len(group) > 0:
-                leq_value = equivalent_level(group[column])
-                lden_values = compute_lden(group, column, values=values)
-                result = {
-                    'Period': period,
-                    'Leq': leq_value,
-                    'Lden': lden_values['lden']
-                }
-                if values:
-                    result.update({
-                        'Lday': lden_values['lday'],
-                        'Levening': lden_values['levening'],
-                        'Lnight': lden_values['lnight']
-                    })
-                results.append(result)
+        NLim = max((N - start_index - win) // step + 1, 1)
 
-        result_df = pd.DataFrame(results).set_index('Period')
-        return result_df
+        overallmean = np.zeros(NLim) 
+        overallL10 = np.zeros(NLim) 
+        overallL50 = np.zeros(NLim)
+        overallL90 = np.zeros(NLim)
+        overalltime = []
+
+        for i in range(0, NLim):
+            temp = self.df.iloc[
+                int(start_index + i * step):int(start_index + i * step + win)
+                ][column]
+            overallmean[i] = equivalent_level(temp)
+            if np.isnan(temp).all():
+                overallL10[i] = np.nan
+                overallL50[i] = np.nan
+                overallL90[i] = np.nan
+            else:
+                overallL10[i] = np.nanpercentile(temp, 90)
+                overallL50[i] = np.nanpercentile(temp, 50)
+                overallL90[i] = np.nanpercentile(temp, 10)
+            overalltime.append(self.df.index[int(start_index + i * step + win / 2)])
+
+        meandf = pd.DataFrame(
+            index=overalltime, 
+            data={
+                'Leq': overallmean, 
+                'L10': overallL10,
+                'L50': overallL50,
+                'L90': overallL90
+            })
+
+        return meandf
     
-def equivalent_level(array):
-    """Compute the equivalent sound level from the input array."""
-    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
+    def weekly(self, column, hour1, hour2, day1, day2, win=3600, step=0):
+        """Compute weekly, sliding average of the sound level, in terms of
+        equivalent level (Leq), and percentiles (L10, L50 and L90). In other
+        terms, computes daily averages at specific days of the week.
 
-def week_indexes(day1, day2):
-    """Return datetime compatible weekday indexes from weekday strings."""
-    week = [
-        'monday', 'tuesday', 'wednesday', 'thursday', 
-        'friday', 'saturday', 'sunday'
-        ]            
-    day1 = day1.lower()
-    day2 = day2.lower()
+        Parameters
+        ---------- 
+        column: str
+            column name to use for calculations.
+        hour1: int, between 0 and 23
+            hour for the starting time of the daily average.
+        hour2: int, between 0 and 23
+            hour for the ending time of the daily average. Included in the 
+            computation. If hour2 > hour1 the average will be computed outside of
+            these hours.
+        day1: str, a day of the week in english, case-insensitive
+            first day of the week included in the weekly average.
+        day2: str, a day of the week in english, case-insensitive
+            last (included) day of the week in the weekly average. If day2 
+            happens later in the week than day1 the average will be computed 
+            outside of these days.
+        win: int, default 3600
+            window size for the averaging function, in seconds.
+        step: int, default 0
+            step size to compute a sliding average. If set to 0 (default value),
+            the function will compute non-sliding averages.
+
+        Returns
+        ---------- 
+        DataFrame: dataframe containing time index and weekly averaged
+            Leq, L10, L50 and L90 at the corresponding columns
+
+        """
+        d1, d2 = week_indexes(day1, day2)
+        if d1 <= d2:
+            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                & (self.df.index.dayofweek <= d2)]
+        else:
+            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
+                                | (self.df.index.dayofweek <= d2)]
+
+        weeklymeandf = self.daily(column, hour1, hour2, temp, win=win, 
+                                  step=step)
+            
+        return weeklymeandf
     
-    if any(d not in week for d in [day1, day2]):
-        raise ValueError("Arguments day1 and day2 must be a day of the week.")
-    d1 = week.index(day1)
-    d2 = week.index(day2)
-    return d1, d2
-
 def compute_lden(df, column, values=False):
     """Compute the Lden value for a given DataFrame.
 
@@ -443,3 +427,22 @@ def compute_lden(df, column, values=False):
             'lnight': np.round(lnight, 2)
         }
     return {'lden': lden}
+    
+def equivalent_level(array):
+    """Compute the equivalent sound level from the input array."""
+    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
+
+def week_indexes(day1, day2):
+    """Return datetime compatible weekday indexes from weekday strings."""
+    week = [
+        'monday', 'tuesday', 'wednesday', 'thursday', 
+        'friday', 'saturday', 'sunday'
+        ]            
+    day1 = day1.lower()
+    day2 = day2.lower()
+    
+    if any(d not in week for d in [day1, day2]):
+        raise ValueError("Arguments day1 and day2 must be a day of the week.")
+    d1 = week.index(day1)
+    d2 = week.index(day2)
+    return d1, d2
