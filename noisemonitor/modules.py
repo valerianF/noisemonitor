@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
+import warnings
 
 from datetime import time
+from typing import Optional
 
 from .utilities import *
 
@@ -18,10 +20,18 @@ class NoiseMonitor:
         with a datetime, time or pd.Timestamp index and corresponding sound 
         level values in the first column.
     """
-    def __init__(self, df):
+    def __init__(self, df: pd.DataFrame):
         self.df = df
 
-    def daily(self, column, hour1, hour2, *args, win=3600, step=0):
+    def daily(
+        self, 
+        column: str, 
+        hour1: int, 
+        hour2: int, 
+        *args: Optional[pd.DataFrame], 
+        win: int=3600, 
+        step: int=0
+    ) -> pd.DataFrame:
         """Compute daily, sliding average of the sound level, in terms of
         equivalent level (Leq), and percentiles (L10, L50 and L90).
 
@@ -106,7 +116,12 @@ class NoiseMonitor:
         return dailymeandf
     
     
-    def daily_weekly_indicators(self, column, freq='D', values=False):
+    def daily_weekly_indicators(
+        self, 
+        column: str, 
+        freq: str='D', 
+        values: bool=False
+    ) -> pd.DataFrame:
         """Compute Leq,24h and Lden on a daily or weekly basis.
 
         Parameters
@@ -123,7 +138,8 @@ class NoiseMonitor:
         ----------
         DataFrame: DataFrame with Leq and Lden values for each day or week.
         """
-        
+        self.validate_column(column)
+
         results = []
 
         if freq == 'D':
@@ -140,20 +156,26 @@ class NoiseMonitor:
                 result = {
                     'Period': period,
                     'Leq': leq_value,
-                    'Lden': lden_values['lden']
+                    'Lden': lden_values['lden'][0]
                 }
                 if values:
                     result.update({
-                        'Lday': lden_values['lday'],
-                        'Levening': lden_values['levening'],
-                        'Lnight': lden_values['lnight']
+                        'Lday': lden_values['lday'][0],
+                        'Levening': lden_values['levening'][0],
+                        'Lnight': lden_values['lnight'][0]
                     })
                 results.append(result)
 
         result_df = pd.DataFrame(results).set_index('Period')
         return result_df
     
-    def lden(self, column, day1=None, day2=None, values=True):
+    def lden(
+        self, 
+        column: str, 
+        day1: Optional[str] = None, 
+        day2: Optional[str] = None, 
+        values: bool=True
+        ) -> pd.DataFrame:
         """Return the Lden, a descriptor of noise level based on Leq over
         a whole day with a penalty for evening (19h-23h) and night (23h-7h)
         time noise. By default, an average Lden is computed that is 
@@ -179,6 +201,10 @@ class NoiseMonitor:
         dict: daily or weekly lden rounded to two decimals. Associated day,
             evening and night values are returned if values is set to True.
         """
+        self.validate_column(column)
+        if day1 and day2:
+            self.validate_days(day1, day2)
+
         if all(day is not None for day in [day1, day2]):
             d1, d2 = week_indexes(day1, day2)
 
@@ -193,7 +219,15 @@ class NoiseMonitor:
 
         return compute_lden(temp, column, values=values)
     
-    def leq(self, column, hour1, hour2, day1=None, day2=None, stats=True):
+    def leq(
+        self, 
+        column: str, 
+        hour1: int, 
+        hour2: int, 
+        day1: Optional[str] = None, 
+        day2: Optional[str] = None, 
+        stats: bool = True
+        ) -> pd.DataFrame:
         """Return the equivalent level (and optionally statistical indicators)
         between two hours of the day. Can return a value corresponding to 
         specific days of the week.
@@ -222,7 +256,10 @@ class NoiseMonitor:
         float: daily or weekly equivalent level rounded to two decimals. 
         Statistical indicators are included if stats is set to True.
         """
-
+        self.validate_column(column)
+        self.validate_hours(hour1, hour2)
+        if day1 and day2:
+            self.validate_days(day1, day2)
 
         if all(day is not None for day in [day1, day2]):
             d1, d2 = week_indexes(day1, day2)
@@ -249,16 +286,21 @@ class NoiseMonitor:
         array = temp.between_time(t1, t2).iloc[:][column]
 
         if stats:
-            return {
-                'leq': np.round(equivalent_level(array), 2),
-                'l10': np.round(np.nanpercentile(array, 90), 2),
-                'l50': np.round(np.nanpercentile(array, 50), 2),
-                'l90': np.round(np.nanpercentile(array, 10), 2)
-            }
-        return {'leq': equivalent_level(array)}
+            return pd.DataFrame({
+                'leq': [np.round(equivalent_level(array), 2)],
+                'l10': [np.round(np.nanpercentile(array, 90), 2)],
+                'l50': [np.round(np.nanpercentile(array, 50), 2)],
+                'l90': [np.round(np.nanpercentile(array, 10), 2)]
+            })
+        return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
     
-    def sliding_average(self, column, win=3600, step=0, 
-                        start_at_midnight=False):
+    def sliding_average(
+        self, 
+        column: str, 
+        win: int = 3600, 
+        step: int = 0, 
+        start_at_midnight: bool = False
+        ) -> pd.DataFrame:
         """Sliding average of the entire sound level array, in terms of
         equivalent level (LEQ), and percentiles (L10, L50 and L90).
 
@@ -282,6 +324,7 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
+        self.validate_column(column)
 
         interval = (self.df.index[2] - self.df.index[1]).seconds
         
@@ -294,7 +337,6 @@ class NoiseMonitor:
             step = win
 
         if start_at_midnight:
-            # Align the start time to the nearest midnight
             start_time = self.df.index[0].replace(hour=0, minute=0, second=0, microsecond=0)
             if self.df.index[0] > start_time:
                 start_time += pd.Timedelta(days=1)
@@ -309,6 +351,8 @@ class NoiseMonitor:
         overallL50 = np.zeros(NLim)
         overallL90 = np.zeros(NLim)
         overalltime = []
+  
+        nan_warning_issued = False
 
         for i in range(0, NLim):
             temp = self.df.iloc[
@@ -316,6 +360,10 @@ class NoiseMonitor:
                 ][column]
             overallmean[i] = equivalent_level(temp)
             if np.isnan(temp).all():
+                if not nan_warning_issued:
+                    warnings.warn(f"All-NaN slice(s) encountered. "
+                                  "Check for gaps in the data.")
+                    nan_warning_issued = True
                 overallL10[i] = np.nan
                 overallL50[i] = np.nan
                 overallL90[i] = np.nan
@@ -336,7 +384,30 @@ class NoiseMonitor:
 
         return meandf
     
-    def weekly(self, column, hour1, hour2, day1, day2, win=3600, step=0):
+    def validate_days(self, day1: str, day2: str) -> None:
+        week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+                'saturday', 'sunday']
+        if day1.lower() not in week or day2.lower() not in week:
+            raise ValueError("Arguments day1 and day2 must be a day of the week.") 
+    
+    def validate_column(self, column: str) -> None:
+        if column not in self.df.columns:
+            raise ValueError(f"Column '{column}' not found in DataFrame.")
+
+    def validate_hours(self, hour1: int, hour2: int) -> None:
+        if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
+            raise ValueError("Hours must be between 0 and 24.")   
+    
+    def weekly(
+        self, 
+        column: str, 
+        hour1: int, 
+        hour2: int, 
+        day1: str, 
+        day2: str, 
+        win: int = 3600, 
+        step: int = 0
+        ) -> pd.DataFrame:
         """Compute weekly, sliding average of the sound level, in terms of
         equivalent level (Leq), and percentiles (L10, L50 and L90). In other
         terms, computes daily averages at specific days of the week.
@@ -382,7 +453,11 @@ class NoiseMonitor:
             
         return weeklymeandf
     
-def compute_lden(df, column, values=False):
+def compute_lden(
+    df: pd.DataFrame, 
+    column: str, 
+    values: bool = False
+    ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame.
 
     Parameters
@@ -397,20 +472,14 @@ def compute_lden(df, column, values=False):
 
     Returns
     ----------
-    dict: Lden value and optionally day, evening, and night levels.
+    DataFrame: Lden value and optionally day, evening, and night levels.
     """
     lday = equivalent_level(df.between_time(
-        time(hour=7), 
-        time(hour=19)).iloc[:][column]
-        )
+        time(hour=7), time(hour=19))[column])
     levening = equivalent_level(df.between_time(
-        time(hour=19), 
-        time(hour=23)).iloc[:][column]
-        )
+        time(hour=19), time(hour=23))[column])
     lnight = equivalent_level(df.between_time(
-        time(hour=23), 
-        time(hour=7)).iloc[:][column]
-        )
+        time(hour=23), time(hour=7))[column])
 
     lden = 10 * np.log10(
         (
@@ -420,19 +489,24 @@ def compute_lden(df, column, values=False):
         ) / 24)
 
     if values:
-        return {
-            'lden': np.round(lden, 2),
-            'lday': np.round(lday, 2),
-            'levening': np.round(levening, 2),
-            'lnight': np.round(lnight, 2)
-        }
-    return {'lden': lden}
+        return pd.DataFrame({
+            'lden': [np.round(lden, 2)],
+            'lday': [np.round(lday, 2)],
+            'levening': [np.round(levening, 2)],
+            'lnight': [np.round(lnight, 2)]
+        })
+    return pd.DataFrame({'lden': [np.round(lden, 2)]})
     
-def equivalent_level(array):
+def equivalent_level(array: np.array) -> float:
     """Compute the equivalent sound level from the input array."""
+    if len(array) == 0 or np.isnan(array).all():
+        return np.nan
     return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
 
-def week_indexes(day1, day2):
+def week_indexes(
+    day1: str, 
+    day2: str
+    ) -> tuple:
     """Return datetime compatible weekday indexes from weekday strings."""
     week = [
         'monday', 'tuesday', 'wednesday', 'thursday', 
