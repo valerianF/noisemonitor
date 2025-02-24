@@ -318,7 +318,7 @@ class NoiseMonitor:
         if step == 0:
             step = win
         
-        NLim = ((hour2-hour1)%24*3600)//step
+        NLim = ((hour2-hour1)%24*3600)//step - win//step + 1
 
         event_times = []
         daily_event_counts = []
@@ -526,7 +526,7 @@ class NoiseMonitor:
         Returns
         ---------- 
         DataFrame: dataframe containing time index and weekly averaged
-            Leq, L10, L50 and L90 at the corresponding columns
+            Leq, L10, L50 and L90 at the corresponding columns.
 
         """
         temp = filter_by_days(self.df, day1, day2)
