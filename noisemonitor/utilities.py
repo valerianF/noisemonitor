@@ -2,6 +2,7 @@ import os
 import locale
 import pandas as pd
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
@@ -141,8 +142,15 @@ def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
         raise TypeError(f'DataFrame index must be of type datetime, \
                         time or pd.Timestamp not {type(df.index[0])}')
     
-def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
-               fill_between=None, **kwargs):
+def level_plot(
+        df: pd.DataFrame, 
+        *args: str, 
+        ylabel: str = "Sound Level (dBA)", 
+        step: bool = False, 
+        figsize: tuple = (10,8), 
+        ax: matplotlib.axes.Axes = None,
+        fill_between: bool = None, 
+        **kwargs) -> matplotlib.axes.Axes:
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -151,6 +159,10 @@ def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
         a compatible DataFrame (typically generated with functions load_data(),
         NoiseMonitor.daily() or NoiseMonitor.weekly() ),
         with a datetime, time or pandas.Timestamp index.
+    *args: str
+        column name(s) to be plotted.
+    ylabel: str, default "Sound Level (dBA)"
+        label for the y-axis.
     step: bool, default False
         if set to True, will plot the data as a step function.
     figsize: tuple, default (10,8)
@@ -161,8 +173,6 @@ def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
         list of tuples specifying the columns to use for filling in-between
         values. Each tuple should contain three column names: (lower_bound, 
         upper_bound, column_to_plot).
-    *args: str
-        column name(s) to be plotted.
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
     **kwargs: any
@@ -193,7 +203,7 @@ def level_plot(df, *args, weighting="A", step=False, figsize=(10,8), ax=None,
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax.set_xlabel('Time (h:m)')
 
-    ax.set_ylabel(f'Sound Level (dB{weighting})')
+    ax.set_ylabel(ylabel)
 
     if "ylim" in kwargs:
         ax.set_ylim(kwargs["ylim"])

@@ -3,7 +3,7 @@ import numpy as np
 import warnings
 
 from datetime import time
-from typing import Optional
+from typing import Optional, Union
 
 from .utilities import *
 
@@ -94,10 +94,10 @@ class NoiseMonitor:
                     second=(t2%3600)%60
             ))
 
-            dailymean[i] = equivalent_level(temp.iloc[:][column])
-            dailyL10[i] = np.nanpercentile(temp.iloc[:][column], 90)
-            dailyL50[i] = np.nanpercentile(temp.iloc[:][column], 50)
-            dailyL90[i] = np.nanpercentile(temp.iloc[:][column], 10)
+            dailymean[i] = equivalent_level(temp[column])
+            dailyL10[i] = np.nanpercentile(temp[column], 90)
+            dailyL50[i] = np.nanpercentile(temp[column], 50)
+            dailyL90[i] = np.nanpercentile(temp[column], 10)
             dailytime.append(time(
                 hour=(t//3600)%24, 
                 minute=(t%3600)//60, 
@@ -202,20 +202,8 @@ class NoiseMonitor:
             evening and night values are returned if values is set to True.
         """
         self.validate_column(column)
-        if day1 and day2:
-            self.validate_days(day1, day2)
 
-        if all(day is not None for day in [day1, day2]):
-            d1, d2 = week_indexes(day1, day2)
-
-            if d1 <= d2:
-                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   & (self.df.index.dayofweek <= d2)]
-            else:
-                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   | (self.df.index.dayofweek <= d2)]
-        else:
-            temp = self.df
+        temp = filter_by_days(self.df, day1, day2)
 
         return compute_lden(temp, column, values=values)
     
@@ -257,33 +245,9 @@ class NoiseMonitor:
         Statistical indicators are included if stats is set to True.
         """
         self.validate_column(column)
-        self.validate_hours(hour1, hour2)
-        if day1 and day2:
-            self.validate_days(day1, day2)
 
-        if all(day is not None for day in [day1, day2]):
-            d1, d2 = week_indexes(day1, day2)
-
-            if d1 <= d2:
-                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   & (self.df.index.dayofweek <= d2)]
-            else:
-                temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                   | (self.df.index.dayofweek <= d2)]
-        else:
-            temp = self.df
-
-        if hour1 == 24:
-            t1 = time(hour=23, minute=59, second=59)
-            t2 = time(hour=hour2)
-        elif hour2 == 24:
-            t1 = time(hour=hour1)
-            t2 = time(hour=23, minute=59, second=59)
-        else:
-            t1 = time(hour=hour1)
-            t2 = time(hour=hour2)
-
-        array = temp.between_time(t1, t2).iloc[:][column]
+        temp = filter_by_days(self.df, day1, day2)
+        array = filter_by_hours(temp, hour1, hour2)[column]
 
         if stats:
             return pd.DataFrame({
@@ -293,6 +257,141 @@ class NoiseMonitor:
                 'l90': [np.round(np.nanpercentile(array, 10), 2)]
             })
         return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
+    
+    def daily_weekly_number_of_noise_events(
+        self,
+        column: str,
+        hour1: int, 
+        hour2: int, 
+        background_type: str = 'leq',
+        exceedance: int = 5,
+        min_gap: int = 3,
+        win: int = 3600,
+        step: int = 0,
+        day1: Optional[str] = None,
+        day2: Optional[str] = None
+    ) -> pd.DataFrame:
+        """Compute the Number of Noise Events (NNE) following the algorithm 
+        proposed in (Brown and De Coensel, 2018). The function computes the 
+        average NNE using sliding windows, computing daily or weekly profiles.
+        Note that this function is computaionally expensive as noise NNEs are
+        separately computed for each individual day and then averaged since
+        background levels are relative to each day.
+
+        Parameters
+        ----------
+        column: str
+            Column name to use for calculations.
+        hour1: int, between 0 and 24
+            hour for the starting time of the daily average.
+        hour2: int, between 0 and 24
+            hour for the ending time of the daily average. If hour1 > hour2 
+            the average will be computed outside of these hours.
+        background_type: str
+            Type of background level descriptor for computing the threshold to 
+            use for defining a noise event. Can be 'leq', 'l50', 'l90' or int 
+            for a constant value.
+        exceedance: int, default 5
+            Exceedance value in dB to add to the background level to define the
+            detection threshold, when the background level is adaptive.
+        min_gap: int
+            Minimum time gap in seconds between successive noise events.
+        win: int, default 3600
+            Window size for the averaging function, in seconds.
+        step: int, default 0
+            Step size to compute a sliding average. If set to 0 (default value), 
+            the function will compute non-sliding averages.
+        day1: Optional[str], default None
+            First day of the week to include in the calculation.
+        day2: Optional[str], default None
+            Last day of the week to include in the calculation.
+
+        Returns
+        ----------
+        DataFrame: DataFrame with the number of noise events for each sliding window.
+        """
+        self.validate_column(column)
+
+        temp_df = filter_by_days(self.df, day1, day2)
+        temp_df = filter_by_hours(temp_df, hour1, hour2)
+
+        if step == 0:
+            step = win
+        
+        NLim = ((hour2-hour1)%24*3600)//step
+
+        event_times = []
+        daily_event_counts = []
+
+        # Compute the expected number of values for each day
+        freq = (temp_df.index[2] - temp_df.index[1])
+        if hour2 > hour1:
+            expected_intervals = pd.date_range(
+                start=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour1),
+                end=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour2),
+                freq=freq
+                )
+        elif hour1 > hour2:
+            expected_intervals = pd.date_range(
+                start=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour1),
+                end=pd.Timestamp('2024-01-02') + pd.Timedelta(hours=hour2),
+                freq=freq
+                )
+        expected_intervals_count = len(expected_intervals)
+
+        for day, group in temp_df.groupby(temp_df.index.date):
+            # Check if the day has any NaN values or is missing data
+            if group[column].isna().any() or \
+                len(group) != expected_intervals_count:
+                continue
+
+            day_event_counts = np.zeros(NLim)
+            for i in range(0, NLim):
+                t1 = hour1*3600 + i*step
+                t2 = hour1*3600 + i*step + win
+
+                temp = group.between_time(
+                    time(
+                        hour=(t1//3600)%24, 
+                        minute=(t1%3600)//60, 
+                        second=(t1%3600)%60
+                    ), 
+                    time(
+                        hour=(t2//3600)%24, 
+                        minute=(t2%3600)//60, 
+                        second=(t2%3600)%60
+                ))
+
+                if background_type == 'leq':
+                    threshold = equivalent_level(temp[column]) + exceedance
+                elif background_type == 'l50':
+                    threshold = np.nanpercentile(temp[column], 50) + exceedance
+                elif background_type == 'l90':
+                    threshold = np.nanpercentile(temp[column], 10) + exceedance
+                elif isinstance(background_type, (int)):
+                    threshold = background_type
+                else:
+                    raise ValueError("Invalid background type. Use 'leq', "
+                                     "'l50', 'l90', or an int value.")
+                day_event_counts[i] = compute_noise_events(
+                    temp, column, threshold, min_gap)
+            daily_event_counts.append(day_event_counts)
+
+        daily_event_counts = np.array(daily_event_counts)
+        average_event_counts = np.mean(daily_event_counts, axis=0)
+
+        for i in range(0, NLim):
+            t = hour1*3600 + i*step + win//2
+            event_times.append(time(
+                hour=(t//3600)%24, 
+                minute=(t%3600)//60, 
+                second=(t%3600)%60
+                ))
+
+        return pd.DataFrame(
+            index=event_times, 
+            data={'Average NNEs': average_event_counts}
+        )
     
     def sliding_average(
         self, 
@@ -384,19 +483,9 @@ class NoiseMonitor:
 
         return meandf
     
-    def validate_days(self, day1: str, day2: str) -> None:
-        week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-                'saturday', 'sunday']
-        if day1.lower() not in week or day2.lower() not in week:
-            raise ValueError("Arguments day1 and day2 must be a day of the week.") 
-    
     def validate_column(self, column: str) -> None:
         if column not in self.df.columns:
             raise ValueError(f"Column '{column}' not found in DataFrame.")
-
-    def validate_hours(self, hour1: int, hour2: int) -> None:
-        if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
-            raise ValueError("Hours must be between 0 and 24.")   
     
     def weekly(
         self, 
@@ -440,18 +529,10 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
-        d1, d2 = week_indexes(day1, day2)
-        if d1 <= d2:
-            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                & (self.df.index.dayofweek <= d2)]
-        else:
-            temp = self.df.loc[(self.df.index.dayofweek >= d1) 
-                                | (self.df.index.dayofweek <= d2)]
-
-        weeklymeandf = self.daily(column, hour1, hour2, temp, win=win, 
-                                  step=step)
+        temp = filter_by_days(self.df, day1, day2)
             
-        return weeklymeandf
+        return self.daily(column, hour1, hour2, temp, win=win, 
+                                  step=step)
     
 def compute_lden(
     df: pd.DataFrame, 
@@ -496,6 +577,49 @@ def compute_lden(
             'lnight': [np.round(lnight, 2)]
         })
     return pd.DataFrame({'lden': [np.round(lden, 2)]})
+
+def compute_noise_events(
+    df: pd.DataFrame,
+    column: str,
+    threshold: float,
+    min_gap: int
+) -> int:
+    """Compute the Number of Noise Events (NNE) in a DataFrame slice, 
+    according to the algorithm proposed in (Brown and De Coensel, 2018). Please 
+    note that this indicator is highly dependent on the refresh rate of the 
+    data. Usually, NNEs are computed with LAeq,1s for traffic noise.
+
+    Parameters
+    ----------
+    df: DataFrame
+        DataFrame with a datetime index and sound level values.
+    column: str
+        Column name to use for calculations.
+    threshold: float
+        Threshold level in dB to define a noise event.
+    min_gap: int
+        Minimum time gap in seconds between successive noise events.
+
+    Returns
+    ----------
+    int: Number of noise events.
+    """
+    events = 0
+    in_event = False
+    last_event_end = df[column].index[0]
+
+    for timestamp, value in df[column].items():
+        if value > threshold:
+            if not in_event:
+                in_event = True
+                if (timestamp - last_event_end).total_seconds() >= min_gap:
+                    events += 1
+        else:
+            if in_event:
+                in_event = False
+                last_event_end = timestamp
+
+    return events
     
 def equivalent_level(array: np.array) -> float:
     """Compute the equivalent sound level from the input array."""
@@ -520,3 +644,74 @@ def week_indexes(
     d1 = week.index(day1)
     d2 = week.index(day2)
     return d1, d2
+
+def filter_by_days(
+    df: pd.DataFrame, 
+    day1: Optional[str], 
+    day2: Optional[str]
+    ) -> pd.DataFrame:
+    """Filter the DataFrame based on the specified days of the week.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index.
+    day1: Optional[str]
+        First day of the week to include in the filtering.
+    day2: Optional[str]
+        Last day of the week to include in the filtering.
+
+    Returns
+    ----------
+    pd.DataFrame: Filtered DataFrame based on the specified days of the week.
+    """
+    if day1 and day2:
+        week = ['monday', 'tuesday', 'wednesday', 'thursday', 
+                'friday', 'saturday', 'sunday']
+        if day1.lower() not in week or day2.lower() not in week:
+            raise ValueError("Arguments day1 and day2 must be a day of the week.")
+        
+        d1, d2 = week_indexes(day1, day2)
+
+        if d1 <= d2:
+            return df.loc[(df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
+        else:
+            return df.loc[(df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+    else:
+        return df
+
+def filter_by_hours(
+    df: pd.DataFrame, 
+    hour1: int, 
+    hour2: int
+    ) -> pd.DataFrame:
+    """Filter the DataFrame based on the specified hours.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index.
+    hour1: int
+        Hour for the starting time of the daily average.
+    hour2: int
+        Hour for the ending time of the daily average.
+
+    Returns
+    ----------
+    pd.Series: Filtered Series based on the specified hours.
+    """
+    
+    if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
+        raise ValueError("Hours must be between 0 and 24.")  
+
+    if hour1 == 24:
+        t1 = time(hour=23, minute=59, second=59)
+        t2 = time(hour=hour2)
+    elif hour2 == 24:
+        t1 = time(hour=hour1)
+        t2 = time(hour=23, minute=59, second=59)
+    else:
+        t1 = time(hour=hour1)
+        t2 = time(hour=hour2)
+
+    return df.between_time(t1, t2)
