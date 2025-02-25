@@ -10,6 +10,7 @@ from datetime import datetime, time
 from dateutil import parser
 from xlrd import XLRDError
 from typing import Optional, List, Union
+from concurrent.futures import ProcessPoolExecutor
 
 def compare_plots(
     dfs: List[pd.DataFrame], 
@@ -66,7 +67,7 @@ def convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
     """Converts time index from dataframe to datetime array for plotting.
 
     Parameters
-    ----------
+    ---------- 
     df: DataFrame
         DataFrame with a datetime, time, or pandas.Timestamp index.
     """
@@ -125,12 +126,12 @@ def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
     """Get the datetime index for plotting.
 
     Parameters
-    ----------
+    ---------- 
     df: DataFrame
         DataFrame with a datetime, time, or pandas.Timestamp index.
 
     Returns
-    ----------
+    ---------- 
     x: array-like
         Array of datetime objects for plotting.
     """
@@ -225,7 +226,9 @@ def load_data(
     header: Optional[int] = 0, 
     sep: str = '\t', 
     slm_type: Optional[str] = None, 
-    timezone: Optional[str] = None
+    timezone: Optional[str] = None,
+    use_chunks: bool = False,
+    chunksize: int = 10000
 ) -> pd.DataFrame:
     """Take one or several datasheets with date and time indicators
     in combined in one column or across two columns, and sound level measured 
@@ -272,6 +275,12 @@ def load_data(
     timezone: str, default None
         when indicated, will convert the datetime index from the specified 
         timezone to a timezone unaware format.
+    use_chunks: bool, default False
+        whether to process the data in chunks for large datasets. Please note
+        that it makes loading the data slower for smaller datasets or datasets
+        that have multiple columns.
+    chunksize: int, default 10000
+        number of rows to read at a time for large datasets.
 
     Returns
     ---------- 
@@ -279,6 +288,8 @@ def load_data(
     with a LevelMonitor class. Contains a datetime (or pandas Timestamp) array
     as index and corresponding equivalent sound level as first column.
     """
+    if not use_chunks:
+        chunksize = None
 
     df = pd.DataFrame()
 
@@ -293,55 +304,62 @@ def load_data(
         # Reading datasheet with pandas
         if ext == '.xls':
             try:
-                temp = pd.read_excel(fp, engine='xlrd', header=header)
+                temp = pd.read_excel(
+                    fp, 
+                    engine='xlrd', 
+                    header=header, 
+                    chunksize=chunksize
+                    )
             except XLRDError:
-                temp = pd.read_csv(fp, sep=sep, header=header)
-        elif ext == '.xlsx':
-            temp = pd.read_excel(fp, engine='openpyxl', header=header)
-        elif ext in ['.csv', '.txt']:
-            temp = pd.read_csv(fp, sep=sep, header=header)
-
-
-        try:
-            temp = temp.loc[:, ~temp.columns.str.contains('^Unnamed')]
-        except TypeError:
-            pass
-
-        if datetimeindex is not None:
-            if not isinstance(temp.iloc[0, datetimeindex], pd.Timestamp):
-                temp.iloc[:, datetimeindex] = temp.iloc[:, datetimeindex].map(
-                    lambda a: parser.parse(a))
-                temp = temp.rename(
-                    columns={temp.columns[datetimeindex]: 'datetime'})
-        elif all(ind is not None for ind in [dateindex, timeindex]): 
-            temp.iloc[:, dateindex] = temp.iloc[:, dateindex].map(
-                lambda a: parser.parse(a).date())
-            temp.iloc[:, timeindex] = temp.iloc[:, timeindex].map(
-                lambda a: parser.parse(a).time())
-            temp.iloc[:, dateindex] = temp.apply(
-                lambda a: datetime.combine(
-                    a.iloc[:, dateindex], a.iloc[:, timeindex]))
-            datetimeindex = dateindex
-        else:
-            raise Exception("You must provide either a datetime index \
-                            or time and date indexes.")
-        
-        if timezone is not None:
-            temp['datetime'] = temp['datetime'].dt.tz_convert(
-                timezone).dt.tz_localize(None)
-        
-        temp = temp.rename(columns={temp.columns[datetimeindex]: 'datetime'})
-        temp = temp.set_index('datetime')
-
-        for valueindex in valueindices:
-            if slm_type == 'NoiseSentry':
-                temp.iloc[:, valueindex-1] = temp.iloc[:, valueindex-1].map(
-                    lambda a: locale.atof(a.replace(',', '.'))
+                temp = pd.read_csv(
+                    fp, 
+                    sep=sep, 
+                    header=header, 
+                    chunksize=chunksize
                 )
+        elif ext == '.xlsx':
+            temp = pd.read_excel(
+                fp, 
+                engine='openpyxl', 
+                header=header, 
+                chunksize=chunksize
+                )
+        elif ext in ['.csv', '.txt']:
+            temp = pd.read_csv(
+                fp, 
+                sep=sep, 
+                header=header, 
+                chunksize=chunksize
+                )
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
 
-        temp = temp.iloc[:, [i-1 for i in valueindices]]
-        temp = temp.dropna()
-        df = pd.concat([df, temp])
+        if use_chunks:
+        # Process chunks in parallel
+            with ProcessPoolExecutor() as executor:
+                futures = [executor.submit(
+                    parse_data, 
+                    chunk, 
+                    datetimeindex, 
+                    timeindex, 
+                    dateindex, 
+                    valueindices, 
+                    slm_type, 
+                    timezone
+                    ) for chunk in temp]
+                for future in futures:
+                    df = pd.concat([df, future.result()])
+        else:
+            # Process the entire file at once
+            df = parse_data(
+                temp, 
+                datetimeindex, 
+                timeindex, 
+                dateindex, 
+                valueindices, 
+                slm_type, 
+                timezone)
+
 
     # Ensure the index is unique and sorted
     if not df.index.is_unique:
@@ -356,6 +374,49 @@ def load_data(
         
     return df
 
+def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindices,
+                    slm_type, timezone):
+    """Process a chunk of data to convert it into a DataFrame suitable for
+    sound level analysis."""
+    try:
+        chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')]
+    except TypeError:
+        pass
+
+    if datetimeindex is not None:
+        if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
+            chunk.iloc[:, datetimeindex] = chunk.iloc[:, datetimeindex].map(
+                lambda a: parser.parse(a))
+            chunk = chunk.rename(
+                columns={chunk.columns[datetimeindex]: 'datetime'})
+    elif all(ind is not None for ind in [dateindex, timeindex]): 
+        chunk.iloc[:, dateindex] = chunk.iloc[:, dateindex].map(
+            lambda a: parser.parse(a).date())
+        chunk.iloc[:, timeindex] = chunk.iloc[:, timeindex].map(
+            lambda a: parser.parse(a).time())
+        chunk.iloc[:, dateindex] = chunk.apply(
+            lambda a: datetime.combine(
+                a.iloc[:, dateindex], a.iloc[:, timeindex]))
+        datetimeindex = dateindex
+    else:
+        raise Exception("You must provide either a datetime "
+                        "index or time and date indexes.")
+    
+    if timezone is not None:
+        chunk['datetime'] = chunk['datetime'].dt.tz_convert(
+            timezone).dt.tz_localize(None)
+    
+    chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
+    chunk = chunk.set_index('datetime')
+
+    for valueindex in valueindices:
+        if slm_type == 'NoiseSentry':
+            chunk.iloc[:, valueindex-1] = chunk.iloc[:, valueindex-1].map(
+                lambda a: locale.atof(a.replace(',', '.')))
+
+    chunk = chunk.iloc[:, [i-1 for i in valueindices]]
+    chunk = chunk.dropna()
+    return chunk
 
 
 
