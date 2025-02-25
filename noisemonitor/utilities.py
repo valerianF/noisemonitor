@@ -16,6 +16,7 @@ def compare_plots(
     dfs: List[pd.DataFrame], 
     labels: List[str], 
     *args: str, 
+    ylabel: str = "Sound Level (dBA)",
     weighting: str = "A", 
     step: bool = False, 
     figsize: tuple = (10,8), 
@@ -52,7 +53,7 @@ def compare_plots(
 
     for df, label in zip(dfs, labels):
         for arg in args:
-            ax = level_plot(df, arg, weighting=weighting, step=step,
+            ax = level_plot(df, arg, ylabel=ylabel, weighting=weighting, step=step,
                             figsize=figsize, ax=ax, fill_between=fill_between,
                             **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
@@ -222,12 +223,12 @@ def load_data(
     datetimeindex: Optional[int] = None, 
     timeindex: Optional[int] = None, 
     dateindex: Optional[int] = None, 
-    valueindices: Union[int, List[int]] = 1, 
+    valueindexes: Optional[Union[int, List[int]]] = 1, 
     header: Optional[int] = 0, 
     sep: str = '\t', 
     slm_type: Optional[str] = None, 
     timezone: Optional[str] = None,
-    use_chunks: bool = False,
+    use_chunks: bool = True,
     chunksize: int = 10000
 ) -> pd.DataFrame:
     """Take one or several datasheets with date and time indicators
@@ -254,7 +255,7 @@ def load_data(
         column index for date. Not to be indicated if date and time are
         combined in a single column. Must be entered conjointly 
         with timeindex.
-    valueindices: int or list of int, default 1.
+    valueindexes: int or list of int, default 1.
         column index or list of column indices for sound level values to which 
         averages are to be computed. The columns should contain sound levels 
         values, either weighted or unweighted and integrated over a period 
@@ -276,9 +277,7 @@ def load_data(
         when indicated, will convert the datetime index from the specified 
         timezone to a timezone unaware format.
     use_chunks: bool, default False
-        whether to process the data in chunks for large datasets. Please note
-        that it makes loading the data slower for smaller datasets or datasets
-        that have multiple columns.
+        whether to process the data in chunks for large datasets.
     chunksize: int, default 10000
         number of rows to read at a time for large datasets.
 
@@ -288,15 +287,13 @@ def load_data(
     with a LevelMonitor class. Contains a datetime (or pandas Timestamp) array
     as index and corresponding equivalent sound level as first column.
     """
-    if not use_chunks:
-        chunksize = None
 
     df = pd.DataFrame()
 
     if type(path) is not list:
         path = [path]
-    if type(valueindices) is not list:
-        valueindices = [valueindices]
+    if type(valueindexes) is not list:
+        valueindexes = [valueindexes]
 
     for fp in path:   
         ext = os.path.splitext(fp)[-1].lower()
@@ -307,59 +304,56 @@ def load_data(
                 temp = pd.read_excel(
                     fp, 
                     engine='xlrd', 
-                    header=header, 
-                    chunksize=chunksize
+                    header=header
                     )
             except XLRDError:
                 temp = pd.read_csv(
                     fp, 
                     sep=sep, 
-                    header=header, 
-                    chunksize=chunksize
+                    header=header
                 )
         elif ext == '.xlsx':
             temp = pd.read_excel(
                 fp, 
                 engine='openpyxl', 
-                header=header, 
-                chunksize=chunksize
+                header=header
                 )
         elif ext in ['.csv', '.txt']:
             temp = pd.read_csv(
                 fp, 
                 sep=sep, 
-                header=header, 
-                chunksize=chunksize
+                header=header,
+                engine='c'
                 )
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
+        
+        df = pd.concat([df, temp])
 
-        if use_chunks:
-        # Process chunks in parallel
-            with ProcessPoolExecutor() as executor:
-                futures = [executor.submit(
-                    parse_data, 
-                    chunk, 
-                    datetimeindex, 
-                    timeindex, 
-                    dateindex, 
-                    valueindices, 
-                    slm_type, 
-                    timezone
-                    ) for chunk in temp]
-                for future in futures:
-                    df = pd.concat([df, future.result()])
-        else:
-            # Process the entire file at once
-            df = parse_data(
-                temp, 
+    if use_chunks:
+    # Process chunks in parallel
+        with ProcessPoolExecutor() as executor:
+            futures = [executor.submit(
+                parse_data, 
+                chunk, 
                 datetimeindex, 
                 timeindex, 
                 dateindex, 
-                valueindices, 
+                valueindexes, 
                 slm_type, 
-                timezone)
-
+                timezone
+                ) for chunk in np.array_split(df, max(1, len(df) // chunksize))]
+            df = pd.concat([future.result() for future in futures])
+    else:
+        # Process the entire file at once
+        df = parse_data(
+            df, 
+            datetimeindex, 
+            timeindex, 
+            dateindex, 
+            valueindexes, 
+            slm_type, 
+            timezone)
 
     # Ensure the index is unique and sorted
     if not df.index.is_unique:
@@ -374,7 +368,7 @@ def load_data(
         
     return df
 
-def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindices,
+def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
                     slm_type, timezone):
     """Process a chunk of data to convert it into a DataFrame suitable for
     sound level analysis."""
@@ -409,12 +403,12 @@ def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindices,
     chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
     chunk = chunk.set_index('datetime')
 
-    for valueindex in valueindices:
+    for valueindex in valueindexes:
         if slm_type == 'NoiseSentry':
             chunk.iloc[:, valueindex-1] = chunk.iloc[:, valueindex-1].map(
                 lambda a: locale.atof(a.replace(',', '.')))
 
-    chunk = chunk.iloc[:, [i-1 for i in valueindices]]
+    chunk = chunk.iloc[:, [i-1 for i in valueindexes]]
     chunk = chunk.dropna()
     return chunk
 
