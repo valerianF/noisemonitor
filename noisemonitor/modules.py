@@ -9,9 +9,9 @@ from .utilities import *
 
 class NoiseMonitor:
     """Compute discrete values and different types of sliding mean averages
-    for various kinds of sound level descriptors, including LEQ, L10, L50,
-    L90, LDEN, overall or at daily or weekly rates, from sound level monitor
-    data, weighted or unweighted. 
+    for various kinds of sound level descriptors, including Leq, L10, L50,
+    L90, Lden, Number of Noise Events, overall or at daily or weekly rates, 
+    from sound level monitor data, weighted or unweighted. 
 
     Parameters
     ---------- 
@@ -22,6 +22,21 @@ class NoiseMonitor:
     """
     def __init__(self, df: pd.DataFrame):
         self.df = df
+        self.interval = (self.df.index[2] - self.df.index[1]).seconds
+
+    def check_interval(self, indicator: str):
+        """Check the interval and return a warning if it is greater than 1 
+        second.
+            Parameters
+        ---------- 
+        indicator: str
+            Indicator subject to warning. 
+        """
+        if self.interval > 1:
+            warnings.warn(f"Computing the {indicator} should be done with "
+                          "an integration time equal to or below 1s. Results"
+                          " might not be valid for this descriptor.\n")
+        return
 
     def daily(
         self, 
@@ -61,6 +76,8 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
+        self.check_interval("L10, L50, and L90")
+        
         if step == 0:
             step = win
         
@@ -221,6 +238,7 @@ class NoiseMonitor:
         ----------
         DataFrame: DataFrame with the number of noise events for each sliding window.
         """
+        self.check_interval("average Number of Noise Events")
         self.validate_column(column)
 
         temp_df = filter_by_days(self.df, day1, day2)
@@ -385,6 +403,7 @@ class NoiseMonitor:
         array = filter_by_hours(temp, hour1, hour2)[column]
 
         if stats:
+            self.check_interval("L10, L50, and L90")
             return pd.DataFrame({
                 'leq': [np.round(equivalent_level(array), 2)],
                 'l10': [np.round(np.nanpercentile(array, 90), 2)],
@@ -527,11 +546,10 @@ class NoiseMonitor:
 
         """
         self.validate_column(column)
-
-        interval = (self.df.index[2] - self.df.index[1]).seconds
+        self.check_interval("L10, L50, and L90")
         
-        step = step // interval
-        win = win // interval
+        step = step // self.interval
+        win = win // self.interval
 
         N = len(self.df)
 
