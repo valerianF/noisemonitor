@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from datetime import time
+from datetime import time, timedelta
 from typing import Optional, Union
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from .utilities import *
 
@@ -132,6 +133,40 @@ class NoiseMonitor:
 
         return dailymeandf
     
+    def daily_weekly_harmonica(
+            self, 
+            column: str, 
+            day1: Optional[str] = None,
+            day2: Optional[str] = None
+            ) -> pd.DataFrame:
+        """Compute the average HARMONICA indicators for each hour of a day.
+
+        Parameters
+        ----------
+        column: str
+            Column name containing the LAeq values.
+        day1: Optional[str], default None
+            First day of the week to include in the calculation.
+        day2: Optional[str], default None
+            Last day of the week to include in the calculation.
+
+        Returns
+        ----------
+        DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA 
+        values.
+        """
+        # Compute hourly HARMONICA indicators
+        temp_df = filter_by_days(self.df, day1, day2)
+        harmonica_df = compute_harmonica(temp_df, column)
+
+        # Compute the average values for each hour of the day
+        daily_avg = harmonica_df.groupby(harmonica_df.index.hour).mean()
+
+        # Create a time index for the result
+        time_index = [time(hour=h) for h in range(24)]
+        daily_avg.index = time_index
+
+        return daily_avg
     
     def daily_weekly_indicators(
         self, 
@@ -164,7 +199,8 @@ class NoiseMonitor:
         elif freq == 'W':
             resampled = self.df.resample('W-MON')
         else:
-            raise ValueError("Invalid frequency. Use 'D' for daily or 'W' for weekly.")
+            raise ValueError("Invalid frequency. Use 'D' for daily or 'W' for" 
+                             " weekly.")
 
         for period, group in resampled:
             if len(group) > 0:
@@ -236,7 +272,8 @@ class NoiseMonitor:
 
         Returns
         ----------
-        DataFrame: DataFrame with the number of noise events for each sliding window.
+        DataFrame: DataFrame with the number of noise events for each sliding 
+        window.
         """
         self.check_interval("average Number of Noise Events")
         self.validate_column(column)
@@ -455,12 +492,16 @@ class NoiseMonitor:
             bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]
 
         # Compute daily or weekly indicators
-        indicators_df = self.daily_weekly_indicators(column, freq=freq, values=True)
+        indicators_df = self.daily_weekly_indicators(
+            column, 
+            freq=freq, 
+            values=True
+        )
 
         # Validate the indicator
         if indicator not in indicators_df.columns:
-            raise ValueError(
-                f"Invalid indicator. Choose from {indicators_df.columns.tolist()}")
+            raise ValueError("Invalid indicator. Choose from "
+                f"{indicators_df.columns.tolist()}")
 
         # Count the number of days for each decibel range
         counts = pd.cut(
@@ -557,10 +598,12 @@ class NoiseMonitor:
             step = win
 
         if start_at_midnight:
-            start_time = self.df.index[0].replace(hour=0, minute=0, second=0, microsecond=0)
+            start_time = self.df.index[0].replace(
+                hour=0, minute=0, second=0, microsecond=0)
             if self.df.index[0] > start_time:
                 start_time += pd.Timedelta(days=1)
-            start_index = self.df.index.get_indexer([start_time], method='nearest')[0]
+            start_index = self.df.index.get_indexer(
+                [start_time], method='nearest')[0]
         else:
             start_index = 0
 
@@ -591,7 +634,7 @@ class NoiseMonitor:
                 overallL10[i] = np.nanpercentile(temp, 90)
                 overallL50[i] = np.nanpercentile(temp, 50)
                 overallL90[i] = np.nanpercentile(temp, 10)
-            overalltime.append(self.df.index[int(start_index + i * step + win / 2)])
+            overalltime.append(self.df.index[int(start_index + i*step + win/2)])
 
         meandf = pd.DataFrame(
             index=overalltime, 
@@ -630,8 +673,8 @@ class NoiseMonitor:
             hour for the starting time of the daily average.
         hour2: int, between 0 and 23
             hour for the ending time of the daily average. Included in the 
-            computation. If hour2 > hour1 the average will be computed outside of
-            these hours.
+            computation. If hour2 > hour1 the average will be computed outside 
+            of these hours.
         day1: str, a day of the week in english, case-insensitive
             first day of the week included in the weekly average.
         day2: str, a day of the week in english, case-insensitive
@@ -641,8 +684,9 @@ class NoiseMonitor:
         win: int, default 3600
             window size for the averaging function, in seconds.
         step: int, default 0
-            step size to compute a sliding average. If set to 0 (default value),
-            the function will compute non-sliding averages.
+            step size to compute a sliding average. If set to 0 
+            (default value), the function will compute non-sliding 
+            averages.
 
         Returns
         ---------- 
@@ -654,6 +698,47 @@ class NoiseMonitor:
             
         return self.daily(column, hour1, hour2, temp, win=win, 
                                   step=step)
+    
+def compute_harmonica(
+        df: pd.DataFrame, 
+        column: int
+        ) -> pd.DataFrame:
+    """Compute the HARMONICA indicator and return a DataFrame with EVT, BGN, 
+    and HARMONICA indicators as proposed in (Mietlicki et al., 2015).
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the LAeq,1s values with a time or datetime index.
+    column: int
+        Column name containing the LAeq,1s values.
+
+    Returns
+    ----------
+    DataFrame: DataFrame with EVT, BGN, and HARMONICA indicators.
+    """
+    # Check interval
+    interval = (df.index[1] - df.index[0]).total_seconds()
+    if interval > 1:
+        warnings.warn("Computing the HARMONICA indicator should be done with "
+                      "an integration time equal to or below 1s. Results might"
+                      " not be valid.\n")
+        
+    results = []
+
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(
+            process_hour_harmonica, 
+            hour, 
+            group, 
+            column, 
+            interval) for hour, group in df.resample('H')]
+
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    result_df = pd.DataFrame(results).set_index('hour')
+    return result_df
     
 def compute_lden(
     df: pd.DataFrame, 
@@ -748,24 +833,6 @@ def equivalent_level(array: np.array) -> float:
         return np.nan
     return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
 
-def week_indexes(
-    day1: str, 
-    day2: str
-    ) -> tuple:
-    """Return datetime compatible weekday indexes from weekday strings."""
-    week = [
-        'monday', 'tuesday', 'wednesday', 'thursday', 
-        'friday', 'saturday', 'sunday'
-        ]            
-    day1 = day1.lower()
-    day2 = day2.lower()
-    
-    if any(d not in week for d in [day1, day2]):
-        raise ValueError("Arguments day1 and day2 must be a day of the week.")
-    d1 = week.index(day1)
-    d2 = week.index(day2)
-    return d1, d2
-
 def filter_by_days(
     df: pd.DataFrame, 
     day1: Optional[str], 
@@ -790,14 +857,17 @@ def filter_by_days(
         week = ['monday', 'tuesday', 'wednesday', 'thursday', 
                 'friday', 'saturday', 'sunday']
         if day1.lower() not in week or day2.lower() not in week:
-            raise ValueError("Arguments day1 and day2 must be a day of the week.")
+            raise ValueError("Arguments day1 and day2 must be a day of "
+                             "the week.")
         
         d1, d2 = week_indexes(day1, day2)
 
         if d1 <= d2:
-            return df.loc[(df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
+            return df.loc[
+                (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
         else:
-            return df.loc[(df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+            return df.loc[
+                (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
     else:
         return df
 
@@ -836,3 +906,55 @@ def filter_by_hours(
         t2 = time(hour=hour2)
 
     return df.between_time(t1, t2)
+
+def process_hour_harmonica(hour, group, column, interval):
+    """Process a single hour of data to compute HARMONICA indicators."""
+    if (len(group) != 3600 // interval) or \
+        (group.isna().sum().sum() / len(group) > 0.2):
+        return {
+            'hour': hour, 
+            'EVT': np.nan, 
+            'BGN': np.nan, 
+            'HARMONICA': np.nan
+            }
+
+    # Compute LAeq for the hour
+    laeq = equivalent_level(group[column])
+
+    # Compute LA95eq for the hour using a rolling window
+    la95 = group[column].rolling(
+        window=int(600 // interval),
+        step=int(max(1, 1//interval)),
+        min_periods=1
+    ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
+    la95eq = equivalent_level(la95.dropna())
+
+    # Compute EVT, BGN, and HARMONICA
+    evt = 0.2 * (la95eq - 30)
+    bgn = 0.25 * (laeq - la95eq)
+    harmonica = bgn + evt
+
+    return {
+        'hour': hour, 
+        'EVT': evt, 
+        'BGN': bgn, 
+        'HARMONICA': harmonica
+        }
+
+def week_indexes(
+    day1: str, 
+    day2: str
+    ) -> tuple:
+    """Return datetime compatible weekday indexes from weekday strings."""
+    week = [
+        'monday', 'tuesday', 'wednesday', 'thursday', 
+        'friday', 'saturday', 'sunday'
+        ]            
+    day1 = day1.lower()
+    day2 = day2.lower()
+    
+    if any(d not in week for d in [day1, day2]):
+        raise ValueError("Arguments day1 and day2 must be a day of the week.")
+    d1 = week.index(day1)
+    d2 = week.index(day2)
+    return d1, d2

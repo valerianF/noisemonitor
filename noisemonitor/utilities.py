@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.patches import Polygon
 
 from datetime import datetime, time
 from dateutil import parser
@@ -144,6 +145,70 @@ def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
         raise TypeError(f'DataFrame index must be of type datetime, \
                         time or pd.Timestamp not {type(df.index[0])}')
     
+def harmonica_plot(df: pd.DataFrame) -> None:
+    """Plot the HARMONICA index.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the HARMONICA indicators.
+    """
+    # Raise an error if the DataFrame length is not 24
+    if len(df) != 24:
+        raise ValueError("The input DataFrame must contain daily HARMONICA "
+                         "indexes computed with the daily_weekly_harmonica "
+                         "function.")
+
+
+    # Plot the HARMONICA index
+    plt.figure(figsize=(12, 6))
+    plt.rcParams.update({'font.size': 16})
+
+    ax = plt.gca()
+    ax.grid(linestyle='--', zorder=0) 
+
+    for hour, row in df.iterrows():
+        hour = hour.hour
+        if 6 < hour < 22:
+            if row['HARMONICA'] < 4:
+                color = 'green'
+            elif 4 <= row['HARMONICA'] < 8:
+                color = 'orange'
+            else:
+                color = 'red'
+        else:
+            if row['HARMONICA'] < 3:
+                color = 'green'
+            elif 3 <= row['HARMONICA'] < 7:
+                color = 'orange'
+            else:
+                color = 'red'
+
+        plt.bar(hour, row['BGN'], color=color, width=0.8, zorder=2)
+        triangle = Polygon(
+            [[hour - 0.395, row['BGN'] + 0.1],
+             [hour + 0.395, row['BGN'] + 0.1],
+             [hour, row['HARMONICA']]],
+            closed=True, 
+            color=color,
+            zorder=3
+        )
+        ax.add_patch(triangle)
+
+    # Set x-ticks every 3 hours with ':00' added to every tick
+    ax.set_xticks(range(0, 24, 3))
+    ax.set_xticklabels([f'{hour}h' for hour in range(0, 24, 3)])
+
+    if df['HARMONICA'].max() <= 10:
+        plt.ylim(0, 10)
+
+    plt.xlabel('Hour')
+    plt.ylabel('HARMONICA Index')
+    plt.title('HARMONICA Index Plot')
+    plt.grid(linestyle='--', zorder=3)
+    plt.tight_layout()
+    plt.show()
+
 def level_plot(
         df: pd.DataFrame, 
         *args: str, 
@@ -261,7 +326,7 @@ def load_data(
         values, either weighted or unweighted and integrated over a period 
         corresponding to the refresh rate of the sound level meter (typically 
         between 1 second and several minutes, though the module will work with
-        higher or smaller refresh rates). Example of relevant indices: LAeq, 
+        smaller or higher refresh rates). Example of relevant indices: LAeq, 
         LCeq, LZeq, LAmax, LAmin, LCpeak, etc.
     header: int, None, default 0
         row index for datasheet header. If None, the datasheet has 
