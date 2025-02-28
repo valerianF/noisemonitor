@@ -136,6 +136,7 @@ class NoiseMonitor:
     def daily_weekly_harmonica(
             self, 
             column: str, 
+            use_chunks: bool = True,
             day1: Optional[str] = None,
             day2: Optional[str] = None
             ) -> pd.DataFrame:
@@ -145,6 +146,8 @@ class NoiseMonitor:
         ----------
         column: str
             Column name containing the LAeq values.
+        use_chunks: bool default True
+            whether to process the data in chunks for large datasets.
         day1: Optional[str], default None
             First day of the week to include in the calculation.
         day2: Optional[str], default None
@@ -157,7 +160,7 @@ class NoiseMonitor:
         """
         # Compute hourly HARMONICA indicators
         temp_df = filter_by_days(self.df, day1, day2)
-        harmonica_df = compute_harmonica(temp_df, column)
+        harmonica_df = compute_harmonica(temp_df, column, use_chunks)
 
         # Compute the average values for each hour of the day
         daily_avg = harmonica_df.groupby(harmonica_df.index.hour).mean()
@@ -701,7 +704,8 @@ class NoiseMonitor:
     
 def compute_harmonica(
         df: pd.DataFrame, 
-        column: int
+        column: int,
+        use_chunks: bool = True
         ) -> pd.DataFrame:
     """Compute the HARMONICA indicator and return a DataFrame with EVT, BGN, 
     and HARMONICA indicators as proposed in (Mietlicki et al., 2015).
@@ -712,6 +716,8 @@ def compute_harmonica(
         DataFrame containing the LAeq,1s values with a time or datetime index.
     column: int
         Column name containing the LAeq,1s values.
+    use_chunks: bool default True
+        whether to process the data in chunks for large datasets.
 
     Returns
     ----------
@@ -723,22 +729,27 @@ def compute_harmonica(
         warnings.warn("Computing the HARMONICA indicator should be done with "
                       "an integration time equal to or below 1s. Results might"
                       " not be valid.\n")
-        
-    results = []
 
-    with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(
-            process_hour_harmonica, 
+    if use_chunks:
+        results = []
+        with ProcessPoolExecutor() as executor:
+            futures = [executor.submit(
+                process_hour_harmonica, 
+                hour, 
+                group, 
+                column, 
+                interval) for hour, group in df.resample('H')]
+
+            for future in as_completed(futures):
+                results.append(future.result())
+    else: 
+        results = [process_hour_harmonica(
             hour, 
             group, 
             column, 
             interval) for hour, group in df.resample('H')]
 
-        for future in as_completed(futures):
-            results.append(future.result())
-
-    result_df = pd.DataFrame(results).set_index('hour')
-    return result_df
+    return pd.DataFrame(results).set_index('hour')
     
 def compute_lden(
     df: pd.DataFrame, 

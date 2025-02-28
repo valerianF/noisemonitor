@@ -161,7 +161,7 @@ def harmonica_plot(df: pd.DataFrame) -> None:
 
 
     # Plot the HARMONICA index
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 5))
     plt.rcParams.update({'font.size': 16})
 
     ax = plt.gca()
@@ -184,10 +184,10 @@ def harmonica_plot(df: pd.DataFrame) -> None:
             else:
                 color = 'red'
 
-        plt.bar(hour, row['BGN'], color=color, width=0.8, zorder=2)
+        plt.bar(hour, row['BGN'], color=color, width=0.81, zorder=2)
         triangle = Polygon(
-            [[hour - 0.395, row['BGN'] + 0.1],
-             [hour + 0.395, row['BGN'] + 0.1],
+            [[hour - 0.4, row['BGN'] + 0.1],
+             [hour + 0.4, row['BGN'] + 0.1],
              [hour, row['HARMONICA']]],
             closed=True, 
             color=color,
@@ -341,7 +341,7 @@ def load_data(
     timezone: str, default None
         when indicated, will convert the datetime index from the specified 
         timezone to a timezone unaware format.
-    use_chunks: bool, default False
+    use_chunks: bool, default True
         whether to process the data in chunks for large datasets.
     chunksize: int, default 10000
         number of rows to read at a time for large datasets.
