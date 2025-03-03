@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import warnings
+import functools
 
 from datetime import time, timedelta
 from typing import Optional, Union
@@ -25,20 +26,30 @@ class NoiseMonitor:
         self.df = df
         self.interval = (self.df.index[2] - self.df.index[1]).seconds
 
-    def check_interval(self, indicator: str):
-        """Check the interval and return a warning if it is greater than 1 
-        second.
-            Parameters
-        ---------- 
-        indicator: str
-            Indicator subject to warning. 
-        """
-        if self.interval > 1:
-            warnings.warn(f"Computing the {indicator} should be done with "
-                          "an integration time equal to or below 1s. Results"
-                          " might not be valid for this descriptor.\n")
-        return
+    # Decorators
+    def validate_column(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            column = kwargs.get('column', args[0] if args else None)
+            if column not in self.df.columns:
+                raise ValueError(f"Column '{column}' not found in DataFrame.")
+            return func(self, *args, **kwargs)
+        return wrapper
 
+    def validate_interval(indicator):
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(self, *args, **kwargs):
+                if self.interval > 1:
+                    warnings.warn(f"Computing the {indicator} should be done with "
+                                "an integration time equal to or below 1s. Results"
+                                " might not be valid for this descriptor.\n")
+                return func(self, *args, **kwargs)
+            return wrapper
+        return decorator
+
+    # Class methods
+    @validate_interval("L10, L50, and L90")
     def daily(
         self, 
         column: str, 
@@ -77,7 +88,6 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
-        self.check_interval("L10, L50, and L90")
         
         if step == 0:
             step = win
@@ -112,7 +122,7 @@ class NoiseMonitor:
                     second=(t2%3600)%60
             ))
 
-            dailymean[i] = equivalent_level(temp[column])
+            dailymean[i] = compute_equivalent_level(temp[column])
             dailyL10[i] = np.nanpercentile(temp[column], 90)
             dailyL50[i] = np.nanpercentile(temp[column], 50)
             dailyL90[i] = np.nanpercentile(temp[column], 10)
@@ -171,6 +181,7 @@ class NoiseMonitor:
 
         return daily_avg
     
+    @validate_column
     def daily_weekly_indicators(
         self, 
         column: str, 
@@ -193,7 +204,6 @@ class NoiseMonitor:
         ----------
         DataFrame: DataFrame with Leq,24h and Lden values for each day or week.
         """
-        self.validate_column(column)
 
         results = []
 
@@ -207,7 +217,7 @@ class NoiseMonitor:
 
         for period, group in resampled:
             if len(group) > 0:
-                leq_value = equivalent_level(group[column])
+                leq_value = compute_equivalent_level(group[column])
                 lden_values = compute_lden(group, column, values=values)
                 result = {
                     'Period': period,
@@ -225,6 +235,8 @@ class NoiseMonitor:
         result_df = pd.DataFrame(results).set_index('Period')
         return result_df
     
+    @validate_column
+    @validate_interval("average Number of Noise Events")
     def daily_weekly_number_of_noise_events(
         self,
         column: str,
@@ -278,8 +290,6 @@ class NoiseMonitor:
         DataFrame: DataFrame with the number of noise events for each sliding 
         window.
         """
-        self.check_interval("average Number of Noise Events")
-        self.validate_column(column)
 
         temp_df = filter_by_days(self.df, day1, day2)
         temp_df = filter_by_hours(temp_df, hour1, hour2)
@@ -332,7 +342,7 @@ class NoiseMonitor:
                 ))
 
                 if background_type == 'leq':
-                    threshold = equivalent_level(temp[column]) + exceedance
+                    threshold = compute_equivalent_level(temp[column]) + exceedance
                 elif background_type == 'l50':
                     threshold = np.nanpercentile(temp[column], 50) + exceedance
                 elif background_type == 'l90':
@@ -362,6 +372,7 @@ class NoiseMonitor:
             data={'Average NNEs': average_event_counts}
         )
     
+    @validate_column
     def lden(
         self, 
         column: str, 
@@ -394,12 +405,12 @@ class NoiseMonitor:
         dict: daily or weekly lden rounded to two decimals. Associated day,
             evening and night values are returned if values is set to True.
         """
-        self.validate_column(column)
 
         temp = filter_by_days(self.df, day1, day2)
 
         return compute_lden(temp, column, values=values)
     
+    @validate_column
     def leq(
         self, 
         column: str, 
@@ -437,20 +448,22 @@ class NoiseMonitor:
         float: daily or weekly equivalent level rounded to two decimals. 
         Statistical indicators are included if stats is set to True.
         """
-        self.validate_column(column)
 
         temp = filter_by_days(self.df, day1, day2)
         array = filter_by_hours(temp, hour1, hour2)[column]
 
         if stats:
-            self.check_interval("L10, L50, and L90")
+            if self.interval > 1:
+                warnings.warn("Computing the L10, L50, and L90 should be done with "
+                              "an integration time equal to or below 1s. Results"
+                              " might not be valid for this descriptor.\n")
             return pd.DataFrame({
-                'leq': [np.round(equivalent_level(array), 2)],
+                'leq': [np.round(compute_equivalent_level(array), 2)],
                 'l10': [np.round(np.nanpercentile(array, 90), 2)],
                 'l50': [np.round(np.nanpercentile(array, 50), 2)],
                 'l90': [np.round(np.nanpercentile(array, 10), 2)]
             })
-        return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
+        return pd.DataFrame({'leq': [np.round(compute_equivalent_level(array), 2)]})
     
     def nday(
         self, 
@@ -559,6 +572,8 @@ class NoiseMonitor:
 
         return counts_df
     
+    @validate_column
+    @validate_interval("L10, L50, and L90")
     def sliding_average(
         self, 
         column: str, 
@@ -589,8 +604,6 @@ class NoiseMonitor:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
-        self.validate_column(column)
-        self.check_interval("L10, L50, and L90")
         
         step = step // self.interval
         win = win // self.interval
@@ -624,7 +637,7 @@ class NoiseMonitor:
             temp = self.df.iloc[
                 int(start_index + i * step):int(start_index + i * step + win)
                 ][column]
-            overallmean[i] = equivalent_level(temp)
+            overallmean[i] = compute_equivalent_level(temp)
             if np.isnan(temp).all():
                 if not nan_warning_issued:
                     warnings.warn(f"All-NaN slice(s) encountered. "
@@ -650,9 +663,6 @@ class NoiseMonitor:
 
         return meandf
     
-    def validate_column(self, column: str) -> None:
-        if column not in self.df.columns:
-            raise ValueError(f"Column '{column}' not found in DataFrame.")
     
     def weekly(
         self, 
@@ -701,6 +711,12 @@ class NoiseMonitor:
             
         return self.daily(column, hour1, hour2, temp, win=win, 
                                   step=step)
+    
+def compute_equivalent_level(array: np.array) -> float:
+    """Compute the equivalent sound level from the input array."""
+    if len(array) == 0 or np.isnan(array).all():
+        return np.nan
+    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
     
 def compute_harmonica(
         df: pd.DataFrame, 
@@ -772,11 +788,11 @@ def compute_lden(
     ----------
     DataFrame: Lden value and optionally day, evening, and night levels.
     """
-    lday = equivalent_level(df.between_time(
+    lday = compute_equivalent_level(df.between_time(
         time(hour=7), time(hour=19))[column])
-    levening = equivalent_level(df.between_time(
+    levening = compute_equivalent_level(df.between_time(
         time(hour=19), time(hour=23))[column])
-    lnight = equivalent_level(df.between_time(
+    lnight = compute_equivalent_level(df.between_time(
         time(hour=23), time(hour=7))[column])
 
     lden = 10 * np.log10(
@@ -837,12 +853,6 @@ def compute_noise_events(
                 last_event_end = timestamp
 
     return events
-    
-def equivalent_level(array: np.array) -> float:
-    """Compute the equivalent sound level from the input array."""
-    if len(array) == 0 or np.isnan(array).all():
-        return np.nan
-    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
 
 def filter_by_days(
     df: pd.DataFrame, 
@@ -930,7 +940,7 @@ def process_hour_harmonica(hour, group, column, interval):
             }
 
     # Compute LAeq for the hour
-    laeq = equivalent_level(group[column])
+    laeq = compute_equivalent_level(group[column])
 
     # Compute LA95eq for the hour using a rolling window
     la95 = group[column].rolling(
@@ -938,7 +948,7 @@ def process_hour_harmonica(hour, group, column, interval):
         step=int(max(1, 1//interval)),
         min_periods=1
     ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
-    la95eq = equivalent_level(la95.dropna())
+    la95eq = compute_equivalent_level(la95.dropna())
 
     # Compute EVT, BGN, and HARMONICA
     evt = 0.2 * (la95eq - 30)
