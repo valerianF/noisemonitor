@@ -50,17 +50,18 @@ class NoiseMonitor:
 
     # Class methods
     @validate_interval("L10, L50, and L90")
-    def daily(
+    def daily_weekly_averages(
         self, 
         column: str, 
         hour1: int, 
         hour2: int, 
-        *args: Optional[pd.DataFrame], 
+        day1: Optional[str] = None, 
+        day2: Optional[str] = None, 
         win: int=3600, 
         step: int=0
     ) -> pd.DataFrame:
-        """Compute daily, sliding average of the sound level, in terms of
-        equivalent level (Leq), and percentiles (L10, L50 and L90).
+        """Compute daily or weekly sliding averages of the sound level, in 
+        terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
 
         Parameters
         ---------- 
@@ -72,9 +73,10 @@ class NoiseMonitor:
             hour (included) for the ending time of the daily average. 
             If hour2 > hour1 the average will be computed outside of 
             these hours.
-        *args: DataFrame
-            used as a pipeline for SoundLevel.weekly() function. Can be used 
-            to compute the daily average of a custom dataframe.
+        day1: Optional[str], default None
+            First day of the week included in the weekly average.
+        day2: Optional[str], default None
+            Last day of the week included in the weekly average.
         win: int, default 3600
             window size for the averaging function, in seconds.
         step: int, default 0
@@ -91,26 +93,25 @@ class NoiseMonitor:
         
         if step == 0:
             step = win
-        
+
+        temp = filter_by_days(self.df, day1, day2)
+
         NLim = ((hour2-hour1)%24*3600)//step + 1
 
-        dailymean = np.zeros(NLim)
-        dailyL10 = np.zeros(NLim)
-        dailyL50 = np.zeros(NLim)
-        dailyL90 = np.zeros(NLim)
-        dailytime = []
+        averages = {
+            'Leq': np.zeros(NLim),
+            'L10': np.zeros(NLim),
+            'L50': np.zeros(NLim),
+            'L90': np.zeros(NLim)
+        }
+        times = []
 
         for i in range(0, NLim):
             t = hour1*3600 + i*step + win//2
             t1 = hour1*3600 + i*step
             t2 = hour1*3600 + i*step + win
 
-            if not args:
-                temp = self.df
-            else:
-                temp = args[0]
-
-            temp = temp.between_time(
+            temp_slice = temp.between_time(
                 time(
                     hour=(t1//3600)%24, 
                     minute=(t1%3600)//60, 
@@ -122,26 +123,17 @@ class NoiseMonitor:
                     second=(t2%3600)%60
             ))
 
-            dailymean[i] = compute_equivalent_level(temp[column])
-            dailyL10[i] = np.nanpercentile(temp[column], 90)
-            dailyL50[i] = np.nanpercentile(temp[column], 50)
-            dailyL90[i] = np.nanpercentile(temp[column], 10)
-            dailytime.append(time(
+            averages['Leq'][i] = compute_equivalent_level(temp_slice[column])
+            averages['L10'][i] = np.nanpercentile(temp_slice[column], 90)
+            averages['L50'][i] = np.nanpercentile(temp_slice[column], 50)
+            averages['L90'][i] = np.nanpercentile(temp_slice[column], 10)
+            times.append(time(
                 hour=(t//3600)%24, 
                 minute=(t%3600)//60, 
                 second=(t%3600)%60
                 ))
 
-        dailymeandf = pd.DataFrame(
-            index=dailytime, 
-            data={
-                'Leq': dailymean, 
-                'L10': dailyL10, 
-                'L50': dailyL50, 
-                'L90': dailyL90
-            })
-
-        return dailymeandf
+        return pd.DataFrame(index=times, data=averages)
     
     def daily_weekly_harmonica(
             self, 
@@ -662,55 +654,6 @@ class NoiseMonitor:
             })
 
         return meandf
-    
-    
-    def weekly(
-        self, 
-        column: str, 
-        hour1: int, 
-        hour2: int, 
-        day1: str, 
-        day2: str, 
-        win: int = 3600, 
-        step: int = 0
-        ) -> pd.DataFrame:
-        """Compute weekly, sliding average of the sound level, in terms of
-        equivalent level (Leq), and percentiles (L10, L50 and L90). In other
-        terms, computes daily averages at specific days of the week.
-
-        Parameters
-        ---------- 
-        column: str
-            column name to use for calculations.
-        hour1: int, between 0 and 23
-            hour for the starting time of the daily average.
-        hour2: int, between 0 and 23
-            hour for the ending time of the daily average. Included in the 
-            computation. If hour2 > hour1 the average will be computed outside 
-            of these hours.
-        day1: str, a day of the week in english, case-insensitive
-            first day of the week included in the weekly average.
-        day2: str, a day of the week in english, case-insensitive
-            last (included) day of the week in the weekly average. If day2 
-            happens later in the week than day1 the average will be computed 
-            outside of these days.
-        win: int, default 3600
-            window size for the averaging function, in seconds.
-        step: int, default 0
-            step size to compute a sliding average. If set to 0 
-            (default value), the function will compute non-sliding 
-            averages.
-
-        Returns
-        ---------- 
-        DataFrame: dataframe containing time index and weekly averaged
-            Leq, L10, L50 and L90 at the corresponding columns.
-
-        """
-        temp = filter_by_days(self.df, day1, day2)
-            
-        return self.daily(column, hour1, hour2, temp, win=win, 
-                                  step=step)
     
 def compute_equivalent_level(array: np.array) -> float:
     """Compute the equivalent sound level from the input array."""
