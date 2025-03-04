@@ -13,7 +13,7 @@ class Rolling:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
 
-    @validate_interval("L10, L50, and L90")
+    @validate_interval("L10, L50, L90 or traffic noise indicators")
     def weekly_levels(
         self, 
         column: str, 
@@ -22,7 +22,8 @@ class Rolling:
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
         win: int=3600, 
-        step: int=0
+        step: int=0,
+        traffic_noise_indicators: bool = False
     ) -> pd.DataFrame:
         """Compute daily or weekly sliding averages of the sound level, in 
         terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
@@ -46,8 +47,12 @@ class Rolling:
         step: int, default 0
             step size to compute a sliding average. If set to 0 (default 
             value), the function will compute non-sliding averages.
+        compute_traffic_noise: bool, default False
+            if set to True, the function will compute traffic noise indicators 
+            Traffic Noise Index (Griffiths and Langdon, 1968) as well as the 
+            Noise Pollution Level (Robinson, 1971) in addition to the 
+            equivalent levels and percentiles.
 
-        
         Returns
         ---------- 
         DataFrame: dataframe containing time index and daily averaged
@@ -68,6 +73,11 @@ class Rolling:
             'L50': np.zeros(NLim),
             'L90': np.zeros(NLim)
         }
+
+        if traffic_noise_indicators:
+            averages['TNI'] = np.zeros(NLim)
+            averages['NPL'] = np.zeros(NLim)
+
         times = []
 
         for i in range(0, NLim):
@@ -91,6 +101,19 @@ class Rolling:
             averages['L10'][i] = np.nanpercentile(temp_slice[column], 90)
             averages['L50'][i] = np.nanpercentile(temp_slice[column], 50)
             averages['L90'][i] = np.nanpercentile(temp_slice[column], 10)
+
+            if traffic_noise_indicators:
+                L10 = averages['L10'][i]
+                L90 = averages['L90'][i]
+                Leq = averages['Leq'][i]
+                sigma_Leq = temp_slice[column].std()
+
+                # Traffic Noise Index (TNI)
+                averages['TNI'][i] = 4 * (L10 - L90) + L90 - 30
+
+                # Noise Pollution Level (NPL)
+                averages['NPL'][i] = Leq + 2.56 * sigma_Leq
+
             times.append(time(
                 hour=(t//3600)%24, 
                 minute=(t%3600)//60, 
