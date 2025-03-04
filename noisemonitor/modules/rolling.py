@@ -13,7 +13,8 @@ class Rolling:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
 
-    @validate_interval("L10, L50, L90 or traffic noise indicators")
+    @validate_interval("L10, L50, L90, traffic, and roughness noise "
+                       "indicators")
     def weekly_levels(
         self, 
         column: str, 
@@ -23,7 +24,8 @@ class Rolling:
         day2: Optional[str] = None, 
         win: int=3600, 
         step: int=0,
-        traffic_noise_indicators: bool = False
+        traffic_noise_indicators: bool = False,
+        roughness_indicators: bool = False
     ) -> pd.DataFrame:
         """Compute daily or weekly sliding averages of the sound level, in 
         terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
@@ -47,11 +49,15 @@ class Rolling:
         step: int, default 0
             step size to compute a sliding average. If set to 0 (default 
             value), the function will compute non-sliding averages.
-        compute_traffic_noise: bool, default False
+        traffic_noise_indicators: bool, default False
             if set to True, the function will compute traffic noise indicators 
             Traffic Noise Index (Griffiths and Langdon, 1968) as well as the 
             Noise Pollution Level (Robinson, 1971) in addition to the 
             equivalent levels and percentiles.
+        roughness_indicators: bool, default False
+            if set to True, the function will compute roughness indicators 
+            based on difference between consecutive LAeq,1s values according 
+            to (DeFrance et al., 2010).
 
         Returns
         ---------- 
@@ -75,8 +81,16 @@ class Rolling:
         }
 
         if traffic_noise_indicators:
-            averages['TNI'] = np.zeros(NLim)
-            averages['NPL'] = np.zeros(NLim)
+            averages.update({
+                'TNI': np.zeros(NLim),
+                'NPL': np.zeros(NLim)
+            })
+        if roughness_indicators:
+            averages.update({
+                'dLav': np.zeros(NLim),
+                'dLmax,1': np.zeros(NLim),
+                'dLmin,90': np.zeros(NLim)
+            })
 
         times = []
 
@@ -113,6 +127,12 @@ class Rolling:
 
                 # Noise Pollution Level (NPL)
                 averages['NPL'][i] = Leq + 2.56 * sigma_Leq
+
+            if roughness_indicators:
+                dL = np.abs(np.diff(temp_slice[column].dropna()))
+                averages['dLav'][i] = np.mean(dL)
+                averages['dLmax,1'][i] = np.mean(dL[dL >= np.percentile(dL, 99)])
+                averages['dLmin,90'][i] = np.mean(dL[dL <= np.percentile(dL, 10)])
 
             times.append(time(
                 hour=(t//3600)%24, 
