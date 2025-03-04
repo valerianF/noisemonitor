@@ -17,7 +17,8 @@ from noisemonitor.utilities.compute import (
 from noisemonitor.utilities.plotting import (
     plot_compare,
     plot_harmonica,
-    plot_levels
+    plot_levels,
+    plot_nday
 )
 from noisemonitor.utilities.process import (
     filter_data

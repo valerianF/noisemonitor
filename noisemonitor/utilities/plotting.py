@@ -175,7 +175,8 @@ def plot_levels(
         figsize: tuple = (10,8), 
         ax: matplotlib.axes.Axes = None,
         fill_between: bool = None, 
-        **kwargs) -> matplotlib.axes.Axes:
+        **kwargs
+) -> matplotlib.axes.Axes:
     """Plot columns of a dataframe according to the index, using matplotlib.
 
     Parameters
@@ -241,5 +242,81 @@ def plot_levels(
     plt.tight_layout()
     return ax
 
+def plot_nday(
+    nday_df: pd.DataFrame, 
+    bins: List[int], 
+    freq: str = 'D',
+    thresholds: List[int] = [55, 60, 65],
+    title: str = None,
+    figsize: tuple = (10,8)
+) -> None:
+    """Plots a histogram from the output of noisemonitor.indicators.nday() 
+    function with the number of days under a certain decibel range 
+    and a color coding corresponding to the indicated thresholds.
 
+    Parameters
+    ----------
+    nday_df: pd.DataFrame
+        DataFrame output from the nday() function with the number 
+        of days for each decibel range.
+    bins: list of int
+        List of decibel values to define the bins.
+    freq: str, default 'D'
+        Frequency for the label. 'D' for daily and 'W' for weekly.
+    thresholds: list of int, default [55, 60, 65]
+        Thresholds for color coding. 
+    title: str, optional
+        Title for the plot.
+    figsize: tuple, default (10,8)
+        Figure size in inches.
+
+    Returns
+    ----------
+    None
+    """
+    plt.rcParams.update({'font.size': 16})
+    fig, ax = plt.subplots(figsize=figsize)
+
+
+    bars = nday_df.plot(
+        kind='bar', 
+        width=0.8, 
+        zorder=3,
+        ax=ax,
+        legend=False
+    )
+
+    # Manually set the colors for each bar
+    for bar, value in zip(bars.patches, [0] + bins):
+        if value < thresholds[0]:
+            bar.set_color('#89dc35')
+        elif value < thresholds[1]:
+            bar.set_color('#dcdc35')
+        elif value < thresholds[2]:
+            bar.set_color('#dc8935')
+        else:
+            bar.set_color('#dc3535')
+
+    ax.grid(True, linestyle='--', zorder=0)
+    plt.xlabel('Decibel Range (dBA)')
+
+    if freq == 'D':
+        plt.ylabel('Number of Days')
+    elif freq == 'W':
+            plt.ylabel('Number of Weeks')   
+
+    # Set custom x-tick labels
+    ytick_labels = [f'<{bins[0]}'] + \
+        [f'{bins[i]}-{bins[i+1]}' for i in range(len(bins)-1)] + \
+        [f'>{bins[-1]}']
+    ax.set_xticklabels(ytick_labels)
+
+    if title is not None:
+        plt.title(title)
+
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    return
 

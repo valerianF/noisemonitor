@@ -4,7 +4,7 @@ import warnings
 import matplotlib.pyplot as plt
 
 from datetime import time
-from typing import Optional, Union, List
+from typing import Optional, List
 
 from noisemonitor.utilities.compute import harmonica, lden, equivalent_level
 from noisemonitor.utilities.process import filter_by_days, filter_by_hours
@@ -204,12 +204,8 @@ class Indicators:
         column: str, 
         indicator: str = 'Leq,24h', 
         bins: Optional[List[int]] = None,
-        thresholds: List[int] = [55, 60, 65],
-        plot: bool = False,
-        title: str = None,
-        figsize: tuple = (10,8), 
         freq: str = 'D'
-    ) -> Union[pd.DataFrame, None]:
+    ) -> pd.DataFrame:
         """Compute the number of days in a dataset for which the indicators 
         are between given values of decibels.
 
@@ -223,20 +219,12 @@ class Indicators:
         bins: list of int, optional
             List of decibel values to define the bins. By default: <40 dBA 
             and every 5 dBA until >=80 dBA.
-        thresholds: list of int, default [55, 60, 65]
-            Thresholds for color coding. 
-        plot: bool, default False
-            If set to True, the function will plot a histogram with color 
-            coding instead of returning a dataframe
-        figsize: tuple, default (10,8)
-            figure size in inches.
         freq: str, default 'D'
             Frequency for the computation. 'D' for daily and 'W' for weekly.
 
         Returns
         ----------
-        DataFrame or None: If plot is set to False, DataFrame with the number
-        of days for each decibel range.
+        DataFrame : DataFrame with the number of days for each decibel range.
         """
         if bins is None:
             bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]
@@ -264,46 +252,6 @@ class Indicators:
         counts_df = pd.DataFrame(counts).reset_index()
         counts_df.columns = ['Decibel Range', 'Number of Days']
 
-        # Plot the histogram if requested
-        if plot:
-            plt.figure(figsize=figsize)
-            plt.rcParams.update({'font.size': 16})
-
-            colors = ['#89dc35' if x.left < thresholds[0] \
-                      else '#dcdc35' if x.left < thresholds[1] \
-                      else '#dc8935' if x.left < thresholds[2] \
-                      else '#dc3535' for x in counts.index]
-
-            
-            ax = counts.plot(
-                kind='bar', 
-                color=colors, 
-                width=0.8, 
-                zorder=3
-                )
-            ax.grid(True, linestyle='--', zorder=0)
-            plt.xlabel('Decibel Range (dBA)')
-
-            if freq == 'D':
-                plt.ylabel('Number of Days')
-            elif freq == 'W':
-                plt.ylabel('Number of Weeks')            
-
-            # Set custom y-tick labels
-            ytick_labels = [f'<{bins[0]}'] + \
-                [f'{bins[i]}-{bins[i+1]}' for i in range(len(bins)-1)] + \
-                [f'>{bins[-1]}']
-            ax.set_xticklabels(ytick_labels)
-
-            if title is not None:
-                plt.title(title)
-
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            plt.show()
-
-            return
-
-        return counts_df
+        return counts_df, bins
     
     
