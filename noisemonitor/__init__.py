@@ -4,6 +4,11 @@
 from noisemonitor.modules.noisemonitor import NoiseMonitor
 from noisemonitor.modules.rolling import Rolling
 from noisemonitor.modules.indicators import Indicators
+from noisemonitor.modules.weather_can import (
+    get_historical_stations_can, 
+    get_historical_data_can,
+    merge_weather_can
+)
 
 # Import utility functions
 from noisemonitor.utilities.loading import load_data
@@ -21,7 +26,8 @@ from noisemonitor.utilities.plotting import (
     plot_nday
 )
 from noisemonitor.utilities.process import (
-    filter_data
+    filter_data,
+    filter_extreme_values
 )
 
 # Import decorators

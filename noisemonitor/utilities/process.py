@@ -121,6 +121,44 @@ def filter_data(
                         "argument should be indicated when creating the "
                         "NoiseMonitor instance.") from e
     
+def filter_extreme_values(
+    df: pd.DataFrame, 
+    column: str, 
+    min_value: int = 30, 
+    max_value: int = 100
+) -> pd.DataFrame:
+    """
+    Replace values in the specified column that are below min_value or 
+    above max_value with NaN.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the data.
+    column: str
+        The column name where the values need to be filtered.
+    min_value: int, default 30
+        The minimum value threshold.
+    max_value: int, default 95
+        The maximum value threshold.
+
+    Returns
+    ----------
+    pd.DataFrame: DataFrame with extreme values replaced by NaN.
+    """
+    initial_count = df[column].notna().sum()
+    df[column] = df[column].apply(
+        lambda x: x if min_value <= x <= max_value else np.nan
+    )
+
+    filtered_count = df[column].notna().sum()
+    filtered_out = initial_count - filtered_count
+    proportion_filtered = (filtered_out / initial_count) * 100
+
+    print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
+
+    return df
+    
 def week_indexes(
     day1: str, 
     day2: str
