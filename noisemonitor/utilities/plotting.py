@@ -8,7 +8,10 @@ import matplotlib.dates as mdates
 
 from matplotlib.patches import Polygon
 from datetime import datetime, time
-from typing import List
+from typing import List    
+from itertools import cycle
+
+from noisemonitor.modules.noisemonitor import NoiseMonitor
 
 def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
     """Get the datetime index for plotting.
@@ -319,4 +322,88 @@ def plot_nday(
     plt.show()
 
     return
+
+def plot_with_weather(
+    df: pd.DataFrame, 
+    column: str, 
+    win: int = None,
+    show_wind_spd_flag: bool = True,
+    show_rain_flag: bool = True,
+    show_rel_hum_flag: bool = False,
+    show_snow_flag: bool = False
+):
+    """
+    Plot sound levels with weather flags.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the data.
+    column: str
+        The column name for sound levels.
+    window_size: int, optional
+        The window size for rolling average. If None, no rolling average is applied.
+    show_wind_spd_flag: bool, default True
+        Whether to show the Wind Speed Flag.
+    show_rain_flag: bool, default True
+        Whether to show the Rain Flag.
+    show_rel_hum_flag: bool, default True
+        Whether to show the Relative Humidity Flag.
+    show_snow_flag: bool, default True
+        Whether to show the Snow Flag.
+
+    Returns
+    ----------
+    None
+    """
+
+    nm = NoiseMonitor(df)
+
+    if win:
+        levels = nm.rolling.overall_levels(column, win=win, step=0)
+        _column_p = 'Leq'
+        # Resample the weather data to match the window size
+        resample_rule = f'{win}S'
+        nm.df = nm.df.resample(resample_rule).mean(numeric_only=True)
+    else:
+        levels = nm.df
+        _column_p = column
+
+    plot_levels(
+        levels,
+        _column_p,
+        step=True,
+        title="Sound Levels with Weather Flags",
+        figsize=(12, 8)
+    )
+
+    sound_min = levels[_column_p].min()
+    sound_max = levels[_column_p].max()
+
+    flags = {
+        'Wind_Spd_Flag': show_wind_spd_flag,
+        'Rain_Flag_48h': show_rain_flag,
+        'Rel_Hum_Flag': show_rel_hum_flag,
+        'Snow_Flag_48h': show_snow_flag
+    }
+
+    linestyles = cycle(['--', ':', '-.', '-'])
+
+    for flag, show in flags.items():
+        if show:
+            normalized_flag = nm.df[flag].astype(int) * (
+                sound_max - sound_min) + sound_min
+            plt.step(
+                nm.df.index,
+                normalized_flag,
+                label=flag,
+                linestyle=next(linestyles),
+                alpha=0.5
+            )
+
+    # Add legend
+    plt.legend()
+
+    # Show plot
+    plt.show()
 
