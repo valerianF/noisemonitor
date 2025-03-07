@@ -169,9 +169,9 @@ class Rolling:
         ----------
         column: str
             Column name to use for calculations.
-        hour1: int, between 0 and 24
+        hour1: int, between 0 and 23
             hour for the starting time of the daily average.
-        hour2: int, between 0 and 24
+        hour2: int, between 0 and 23
             hour for the ending time of the daily average. If hour1 > hour2 
             the average will be computed outside of these hours.
         background_type: str
@@ -212,23 +212,18 @@ class Rolling:
 
         # Compute the expected number of values for each day
         freq = (temp_df.index[2] - temp_df.index[1])
-        if hour2 > hour1:
-            expected_intervals = pd.date_range(
-                start=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour1),
-                end=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour2),
-                freq=freq
-                )
-        elif hour1 > hour2:
-            expected_intervals = pd.date_range(
-                start=pd.Timestamp('2024-01-01') + pd.Timedelta(hours=hour1),
-                end=pd.Timestamp('2024-01-02') + pd.Timedelta(hours=hour2),
-                freq=freq
-                )
+        expected_intervals = pd.date_range(
+            start=temp_df.index.min().normalize(),
+            end=temp_df.index.min().normalize() + (
+                pd.Timedelta(hours=(hour2-hour1)%24)),
+            freq=freq
+        )
+
         expected_intervals_count = len(expected_intervals)
 
         for day, group in temp_df.groupby(temp_df.index.date):
-            # Check if the day has any NaN values or is missing data
-            if group[column].isna().any() or \
+            # Check if the day has more than 20% NaN values or is missing data
+            if group[column].isna().sum() / len(group) > 0.2 or \
                 len(group) != expected_intervals_count:
                 continue
 
