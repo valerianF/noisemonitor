@@ -5,9 +5,12 @@ publicly available weather stations.
 """
 
 import requests
+import asyncio
+import aiohttp
 import lxml.html
 import pandas as pd
 import warnings
+import numpy as np
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
@@ -147,7 +150,7 @@ def flip_daterange(f):
     return wrapper
 
 @flip_daterange
-def get_historical_data_can(
+async def get_historical_data_can(
     station_id: int,
     daterange=(
         _ONE_YEAR_AGO,
@@ -174,12 +177,12 @@ def get_historical_data_can(
     """
     df = pd.DataFrame()
 
-    startdate, stopdate = daterange
+    startdate, stopdate = pd.to_datetime(daterange)
     months = monthlist(daterange=daterange)
     _tf = {"hourly": 1, "daily": 2}
     timeframe = _tf[timeframe]
 
-    def _fetch_data(year, month):
+    async def _fetch_data(year, month):
         params = {
             "stationID": station_id,
             "Year": year,
@@ -189,20 +192,20 @@ def get_historical_data_can(
             "submit": "Download+Data",
         }
 
-        response = requests.get(
-            WEATHER_URL.format("e"),
-            params=params,
-            headers={"User-Agent": USER_AGENT},
-            timeout=10,
-        )
-        response.raise_for_status()
-        result = response.text
-        f = StringIO(result)
-        nonlocal df
-        df = pd.concat((df, pd.read_csv(f)))
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                WEATHER_URL.format("e"), 
+                params=params, 
+                headers={"User-Agent": USER_AGENT}
+                ) as response:
+                response.raise_for_status()
+                result = await response.text()
+                f = StringIO(result)
+                nonlocal df
+                df = pd.concat((df, pd.read_csv(f)))
 
-    for year, month in months:
-        _fetch_data(year, month)
+    tasks = [_fetch_data(year, month) for year, month in months]
+    await asyncio.gather(*tasks)
 
     df = df.set_index(
         df.filter(regex="Date/*", axis=1).columns.to_numpy()[0]
@@ -219,7 +222,7 @@ def get_historical_data_can(
 
     return df
 
-def merge_weather_can(
+async def merge_weather_can(
     df: pd.DataFrame, 
     station_id: int,
     wind_speed_flag: int = 18,
@@ -255,7 +258,7 @@ def merge_weather_can(
         df.index = pd.to_datetime(df.index)
 
     # Retrieve weather data
-    weather_df = get_historical_data_can(
+    weather_df = await get_historical_data_can(
         station_id=station_id,
         daterange=(df.index.min(), df.index.max()),
         timeframe="hourly"
@@ -274,7 +277,7 @@ def merge_weather_can(
 
     # Create flags
     weather_df['Wind_Spd_Flag'] = (
-        weather_df['Wind Spd (km/h)'] > wind_speed_flag
+        weather_df['Wind Spd (km/h)'] >= wind_speed_flag
     ).astype(bool)
     weather_df['Rain_Flag'] = (
         (weather_df['Precip. Amount (mm)'] > 0) & 
@@ -292,11 +295,11 @@ def merge_weather_can(
     ).astype(bool)
 
     # Apply rolling window for the past 48 hours (or days if daily data)
-    weather_df['Rain_Flag_48h'] = (
+    weather_df['Rain_Flag_Roll'] = (
         weather_df['Rain_Flag'].rolling(window=rolling_window, min_periods=1)
         .max().astype(bool)
     )
-    weather_df['Snow_Flag_48h'] = (
+    weather_df['Snow_Flag_Roll'] = (
         weather_df['Snow_Flag'].rolling(window=rolling_window, min_periods=1)
         .max().astype(bool)
     )
@@ -313,8 +316,8 @@ def merge_weather_can(
         "Snow_Flag", 
         "Temp_Flag", 
         "Rel_Hum_Flag",
-        "Rain_Flag_48h", 
-        "Snow_Flag_48h"
+        "Rain_Flag_Roll", 
+        "Snow_Flag_Roll"
     ]
     weather_df_selected = weather_df[weather_columns]
 
@@ -326,6 +329,12 @@ def merge_weather_can(
         right_index=True,
         direction='nearest'
     )
+
+    # Store the flag thresholds in the merged DataFrame
+    merged_df.attrs['wind_speed_flag'] = wind_speed_flag
+    merged_df.attrs['temp_range_flag'] = temp_range_flag
+    merged_df.attrs['hum_flag'] = hum_flag
+    merged_df.attrs['rolling_window_hours'] = rolling_window_hours
 
     return merged_df
 
@@ -347,6 +356,7 @@ def contingency_weather_flags(
     column: str, 
     include_wind_flag: bool = True, 
     include_rain_flag: bool = True, 
+    include_temp_flag: bool = False,
     include_rel_hum_flag: bool = False, 
     include_snow_flag: bool = False
 ) -> pd.DataFrame:
@@ -365,6 +375,8 @@ def contingency_weather_flags(
         Whether to include the Wind Speed Flag in the contingency table.
     include_rain_flag: bool, default True
         Whether to include the Rain Flag in the contingency table.
+    include_temp_flag: bool, default False
+        Whether to include the Temperature Flag in the contingency table.
     include_rel_hum_flag: bool, default False
         Whether to include the Relative Humidity Flag in the contingency table.
     include_snow_flag: bool, default False
@@ -377,9 +389,10 @@ def contingency_weather_flags(
     """
     flags = {
         'Wind_Spd_Flag': include_wind_flag,
-        'Rain_Flag_48h': include_rain_flag,
+        'Rain_Flag_Roll': include_rain_flag,
+        'Temp_Flag': include_temp_flag,
         'Rel_Hum_Flag': include_rel_hum_flag,
-        'Snow_Flag_48h': include_snow_flag
+        'Snow_Flag_Roll': include_snow_flag
     }
 
     _active_flags = {
@@ -401,7 +414,6 @@ def contingency_weather_flags(
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
         
-
         for key, df in subsets.items():
             nm_instance = NoiseMonitor(df)
             overall_leq = nm_instance.indicators.overall_leq(
@@ -420,13 +432,53 @@ def contingency_weather_flags(
     # Calculate the difference in levels compared with the full dataset
     full_data_levels = contingency_table.loc['All Data']
     for level in ['Leq', 'Lden']:
-        contingency_table[f'Diff {level}'
-                          ] = contingency_table[level]-full_data_levels[level]
+        contingency_table[f'Diff {level}'] = (
+            contingency_table[level] - full_data_levels[level]
+        )
 
     total_data_points = len(subsets['All Data'][column])
     contingency_table['Covered data (%)'] = contingency_table.index.map(
-        lambda x: round((len(subsets[x][column]) / total_data_points) * 100)
+        lambda x: np.round(((len(subsets[x][column]) / total_data_points) * 100), 1), 
     )
 
-    return contingency_table
-     
+    # Rename columns based on flag thresholds
+    wind_speed_flag = df.attrs.get('wind_speed_flag', 18)
+    temp_range_flag = df.attrs.get('temp_range_flag', (-10, 30))
+    hum_flag = df.attrs.get('hum_flag', 90)
+    rolling_window_hours = df.attrs.get('rolling_window_hours', 48)
+
+    row_rename_map = {
+        'Wind_Spd_Flag': f'Wind speed >= {wind_speed_flag} km/h',
+        'No Wind_Spd_Flag': 'No Flag - Wind',
+        'Rain_Flag_Roll': f'Rain in the last {rolling_window_hours}h',
+        'No Rain_Flag_Roll': 'No Flag - Rain',
+        'Temp_Flag': f'Temperature below {temp_range_flag[0]}°C or above {temp_range_flag[1]}°C',
+        'No Temp_Flag': 'No Flag - Temperature',
+        'Rel_Hum_Flag': f'Humidity above {hum_flag}%',
+        'No Rel_Hum_Flag': 'No Flag - Humidity',
+        'Snow_Flag_Roll': f'Snow in the last {rolling_window_hours}h',
+        'No Snow_Flag_Roll': 'No Flag - Snow'
+    }
+
+    contingency_table.rename(index=row_rename_map, inplace=True)
+
+    # Reorder rows
+    row_order = [
+        'All Data',
+        f'Wind speed >= {wind_speed_flag} km/h',
+        f'Rain in the last {rolling_window_hours}h',
+        f'Temperature below {temp_range_flag[0]}°C or above {temp_range_flag[1]}°C',
+        f'Humidity above {hum_flag}%',
+        f'Snow in the last {rolling_window_hours}h',
+        'No Flag - Wind',
+        'No Flag - Rain',
+        'No Flag - Temperature',
+        'No Flag - Humidity',
+        'No Flag - Snow',
+        'All Flags',
+        'Neither Flags'
+    ]
+
+    contingency_table = contingency_table.reindex(row_order)
+
+    return contingency_table.dropna()

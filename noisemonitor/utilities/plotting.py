@@ -327,10 +327,11 @@ def plot_with_weather(
     df: pd.DataFrame, 
     column: str, 
     win: int = None,
-    show_wind_spd_flag: bool = True,
-    show_rain_flag: bool = True,
-    show_rel_hum_flag: bool = False,
-    show_snow_flag: bool = False
+    include_wind_flag: bool = True,
+    include_rain_flag: bool = True,
+    include_temp_flag: bool = False,
+    include_rel_hum_flag: bool = False,
+    include_snow_flag: bool = False
 ):
     """
     Plot sound levels with weather flags.
@@ -349,6 +350,8 @@ def plot_with_weather(
         Whether to show the Rain Flag.
     show_rel_hum_flag: bool, default True
         Whether to show the Relative Humidity Flag.
+    show_temp_flag: bool, default False
+        Whether to show the Temperature Flag.
     show_snow_flag: bool, default True
         Whether to show the Snow Flag.
 
@@ -381,10 +384,11 @@ def plot_with_weather(
     sound_max = levels[_column_p].max()
 
     flags = {
-        'Wind_Spd_Flag': show_wind_spd_flag,
-        'Rain_Flag_48h': show_rain_flag,
-        'Rel_Hum_Flag': show_rel_hum_flag,
-        'Snow_Flag_48h': show_snow_flag
+        'Wind_Spd_Flag': include_wind_flag,
+        'Rain_Flag_Roll': include_rain_flag,
+        'Rel_Hum_Flag': include_rel_hum_flag,
+        'Snow_Flag_Roll': include_snow_flag,
+        'Temp_Flag': include_temp_flag
     }
 
     linestyles = cycle(['--', ':', '-.', '-'])
@@ -398,7 +402,7 @@ def plot_with_weather(
                 normalized_flag,
                 label=flag,
                 linestyle=next(linestyles),
-                alpha=0.5
+                alpha=0.7
             )
 
     # Add legend
@@ -406,4 +410,91 @@ def plot_with_weather(
 
     # Show plot
     plt.show()
+
+def plot_compare_weather_daily(
+    df: pd.DataFrame,
+    column: str,
+    include_wind_flag: bool = True,
+    include_rain_flag: bool = True,
+    include_temp_flag: bool = False,
+    include_rel_hum_flag: bool = False,
+    include_snow_flag: bool = False,
+    win: int = 3600,
+    step: int = 1200,
+    title: str = "Daily Leq Profiles for Different Weather Conditions",
+    figsize: tuple = (12, 8)
+):
+    """
+    Compare daily level profiles with or without flags.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the data.
+    column: str
+        The column name for sound levels.
+    include_wind_flag: bool, default True
+        Whether to include the Wind Speed Flag.
+    include_rain_flag: bool, default True
+        Whether to include the Rain Flag.
+    include_temp_flag: bool, default False
+        Whether to include the Temperature Flag.
+    include_rel_hum_flag: bool, default False
+        Whether to include the Relative Humidity Flag.
+    include_snow_flag: bool, default False
+        Whether to include the Snow Flag.
+    win: int, default 3600
+        The window size for rolling average.
+    step: int, default 1200
+        The step size for rolling average.
+    title: str, default "Daily Leq Profiles for Different Conditions"
+        The title of the plot.
+    figsize: tuple, default (12, 8)
+        The size of the plot.
+
+    Returns
+    ----------
+    None
+    """
+
+    flags = {
+        'Wind_Spd_Flag': include_wind_flag,
+        'Rain_Flag_Roll': include_rain_flag,
+        'Temp_Flag': include_temp_flag,
+        'Rel_Hum_Flag': include_rel_hum_flag,
+        'Snow_Flag_Roll': include_snow_flag
+    }
+
+    _active_flags = {flag: include for flag, include in flags.items() if include}
+
+    subsets = {
+        'All Data': df
+    }
+
+    for flag in _active_flags:
+        subsets[f'No {flag}'] = df[~df[flag]]
+        subsets[flag] = df[df[flag]]
+
+    subsets['All Flags'] = df[df[list(_active_flags.keys())].any(axis=1)]
+    subsets['Neither Flags'] = df[~df[list(_active_flags.keys())].any(axis=1)]
+
+    weekly_levels = {}
+    for key, subset_df in subsets.items():
+        nm_instance = NoiseMonitor(subset_df)
+        weekly_levels[key] = nm_instance.rolling.weekly_levels(
+            column, 
+            1, 
+            23, 
+            win=win, 
+            step=step
+            )
+
+    # Plot daily Leq profiles using nm.plot_compare
+    plot_compare(
+        list(weekly_levels.values()),
+        list(weekly_levels.keys()),
+        column,
+        title=title,
+        figsize=figsize
+    )
 
