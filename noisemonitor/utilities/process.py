@@ -177,6 +177,61 @@ def week_indexes(
     d2 = week.index(day2)
     return d1, d2
 
+def filter_weather_flags(
+    df: pd.DataFrame, 
+    column: str, 
+    filter_wind_flag: bool = True,
+    filter_rain_flag: bool = True,
+    filter_temp_flag: bool = False,
+    filter_rel_hum_flag: bool = False,
+    filter_snow_flag: bool = False
+) -> pd.DataFrame:
+    """
+    Replace values in the specified column with NaN based on weather flags.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the data.
+    column: str
+        The column name where the values need to be filtered.
+    include_wind_flag: bool, default False
+        Whether to filter data with Wind Speed Flag.
+    include_rain_flag: bool, default True
+        Whether to filter data with Rain Flag.
+    include_temp_flag: bool, default False
+        Whether to filter data with Temperature Flag.
+    include_rel_hum_flag: bool, default False
+        Whether to filter data with Relative Humidity Flag.
+    include_snow_flag: bool, default False
+        Whether to filter data with Snow Flag.
+
+    Returns
+    ----------
+    pd.DataFrame: DataFrame with flagged values replaced by NaN.
+    """
+    flags = {
+        'Wind_Spd_Flag': filter_wind_flag,
+        'Rain_Flag_Roll': filter_rain_flag,
+        'Temp_Flag': filter_temp_flag,
+        'Rel_Hum_Flag': filter_rel_hum_flag,
+        'Snow_Flag_Roll': filter_snow_flag
+    }
+
+    initial_count = df[column].notna().sum()
+
+    for flag, include in flags.items():
+        if include and flag in df.columns:
+            df.loc[df[flag], column] = np.nan
+
+    filtered_count = df[column].notna().sum()
+    filtered_out = initial_count - filtered_count
+    proportion_filtered = (filtered_out / initial_count) * 100
+
+    print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
+
+    return df
+
 
 
 

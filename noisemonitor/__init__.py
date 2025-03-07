@@ -30,7 +30,8 @@ from noisemonitor.utilities.plotting import (
 )
 from noisemonitor.utilities.process import (
     filter_data,
-    filter_extreme_values
+    filter_extreme_values,
+    filter_weather_flags
 )
 
 # Import decorators

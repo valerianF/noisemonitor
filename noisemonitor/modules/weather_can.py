@@ -281,7 +281,7 @@ async def merge_weather_can(
     ).astype(bool)
     weather_df['Rain_Flag'] = (
         (weather_df['Precip. Amount (mm)'] > 0) & 
-        weather_df['Weather'].str.contains('Rain', na=False)
+        weather_df['Weather'].fillna('').str.contains('Rain')
     ).astype(bool)
     weather_df['Snow_Flag'] = (
         weather_df['Weather'].fillna('').str.contains('Snow')
