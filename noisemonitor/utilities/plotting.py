@@ -414,6 +414,7 @@ def plot_with_weather(
 def plot_compare_weather_daily(
     df: pd.DataFrame,
     column: str,
+    show: str = 'Leq', 
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
     include_temp_flag: bool = False,
@@ -432,7 +433,9 @@ def plot_compare_weather_daily(
     df: pd.DataFrame
         DataFrame containing the data.
     column: str
-        The column name for sound levels.
+        The column name for sound levels computation.
+    show: str, default 'Leq'
+        Column names to be plotted.
     include_wind_flag: bool, default True
         Whether to include the Wind Speed Flag.
     include_rain_flag: bool, default True
@@ -493,7 +496,7 @@ def plot_compare_weather_daily(
     plot_compare(
         list(weekly_levels.values()),
         list(weekly_levels.keys()),
-        column,
+        show,
         title=title,
         figsize=figsize
     )
