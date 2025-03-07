@@ -7,7 +7,8 @@ from noisemonitor.modules.indicators import Indicators
 from noisemonitor.modules.weather_can import (
     get_historical_stations_can, 
     get_historical_data_can,
-    merge_weather_can
+    merge_weather_can,
+    contingency_weather_flags
 )
 
 # Import utility functions

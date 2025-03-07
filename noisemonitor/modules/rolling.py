@@ -13,6 +13,7 @@ class Rolling:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
 
+    @validate_column
     @validate_interval("L10, L50, L90, traffic, and roughness noise "
                        "indicators")
     def weekly_levels(
@@ -287,7 +288,7 @@ class Rolling:
         win: int = 3600, 
         step: int = 0, 
         start_at_midnight: bool = False
-        ) -> pd.DataFrame:
+    ) -> pd.DataFrame:
         """Sliding average of the entire sound level array, in terms of
         equivalent level (LEQ), and percentiles (L10, L50 and L90).
 

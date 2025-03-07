@@ -14,13 +14,14 @@ class Indicators:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
     
+    @validate_column
     def weekly_harmonica(
-            self, 
-            column: str, 
-            use_chunks: bool = True,
-            day1: Optional[str] = None,
-            day2: Optional[str] = None
-            ) -> pd.DataFrame:
+        self, 
+        column: str, 
+        use_chunks: bool = True,
+        day1: Optional[str] = None,
+        day2: Optional[str] = None
+    ) -> pd.DataFrame:
         """Compute the average HARMONICA indicators for each hour of a day.
 
         Parameters
@@ -113,7 +114,7 @@ class Indicators:
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
         values: bool=True
-        ) -> pd.DataFrame:
+    ) -> pd.DataFrame:
         """Return the Lden, a descriptor of noise level based on Leq over
         a whole day with a penalty for evening (19h-23h) and night (23h-7h)
         time noise. By default, an average Lden is computed that is 
@@ -153,7 +154,7 @@ class Indicators:
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
         stats: bool = True
-        ) -> pd.DataFrame:
+    ) -> pd.DataFrame:
         """Return the equivalent level (and optionally statistical indicators)
         between two hours of the day. Can return a value corresponding to 
         specific days of the week.
@@ -199,6 +200,7 @@ class Indicators:
             })
         return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
     
+    @validate_column
     def nday(
         self, 
         column: str, 
@@ -252,6 +254,5 @@ class Indicators:
         counts_df = pd.DataFrame(counts).reset_index()
         counts_df.columns = ['Decibel Range', 'Number of Days']
 
-        return counts_df, bins
-    
+        return counts_df, bins   
     

@@ -7,12 +7,15 @@ publicly available weather stations.
 import requests
 import lxml.html
 import pandas as pd
+import warnings
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from io import StringIO
 
 from typing import List
+
+from noisemonitor.modules.noisemonitor import NoiseMonitor
 
 USER_AGENT = "env_canada/0.8.0"
 
@@ -338,3 +341,92 @@ def monthlist(daterange):
         y, m = divmod(tot_m, 12)
         mlist.append((y, m + 1))
     return mlist
+
+def contingency_weather_flags(
+    df: pd.DataFrame,
+    column: str, 
+    include_wind_flag: bool = True, 
+    include_rain_flag: bool = True, 
+    include_rel_hum_flag: bool = False, 
+    include_snow_flag: bool = False
+) -> pd.DataFrame:
+    """
+    Create a contingency table for LAeq, Lden, Lday, Levening, and Lnight 
+    with and without the different weather flags.
+
+    Parameters
+    ----------
+    df: DataFrame
+        Input DataFrame with a datetime index. Typically, the output of
+        merge_weather_can().
+    column: str
+        Column name to use for calculations.
+    include_wind_flag: bool, default True
+        Whether to include the Wind Speed Flag in the contingency table.
+    include_rain_flag: bool, default True
+        Whether to include the Rain Flag in the contingency table.
+    include_rel_hum_flag: bool, default False
+        Whether to include the Relative Humidity Flag in the contingency table.
+    include_snow_flag: bool, default False
+        Whether to include the Snow Flag in the contingency table.
+
+    Returns
+    ----------
+    pd.DataFrame: Contingency table with LAeq,24h, Lden, Lday, Levening, Lnight, 
+    and the proportion of data covered from the initial dataset.
+    """
+    flags = {
+        'Wind_Spd_Flag': include_wind_flag,
+        'Rain_Flag_48h': include_rain_flag,
+        'Rel_Hum_Flag': include_rel_hum_flag,
+        'Snow_Flag_48h': include_snow_flag
+    }
+
+    _active_flags = {
+        flag: include for flag, include in flags.items() if include}
+
+    subsets = {
+        'All Data': df
+    }
+
+    for flag in _active_flags:
+        subsets[f'No {flag}'] = df[~df[flag]]
+        subsets[flag] = df[df[flag]]
+
+    subsets['All Flags'] = df[df[list(_active_flags.keys())].any(axis=1)]
+    subsets['Neither Flags'] = df[~df[list(_active_flags.keys())].any(axis=1)]
+
+    results = {}
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        
+
+        for key, df in subsets.items():
+            nm_instance = NoiseMonitor(df)
+            overall_leq = nm_instance.indicators.overall_leq(
+                column, 
+                hour1=0, 
+                hour2=24
+                )
+            overall_lden = nm_instance.indicators.overall_lden(column)
+            results[key] = {
+                'Leq': overall_leq['leq'][0],
+                'Lden': overall_lden['lden'][0]
+            }
+    
+    contingency_table = pd.DataFrame(results).T
+
+    # Calculate the difference in levels compared with the full dataset
+    full_data_levels = contingency_table.loc['All Data']
+    for level in ['Leq', 'Lden']:
+        contingency_table[f'Diff {level}'
+                          ] = contingency_table[level]-full_data_levels[level]
+
+    total_data_points = len(subsets['All Data'][column])
+    contingency_table['Covered data (%)'] = contingency_table.index.map(
+        lambda x: round((len(subsets[x][column]) / total_data_points) * 100)
+    )
+
+    return contingency_table
+     
