@@ -1,7 +1,8 @@
 """
 This chunk of code is derived from the pip package env_canada version 0.8.0.
 It allows to retrieve historical weather data from environment canada's 
-publicly available weather stations. 
+publicly available weather stations 
+(see https://climate.weather.gc.ca/historical_data/). 
 """
 
 import requests
@@ -231,8 +232,8 @@ async def merge_weather_can(
     rolling_window_hours: int = 48
 ) -> pd.DataFrame:
     """
-    Merge weather data with the input DataFrame based on the datetime index.
-    Will also include flags for weather conditions.
+    Async function. Merge weather data with the input DataFrame based on the 
+    datetime index. Will also include flags for weather conditions.
 
     Parameters
     ----------

@@ -222,9 +222,8 @@ class Rolling:
         expected_intervals_count = len(expected_intervals)
 
         for day, group in temp_df.groupby(temp_df.index.date):
-            # Check if the day has more than 20% NaN values or is missing data
-            if group[column].isna().sum() / len(group) > 0.2 or \
-                len(group) != expected_intervals_count:
+            # Check if the day is missing data
+            if len(group) != expected_intervals_count:
                 continue
 
             day_event_counts = np.zeros(NLim)
