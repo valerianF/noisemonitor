@@ -111,13 +111,18 @@ def convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
     
     return x.to_pydatetime()
     
-def plot_harmonica(df: pd.DataFrame) -> None:
+def plot_harmonica(
+        df: pd.DataFrame,
+        title: str = "HARMONICA Index Plot"
+) -> None:
     """Plot the HARMONICA index.
 
     Parameters
     ----------
     df: pd.DataFrame
         DataFrame containing the HARMONICA indicators.
+    title: str, default "HARMONICA Index Plot"
+        Title for the plot.
     """
     # Raise an error if the DataFrame length is not 24
     if len(df) != 24:
@@ -127,15 +132,20 @@ def plot_harmonica(df: pd.DataFrame) -> None:
 
 
     # Plot the HARMONICA index
-    plt.figure(figsize=(12, 5))
+    plt.figure(figsize=(10, 5))
     plt.rcParams.update({'font.size': 16})
 
     ax = plt.gca()
     ax.grid(linestyle='--', zorder=0) 
 
+    df = pd.concat([
+        df[(df.index >= time(22, 0)) & (df.index <= time(23, 59))],
+        df[(df.index >= time(0, 0)) & (df.index < time(22, 0))]
+    ])
+
     for hour, row in df.iterrows():
         hour = hour.hour
-        if 6 < hour < 22:
+        if 6 <= hour < 22:
             if row['HARMONICA'] < 4:
                 color = 'green'
             elif 4 <= row['HARMONICA'] < 8:
@@ -161,16 +171,19 @@ def plot_harmonica(df: pd.DataFrame) -> None:
         )
         ax.add_patch(triangle)
 
-    # Set x-ticks every 3 hours with ':00' added to every tick
-    ax.set_xticks(range(0, 24, 3))
-    ax.set_xticklabels([f'{hour}h' for hour in range(0, 24, 3)])
+    reordered_hours = [22] + list(range(0, 22, 2))
+    ax.set_xticks(range(0, 24, 2))
+    ax.set_xticklabels([f'{hour}h' for hour in reordered_hours])
+
+    ax.axvspan(-0.5, 7.5, color="lightskyblue", alpha=1, zorder=0)
 
     if df['HARMONICA'].max() <= 10:
         plt.ylim(0, 10)
 
+    plt.xlim(-0.5, 23.5)
     plt.xlabel('Hour')
     plt.ylabel('HARMONICA Index')
-    plt.title('HARMONICA Index Plot')
+    plt.title(title)
     plt.grid(linestyle='--', zorder=3)
     plt.tight_layout()
     plt.show()
@@ -269,13 +282,20 @@ def plot_levels(
 
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         ax.figure.autofmt_xdate()
-        ax.set_xlabel('Date (y-m-d)')
+        if (x[1] - x[0]).days < 30:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            ax.set_xlim(x[0], x[-1]) 
+        else: 
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+        ax.set_xlabel('Date')
     elif isinstance(df.index[0], time):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         ax.set_xlabel('Time (h:m)')
+        ax.set_xlim(x[0], x[-1])
 
     ax.set_ylabel(ylabel)
-    ax.set_xlim(x[0], x[-1])
+
 
     if "ylim" in kwargs:
         ax.set_ylim(kwargs["ylim"])
@@ -291,13 +311,13 @@ def plot_levels(
         custom_patches = []
         if day_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="lightyellow", label="Day (7-19h)"))
+                color="lightyellow", label="Day"))
         if evening_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="bisque", label="Evening (19-23h)"))
+                color="bisque", label="Evening"))
         if night_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="lightblue", label="Night (23-7h)"))
+                color="lightblue", label="Night"))
         if custom_patches != []:    
             handles.extend(custom_patches)
 
