@@ -67,7 +67,8 @@ class Indicators:
         column: str
             Column name to use for calculations.
         freq: str, default 'D'
-            frequency for the computation. 'D' for daily and 'W' for weekly.
+            frequency for the computation. 'D' for daily, 'W' for weekly, and
+            'M' for monthly.
         values: bool, default False
             if set to True, the function will return individual day, evening
             and night values in addition to the lden.
@@ -81,11 +82,13 @@ class Indicators:
 
         if freq == 'D':
             resampled = self._noise_monitor.df.resample('D')
+        elif freq == 'M':
+            resampled = self._noise_monitor.df.resample('MS')
         elif freq == 'W':
             resampled = self._noise_monitor.df.resample('W-MON')
         else:
-            raise ValueError("Invalid frequency. Use 'D' for daily or 'W' for" 
-                             " weekly.")
+            raise ValueError("Invalid frequency. Use 'D' for daily, 'W' for" 
+                             " weekly or 'M' for monthly.")
 
         for period, group in resampled:
             if len(group) > 0:

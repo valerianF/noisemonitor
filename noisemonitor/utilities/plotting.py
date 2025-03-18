@@ -1,5 +1,6 @@
 """ Functions used to plot data.
 """
+import warnings
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -41,6 +42,7 @@ def plot_compare(
     ylabel: str = "Sound Level (dBA)",
     weighting: str = "A", 
     step: bool = False, 
+    show_points: bool = False, 
     figsize: tuple = (10,8), 
     fill_between: bool = None, 
     **kwargs
@@ -57,6 +59,8 @@ def plot_compare(
         list of labels for each DataFrame.
     step: bool, default False
         if set to True, will plot the data as a step function.
+    show_points: bool, default False
+        if True, scatter points will be added on top of the line plots.
     figsize: tuple, default (10,8)
         figure size in inches.
     fill_between: list of tuples, default None
@@ -75,7 +79,8 @@ def plot_compare(
 
     for df, label in zip(dfs, labels):
         for arg in args:
-            ax = plot_levels(df, arg, ylabel=ylabel, weighting=weighting, step=step,
+            ax = plot_levels(df, arg, ylabel=ylabel, weighting=weighting, 
+                            step=step, show_points=show_points,
                             figsize=figsize, ax=ax, fill_between=fill_between,
                             **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
@@ -175,6 +180,8 @@ def plot_levels(
         *args: str, 
         ylabel: str = "Sound Level (dBA)", 
         step: bool = False, 
+        show_points: bool = False, 
+        fill_background: bool = False, 
         figsize: tuple = (10,8), 
         ax: matplotlib.axes.Axes = None,
         fill_between: bool = None, 
@@ -193,7 +200,15 @@ def plot_levels(
     ylabel: str, default "Sound Level (dBA)"
         label for the y-axis.
     step: bool, default False
-        if set to True, will plot the data as a step function.
+        if True, will plot the data as a step function.
+    show_points: bool, default False
+        if True, scatter points will be added on top of the line plots.
+    fill_background: bool, default False
+        If True, fills the background with colors based on the time of day:
+        - Day (7-19h): Light yellow
+        - Evening (19-23h): Light orange
+        - Night (23-7h): Light blue
+        Only applied for temporal resolutions > 6/day.
     figsize: tuple, default (10,8)
         figure size in inches.
     ax: matplotlib.axes.Axes, default None
@@ -213,11 +228,38 @@ def plot_levels(
         plt.rcParams.update({'font.size': 16})
         fig, ax = plt.subplots(figsize=figsize)
 
+    # Check temporal resolution and raise a warning if > 4 hours
+    resolution = (x[1] - x[0]).total_seconds() / 3600
+    if fill_background and resolution >= 4:
+        warnings.warn("Background filling is only applied for temporal "
+                      "resolutions > 6/day.")
+        fill_background = False
+
+    if fill_background:
+        day_patch = None
+        evening_patch = None
+        night_patch = None
+        for i in range(len(x) - 1):
+            start_time = x[i].time()
+            if time(7, 0) <= start_time < time(19, 0):
+                day_patch = ax.axvspan(x[i], x[i + 1], 
+                                    color="ivory", alpha=1, zorder=0)
+            elif time(19, 0) <= start_time < time(23, 0):
+                evening_patch = ax.axvspan(x[i], x[i + 1], 
+                                    color="papayawhip", alpha=1, zorder=0)
+            else:
+                night_patch = ax.axvspan(x[i], x[i + 1], 
+                                    color="aliceblue", alpha=1, zorder=0)
+
     for i in range(0, len(args)):
         if step:
-            ax.step(x, df.loc[:, args[i]], label=args[i])
+            line, = ax.step(x, df.loc[:, args[i]], label=args[i])
         else:
-            ax.plot(x, df.loc[:, args[i]], label=args[i])
+            line, = ax.plot(x, df.loc[:, args[i]], label=args[i])
+
+        if show_points:
+            ax.scatter(x, df.loc[:, args[i]], color=line.get_color(), s=15,
+                zorder=3)
 
     if fill_between:
         for lower, upper, column in fill_between:
@@ -233,14 +275,34 @@ def plot_levels(
         ax.set_xlabel('Time (h:m)')
 
     ax.set_ylabel(ylabel)
+    ax.set_xlim(x[0], x[-1])
 
     if "ylim" in kwargs:
         ax.set_ylim(kwargs["ylim"])
     if "title" in kwargs:
         ax.set_title(kwargs["title"])
 
-    ax.grid(linestyle='--')
-    ax.legend()
+    ax.grid(linestyle='--', zorder=1)
+
+    handles, labels = ax.get_legend_handles_labels()
+
+    # Add a legend for the background colors
+    if fill_background:
+        custom_patches = []
+        if day_patch:
+            custom_patches.append(matplotlib.patches.Patch(
+                color="lightyellow", label="Day (7-19h)"))
+        if evening_patch:
+            custom_patches.append(matplotlib.patches.Patch(
+                color="bisque", label="Evening (19-23h)"))
+        if night_patch:
+            custom_patches.append(matplotlib.patches.Patch(
+                color="lightblue", label="Night (23-7h)"))
+        if custom_patches != []:    
+            handles.extend(custom_patches)
+
+    ax.legend(handles=handles)
+
     plt.xticks(rotation=45)
     plt.tight_layout()
     return ax
