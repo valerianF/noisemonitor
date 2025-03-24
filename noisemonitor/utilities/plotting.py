@@ -311,13 +311,13 @@ def plot_levels(
         custom_patches = []
         if day_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="lightyellow", label="Day"))
+                color="ivory", label="Day"))
         if evening_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="bisque", label="Evening"))
+                color="papayawhip", label="Evening"))
         if night_patch:
             custom_patches.append(matplotlib.patches.Patch(
-                color="lightblue", label="Night"))
+                color="aliceblue", label="Night"))
         if custom_patches != []:    
             handles.extend(custom_patches)
 
