@@ -42,32 +42,46 @@ def harmonica(
         warnings.warn("Computing the HARMONICA indicator should be done with "
                       "an integration time equal to or below 1s. Results might"
                       " not be valid.\n")
+        
+    results = []
+    previous_data = pd.DataFrame() 
 
     if use_chunks:
-        results = []
         with ProcessPoolExecutor() as executor:
-            futures = [executor.submit(
-                hourly_harmonica, 
-                hour, 
-                group, 
-                column, 
-                interval) for hour, group in df.resample('H')]
+            futures = []
+            for hour, group in df.resample('H'):
+                futures.append(executor.submit(
+                    hourly_harmonica, 
+                    hour, 
+                    group, 
+                    column, 
+                    interval, 
+                    previous_data
+                ))
+                previous_data = group
 
             for future in as_completed(futures):
                 results.append(future.result())
-    else: 
-        results = [hourly_harmonica(
-            hour, 
-            group, 
-            column, 
-            interval) for hour, group in df.resample('H')]
+    else:
+        for hour, group in df.resample('H'):
+            results.append(hourly_harmonica(
+                hour, 
+                group, 
+                column, 
+                interval, 
+                previous_data
+            ))
+            previous_data = group
 
     return pd.DataFrame(results).set_index('hour')
 
-def hourly_harmonica(hour, group, column, interval):
+def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
+    # Combine the current hour's data with the previous hour 
+    combined_data = pd.concat([previous_data, group])
+
     if (len(group) != 3600 // interval) or \
-        (group.isna().sum().sum() / len(group) > 0.2):
+    (group[column].isna().sum().sum() / len(group) > 0.2):
         return {
             'hour': hour, 
             'EVT': np.nan, 
@@ -79,11 +93,12 @@ def hourly_harmonica(hour, group, column, interval):
     laeq = equivalent_level(group[column])
 
     # Compute LA95eq for the hour using a rolling window
-    la95 = group[column].rolling(
+    la95 = combined_data[column].rolling(
         window=int(600 // interval),
-        step=int(max(1, 1//interval)),
-        min_periods=1
+        step=int(max(1, 1//interval))
     ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
+    
+    la95 = la95.loc[group.index]
     la95eq = equivalent_level(la95.dropna())
 
     # Compute EVT, BGN, and HARMONICA
