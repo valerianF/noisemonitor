@@ -77,7 +77,12 @@ def harmonica(
 
 def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
-    # Combine the current hour's data with the previous hour 
+    # Filter previous_data to include only the last 10 minutes
+    if not previous_data.empty:
+        start_time = group.index[0] - pd.Timedelta(minutes=10)
+        previous_data = previous_data.loc[previous_data.index >= start_time]
+
+    # Combine the current hour's data with the filtered previous data
     combined_data = pd.concat([previous_data, group])
 
     if (len(group) != 3600 // interval) or \
@@ -97,7 +102,7 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
         window=int(600 // interval),
         step=int(max(1, 1//interval))
     ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
-    
+
     la95 = la95.loc[group.index]
     la95eq = equivalent_level(la95.dropna())
 
