@@ -35,6 +35,37 @@ def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
         raise TypeError(f'DataFrame index must be of type datetime, \
                         time or pd.Timestamp not {type(df.index[0])}')
     
+def format_time_axis(ax, x, df) -> None:
+    """
+    Format the time axis for a plot.
+
+    Parameters
+    ----------
+    ax: matplotlib.axes.Axes
+        The axes object to format.
+    x: array-like
+        The datetime or time index for the x-axis.
+    df: DataFrame
+        The DataFrame containing the data.
+
+    Returns
+    ----------
+    None
+    """
+    if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
+        ax.figure.autofmt_xdate()
+        if (x[1] - x[0]).days < 30:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        else:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+        ax.set_xlim(x[0], x[-1])
+        ax.set_xlabel('Date')
+    elif isinstance(df.index[0], time):
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlim(x[0], x[-1])
+        ax.set_xlabel('Time')
+    
 def plot_compare(
     dfs: List[pd.DataFrame], 
     labels: List[str], 
@@ -280,19 +311,7 @@ def plot_levels(
                 ax.fill_between(x, df[lower], df[upper], alpha=0.15,
                                 label=f"{column} - {lower} to {upper}")
 
-    if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
-        ax.figure.autofmt_xdate()
-        if (x[1] - x[0]).days < 30:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            ax.set_xlim(x[0], x[-1]) 
-        else: 
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-        ax.set_xlabel('Date')
-    elif isinstance(df.index[0], time):
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.set_xlabel('Time (h:m)')
-        ax.set_xlim(x[0], x[-1])
+    format_time_axis(ax, x, df)
 
     ax.set_ylabel(ylabel)
 
