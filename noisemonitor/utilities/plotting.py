@@ -14,6 +14,26 @@ from itertools import cycle
 
 from noisemonitor.modules.noisemonitor import NoiseMonitor
 
+def convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
+    """Converts time index from dataframe to datetime array for plotting.
+
+    Parameters
+    ---------- 
+    df: DataFrame
+        DataFrame with a datetime, time, or pandas.Timestamp index.
+    """
+
+    if df.index[-1] < df.index[0]:
+        x1 = df.iloc[(df.index >= df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 9), a))
+        x2 = df.iloc[(df.index < df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 10), a))
+        x = x1.union(x2)
+    else:
+        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
+    
+    return x.to_pydatetime()
+
 def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
     """Get the datetime index for plotting.
 
@@ -121,27 +141,57 @@ def plot_compare(
     plt.tight_layout()
     plt.show()
     return
-
-def convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
-    """Converts time index from dataframe to datetime array for plotting.
+    
+def plot_freqs_heatmap(
+    df: pd.DataFrame,
+    title: str = "Frequency Bands Heatmap",
+    ylabel: str = "Frequency Band",
+    figsize: tuple = (12, 8),
+    weighting: str = "A"
+) -> None:
+    """
+    Plot a heatmap of sound levels across frequency bands over time.
 
     Parameters
-    ---------- 
-    df: DataFrame
-        DataFrame with a datetime, time, or pandas.Timestamp index.
-    """
+    ----------
+    df: pd.DataFrame
+        DataFrame containing sound levels with frequency bands as columns
+        and datetime index as rows.
+    title: str, default "Frequency Bands Heatmap"
+        Title for the heatmap.
+    ylabel: str, default "Frequency Band"
+        Label for the y-axis.
+    figsize: tuple, default (12, 8)
+        Figure size in inches.
 
-    if df.index[-1] < df.index[0]:
-        x1 = df.iloc[(df.index >= df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 9), a))
-        x2 = df.iloc[(df.index < df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 10), a))
-        x = x1.union(x2)
-    else:
-        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
-    
-    return x.to_pydatetime()
-    
+    Returns
+    ----------
+    None
+    """
+    x = get_datetime_index(df)
+
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    pcm = ax.pcolormesh(
+        x,
+        df.columns.astype(str),  # Convert frequency bands to strings
+        df.T,  # Transpose to align frequency bands on the y-axis
+        shading='auto',
+        cmap='magma'
+    )
+
+    cbar = plt.colorbar(pcm, ax=ax)
+    cbar.set_label(f"Sound Level (dB{weighting})")
+
+    format_time_axis(ax, x, df)
+
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    plt.tight_layout()
+    plt.show()
+
 def plot_harmonica(
         df: pd.DataFrame,
         title: str = "HARMONICA Index Plot"
