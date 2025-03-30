@@ -136,14 +136,18 @@ class Indicators:
         pd.DataFrame
             DataFrame with weekly or daily levels for each frequency band.
         """
-        # Apply weekly_levels to each column name in the NoiseMonitor DataFrame
         results = {
             col: self.weekly_levels(column=col, freq=freq, values=values)
             for col in self._noise_monitor.df.columns
         }
 
-        # Combine the results into a single DataFrame
         combined_results = pd.concat(results, axis=1, keys=results.keys())
+
+        combined_results.columns = pd.MultiIndex.from_tuples(
+            [(indicator, band) for band in combined_results.columns.levels[0] 
+                            for indicator in combined_results[band].columns],
+            names=["Indicator", "Frequency Band"]
+        )
 
         return combined_results
     
