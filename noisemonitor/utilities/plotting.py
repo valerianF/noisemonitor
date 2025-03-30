@@ -141,6 +141,63 @@ def plot_compare(
     plt.tight_layout()
     plt.show()
     return
+
+def plot_freqs_overall(
+    df: pd.DataFrame,
+    weighting: str = "A",
+    title: str = "Overall Frequency Bands",
+    figsize: tuple = (12, 8),
+    **kwargs
+) -> None:
+    """
+    Plot the overall levels for each frequency band.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame containing overall levels for each frequency band, with
+        rows as indicators (e.g., Leq, Lden) and columns as frequency bands.
+    weighting: str, default "A"
+        Type of sound level data, typically A, C or Z.
+    title: str, default "Overall Frequency Bands"
+        Title for the plot.
+    figsize: tuple, default (10, 8)
+        Figure size in inches.
+    ax: matplotlib.axes.Axes, optional
+        Axes object to plot on. If None, a new figure and axes are created.
+    **kwargs: any
+        Additional keyword arguments passed to the plot function.
+
+    Returns
+    ----------
+    None
+    """
+
+    plt.rcParams.update({'font.size': 16})
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    # Plot each row (indicator) in the DataFrame
+    for indicator in df.index:
+        ax.plot(
+            df.columns,  # Convert frequency bands to floats
+            df.loc[indicator],
+            '-o',
+            label=indicator,
+            **kwargs
+        )
+
+
+    # Add labels, title, and legend
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel(f"Sound Level (dB{weighting})")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, zorder=0, linestyle=(0, (2.5, 5)))
+
+    plt.xticks( rotation=45)
+    plt.tight_layout()
+    plt.show()
     
 def plot_freqs_heatmap(
     df: pd.DataFrame,

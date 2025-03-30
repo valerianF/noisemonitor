@@ -22,6 +22,7 @@ from noisemonitor.utilities.compute import (
 )
 from noisemonitor.utilities.plotting import (
     plot_compare,
+    plot_freqs_overall,
     plot_freqs_heatmap,
     plot_harmonica,
     plot_levels,
