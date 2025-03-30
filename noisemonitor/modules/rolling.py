@@ -4,6 +4,7 @@ import warnings
 
 from datetime import time
 from typing import Optional
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from noisemonitor.utilities.process import filter_by_days, filter_by_hours
 from noisemonitor.utilities.compute import equivalent_level, noise_events
@@ -14,7 +15,7 @@ class Rolling:
         self._noise_monitor = noise_monitor
 
     @validate_column
-    @validate_interval("L10, L50, L90, traffic, and roughness noise "
+    @validate_interval("L10, L50, L90, traffic, or roughness noise "
                        "indicators")
     def weekly_levels(
         self, 
@@ -142,6 +143,97 @@ class Rolling:
                 ))
 
         return pd.DataFrame(index=times, data=averages)
+    
+    def weekly_bands(
+        self,
+        hour1: int,
+        hour2: int,
+        day1: Optional[str] = None,
+        day2: Optional[str] = None,
+        win: int = 3600,
+        step: int = 0,
+        use_chunks: bool = True
+    ) -> pd.DataFrame:
+        """
+        Compute weekly levels for each frequency band in the NoiseMonitor DataFrame.
+
+        Parameters
+        ----------
+        hour1: int, between 0 and 23
+            Hour for the starting time of the daily average.
+        hour2: int, between 0 and 23
+            Hour (included) for the ending time of the daily average.
+        day1: Optional[str], default None
+            First day of the week included in the weekly average.
+        day2: Optional[str], default None
+            Last day of the week included in the weekly average.
+        win: int, default 3600
+            Window size for the averaging function, in seconds.
+        step: int, default 0
+            Step size to compute a sliding average. If set to 0 (default value),
+            the function will compute non-sliding averages.
+        use_chunks: bool, default True
+            If set to True, the function will use parallel processing to compute
+            weekly levels for each frequency band.
+
+        Returns
+        ----------
+        pd.DataFrame
+            DataFrame with weekly levels for each frequency band.
+        """
+        warnings.simplefilter("ignore")
+
+        if use_chunks:
+            results = {}
+            with ProcessPoolExecutor() as executor:
+                futures = {
+                    executor.submit(
+                        self._noise_monitor.rolling.weekly_levels, 
+                        column=col,
+                        hour1=hour1,
+                        hour2=hour2,
+                        day1=day1,
+                        day2=day2,
+                        win=win,
+                        step=step  
+                        ): col
+                    for col in self._noise_monitor.df.columns
+                }
+                for future in as_completed(futures):
+                    col = futures[future]
+                    results[col] = future.result()
+        else:
+            results = {
+                col: self._noise_monitor.rolling.weekly_levels(
+                    column=col,
+                    hour1=hour1,
+                    hour2=hour2,
+                    day1=day1,
+                    day2=day2,
+                    win=win,
+                    step=step                    
+                    )
+                for col in self._noise_monitor.df.columns
+            }
+ 
+        warnings.resetwarnings()
+
+        float_columns = {col: float(col) for col in results.keys()}
+        results = {float_columns[col]: df for col, df in results.items()}
+
+        combined_results = pd.concat(results, axis=1, keys=results.keys())
+        combined_results.columns = pd.MultiIndex.from_tuples(
+            [(indicator, band) for band in combined_results.columns.levels[0]
+                                for indicator in combined_results[band].columns],
+            names=["Indicator", "Frequency Band"]
+        )
+
+        combined_results = combined_results.sort_index(
+            axis=1,
+            level="Frequency Band"
+        )
+
+        return combined_results
    
     @validate_column
     @validate_interval("average Number of Noise Events")

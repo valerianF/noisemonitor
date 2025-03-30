@@ -170,6 +170,7 @@ def plot_freqs_heatmap(
     """
     x = get_datetime_index(df)
 
+    plt.rcParams.update({'font.size': 16})
     plt.figure(figsize=figsize)
     ax = plt.gca()
 
@@ -185,6 +186,10 @@ def plot_freqs_heatmap(
     cbar.set_label(f"Sound Level (dB{weighting})")
 
     format_time_axis(ax, x, df)
+
+    y_ticks = ax.get_yticks()
+    if len(y_ticks) > 15:
+        ax.set_yticks(y_ticks[::2]) 
 
     ax.set_ylabel(ylabel)
     ax.set_title(title)
