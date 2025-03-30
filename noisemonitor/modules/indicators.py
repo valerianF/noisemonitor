@@ -110,6 +110,43 @@ class Indicators:
         result_df = pd.DataFrame(results).set_index('Period')
         return result_df
     
+    def weekly_bands(
+        self, 
+        freq: str = 'D', 
+        values: bool = False
+    ) -> pd.DataFrame:
+        """
+        Compute weekly or daily levels for each frequency band (e.g. octave 
+        band or third octave bands) in the input DataFrame.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame containing octave or third-octave frequency bands as 
+            columns.
+        freq: str, default 'D'
+            Frequency for the computation. 'D' for daily, 'W' for weekly, 
+            and 'M' for monthly.
+        values: bool, default False
+            If set to True, the function will return individual day, 
+            evening, and night values in addition to the Lden.
+
+        Returns
+        ----------
+        pd.DataFrame
+            DataFrame with weekly or daily levels for each frequency band.
+        """
+        # Apply weekly_levels to each column name in the NoiseMonitor DataFrame
+        results = {
+            col: self.weekly_levels(column=col, freq=freq, values=values)
+            for col in self._noise_monitor.df.columns
+        }
+
+        # Combine the results into a single DataFrame
+        combined_results = pd.concat(results, axis=1, keys=results.keys())
+
+        return combined_results
+    
     @validate_column
     def overall_lden(
         self, 
