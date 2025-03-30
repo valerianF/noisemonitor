@@ -240,6 +240,91 @@ class Indicators:
             })
         return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
     
+    def overall_bands(
+        self, 
+        hour1: Optional[int] = 0,
+        hour2: Optional[int] = 24,  
+        day1: Optional[str] = None, 
+        day2: Optional[str] = None, 
+        stats: bool = False, 
+        values: bool = True
+    ) -> pd.DataFrame:
+        """
+        Compute overall Leq and Lden for each frequency band in the NoiseMonitor DataFrame.
+
+        Parameters
+        ----------
+        hour1 (optional): int, default 0
+            Starting hour for the daily Leq average (0-24).
+        hour2 (optional): int, default 24
+            Ending hour for the daily Leq average (0-24).
+        day1 (optional): str, default None
+            First day of the week in English, case-insensitive, to include in the computation.
+        day2 (optional): str, default None
+            Last day of the week in English, case-insensitive, to include in the computation.
+        stats: bool, default False
+            If set to True, the function will include statistical indicators (L10, L50, L90) 
+            in addition to Leq.
+        values: bool, default True
+            If set to True, the function will include individual day, evening, and night 
+            values in addition to Lden.
+
+        Returns
+        ----------
+        pd.DataFrame
+            DataFrame with rows corresponding to indicators (e.g., Leq, Lden, etc.) and 
+            columns corresponding to frequency bands.
+        """
+        # Initialize a dictionary to store results for each frequency band
+        results = {}
+
+        for col in self._noise_monitor.df.columns:
+            # Compute overall Leq
+            leq_result = self.overall_leq(
+                column=col, 
+                hour1=hour1, 
+                hour2=hour2, 
+                day1=day1, 
+                day2=day2, 
+                stats=stats
+            )
+
+            # Compute overall Lden
+            lden_result = self.overall_lden(
+                column=col, 
+                day1=day1, 
+                day2=day2, 
+                values=values
+            )
+
+            # Combine results for this frequency band
+            combined_result = {
+                'Leq': leq_result['leq'][0],
+                'Lden': lden_result['lden'][0]
+            }
+
+            if stats:
+                combined_result.update({
+                    'L10': leq_result['l10'][0],
+                    'L50': leq_result['l50'][0],
+                    'L90': leq_result['l90'][0]
+                })
+
+            if values:
+                combined_result.update({
+                    'Lday': lden_result['lday'][0],
+                    'Levening': lden_result['levening'][0],
+                    'Lnight': lden_result['lnight'][0]
+                })
+
+            # Store the combined result for this frequency band
+            results[col] = combined_result
+
+        # Convert the results dictionary into a DataFrame
+        results_df = pd.DataFrame(results)
+
+        return results_df
+    
     @validate_column
     def nday(
         self, 
