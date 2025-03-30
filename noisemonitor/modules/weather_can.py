@@ -280,13 +280,24 @@ async def merge_weather_can(
     weather_df['Wind_Spd_Flag'] = (
         weather_df['Wind Spd (km/h)'] >= wind_speed_flag
     ).astype(bool)
-    weather_df['Rain_Flag'] = (
-        (weather_df['Precip. Amount (mm)'] > 0) & 
-        weather_df['Weather'].fillna('').str.contains('Rain')
-    ).astype(bool)
-    weather_df['Snow_Flag'] = (
-        weather_df['Weather'].fillna('').str.contains('Snow')
-    ).astype(bool)
+    if all(weather_df['Weather'].isna()):
+        weather_df['Rain_Flag'] = (
+            (weather_df['Precip. Amount (mm)'] > 0) & 
+            (weather_df['Temp (°C)'] >= 0)
+        ).astype(bool)
+        weather_df['Snow_Flag'] = (
+            (weather_df['Precip. Amount (mm)'] > 0) & 
+            (weather_df['Temp (°C)'] < 0)
+        ).astype(bool)
+    else: 
+        weather_df['Rain_Flag'] = (
+            (weather_df['Precip. Amount (mm)'] > 0) & 
+            weather_df['Weather'].fillna('').str.contains('Rain')
+        ).astype(bool)
+        weather_df['Snow_Flag'] = (
+            (weather_df['Precip. Amount (mm)'] > 0) & 
+            weather_df['Weather'].fillna('').str.contains('Snow')
+        ).astype(bool)
     weather_df['Temp_Flag'] = (
         (weather_df['Temp (°C)'] < temp_range_flag[0]) | 
         (weather_df['Temp (°C)'] > temp_range_flag[1])
