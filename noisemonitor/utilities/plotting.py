@@ -79,7 +79,6 @@ def format_time_axis(ax, x, df) -> None:
         else:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
             ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-        ax.set_xlim(x[0], x[-1])
         ax.set_xlabel('Date')
     elif isinstance(df.index[0], time):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
