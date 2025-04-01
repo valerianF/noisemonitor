@@ -176,8 +176,6 @@ def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
         if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
             chunk.iloc[:, datetimeindex] = chunk.iloc[:, datetimeindex].map(
                 lambda a: parser.parse(a))
-            chunk = chunk.rename(
-                columns={chunk.columns[datetimeindex]: 'datetime'})
     elif all(ind is not None for ind in [dateindex, timeindex]): 
         chunk.iloc[:, dateindex] = chunk.iloc[:, dateindex].map(
             lambda a: parser.parse(a).date())
@@ -204,7 +202,6 @@ def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
                 lambda a: locale.atof(a.replace(',', '.')))
 
     chunk = chunk.iloc[:, [i-1 for i in valueindexes]]
-    chunk = chunk.dropna()
     return chunk
 
 
