@@ -9,7 +9,7 @@ import matplotlib.dates as mdates
 
 from matplotlib.patches import Polygon
 from datetime import datetime, time
-from typing import List    
+from typing import List, Optional
 from itertools import cycle
 
 from noisemonitor.modules.noisemonitor import NoiseMonitor
@@ -537,7 +537,7 @@ def plot_nday(
 
 def plot_with_weather(
     df: pd.DataFrame, 
-    column: str, 
+    column: Optional[str] = None,
     win: int = None,
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
@@ -552,8 +552,9 @@ def plot_with_weather(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str
-        The column name for sound levels.
+    column: str, default None
+        The column name for sound levels. If None, the first column
+        will be used. 
     window_size: int, optional
         The window size for rolling average. If None, no rolling average is applied.
     show_wind_spd_flag: bool, default True
@@ -571,6 +572,8 @@ def plot_with_weather(
     ----------
     None
     """
+    if column is None:
+        column = df.columns[0]
 
     nm = NoiseMonitor(df)
 
@@ -625,7 +628,7 @@ def plot_with_weather(
 
 def plot_compare_weather_daily(
     df: pd.DataFrame,
-    column: str,
+    column: Optional[str] = None,
     show: str = 'Leq', 
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
@@ -644,8 +647,9 @@ def plot_compare_weather_daily(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str
-        The column name for sound levels computation.
+    column: str, default None
+        The column name for sound levels. If None, the first column 
+        will be used.
     show: str, default 'Leq'
         Column names to be plotted.
     include_wind_flag: bool, default True
@@ -671,6 +675,8 @@ def plot_compare_weather_daily(
     ----------
     None
     """
+    if column is None:
+        column = df.columns[0]
 
     flags = {
         'Wind_Spd_Flag': include_wind_flag,
@@ -697,9 +703,9 @@ def plot_compare_weather_daily(
     for key, subset_df in subsets.items():
         nm_instance = NoiseMonitor(subset_df)
         weekly_levels[key] = nm_instance.rolling.weekly_levels(
-            column, 
             1, 
             23, 
+            column=column,
             win=win, 
             step=step
             )

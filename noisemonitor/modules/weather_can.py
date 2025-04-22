@@ -17,7 +17,7 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from io import StringIO
 
-from typing import List
+from typing import List, Optional
 
 from noisemonitor.modules.noisemonitor import NoiseMonitor
 
@@ -365,7 +365,7 @@ def monthlist(daterange):
 
 def contingency_weather_flags(
     df: pd.DataFrame,
-    column: str, 
+    column: Optional[str] = None,  
     include_wind_flag: bool = True, 
     include_rain_flag: bool = True, 
     include_temp_flag: bool = False,
@@ -381,8 +381,9 @@ def contingency_weather_flags(
     df: DataFrame
         Input DataFrame with a datetime index. Typically, the output of
         merge_weather_can().
-    column: str
-        Column name to use for calculations.
+    column: str, default None
+        The column name to use for calculations. If None, the first column
+        will be used.
     include_wind_flag: bool, default True
         Whether to include the Wind Speed Flag in the contingency table.
     include_rain_flag: bool, default True
@@ -399,6 +400,9 @@ def contingency_weather_flags(
     pd.DataFrame: Contingency table with LAeq,24h, Lden, Lday, Levening, Lnight, 
     and the proportion of data covered from the initial dataset.
     """
+    if column is None:
+        column = df.columns[0]
+
     flags = {
         'Wind_Spd_Flag': include_wind_flag,
         'Rain_Flag_Roll': include_rain_flag,
@@ -429,11 +433,11 @@ def contingency_weather_flags(
         for key, df in subsets.items():
             nm_instance = NoiseMonitor(df)
             overall_leq = nm_instance.indicators.overall_leq(
-                column, 
+                column=column, 
                 hour1=0, 
                 hour2=24
                 )
-            overall_lden = nm_instance.indicators.overall_lden(column)
+            overall_lden = nm_instance.indicators.overall_lden(column=column)
             results[key] = {
                 'Leq': overall_leq['leq'][0],
                 'Lden': overall_lden['lden'][0]

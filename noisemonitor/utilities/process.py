@@ -123,7 +123,7 @@ def filter_data(
     
 def filter_extreme_values(
     df: pd.DataFrame, 
-    column: str, 
+    column: Optional[str] = None, 
     min_value: int = 30, 
     max_value: int = 100
 ) -> pd.DataFrame:
@@ -135,8 +135,9 @@ def filter_extreme_values(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str
-        The column name where the values need to be filtered.
+    column: str, default None
+        The column name to use for calculations. If None, the first column
+        will be used.
     min_value: int, default 30
         The minimum value threshold.
     max_value: int, default 95
@@ -146,6 +147,9 @@ def filter_extreme_values(
     ----------
     pd.DataFrame: DataFrame with extreme values replaced by NaN.
     """
+    if column is None:
+        column = df.columns[0]
+
     initial_count = df[column].notna().sum()
     df[column] = df[column].apply(
         lambda x: x if min_value <= x <= max_value else np.nan
@@ -179,7 +183,7 @@ def week_indexes(
 
 def filter_weather_flags(
     df: pd.DataFrame, 
-    column: str, 
+    column: Optional[str] = None,  
     filter_wind_flag: bool = True,
     filter_rain_flag: bool = True,
     filter_temp_flag: bool = False,
@@ -193,8 +197,9 @@ def filter_weather_flags(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str
-        The column name where the values need to be filtered.
+    column: str, default None
+        The column name to use for calculations. If None, the first column
+        will be used.
     include_wind_flag: bool, default False
         Whether to filter data with Wind Speed Flag.
     include_rain_flag: bool, default True
@@ -210,6 +215,9 @@ def filter_weather_flags(
     ----------
     pd.DataFrame: DataFrame with flagged values replaced by NaN.
     """
+    if column is None:
+        column = df.columns[0]
+
     flags = {
         'Wind_Spd_Flag': filter_wind_flag,
         'Rain_Flag_Roll': filter_rain_flag,

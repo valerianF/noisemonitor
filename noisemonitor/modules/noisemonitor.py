@@ -19,5 +19,6 @@ class NoiseMonitor:
     def __init__(self, df: pd.DataFrame):
         self.df = df
         self.interval = (self.df.index[2] - self.df.index[1]).seconds
+        self.column = df.columns[0]
         self.rolling = Rolling(self)
         self.indicators = Indicators(self)

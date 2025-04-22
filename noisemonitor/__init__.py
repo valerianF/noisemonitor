@@ -38,6 +38,5 @@ from noisemonitor.utilities.process import (
 
 # Import decorators
 from noisemonitor.utilities.decorators import (
-    validate_column, 
     validate_interval
 )

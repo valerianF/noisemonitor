@@ -189,13 +189,14 @@ def parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
     
+    chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
+    
     if timezone is not None:
         chunk['datetime'] = chunk['datetime'].dt.tz_convert(
             timezone).dt.tz_localize(None)
-    
-    chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
+        
     chunk = chunk.set_index('datetime')
-
+    
     for valueindex in valueindexes:
         if slm_type == 'NoiseSentry':
             chunk.iloc[:, valueindex-1] = chunk.iloc[:, valueindex-1].map(

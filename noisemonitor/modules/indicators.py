@@ -8,16 +8,14 @@ from typing import Optional, List
 
 from noisemonitor.utilities.compute import harmonica, lden, equivalent_level
 from noisemonitor.utilities.process import filter_by_days, filter_by_hours
-from noisemonitor.utilities.decorators import validate_column
 
 class Indicators:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
     
-    @validate_column
     def weekly_harmonica(
         self, 
-        column: str, 
+        column: Optional[str] = None,  
         use_chunks: bool = True,
         day1: Optional[str] = None,
         day2: Optional[str] = None
@@ -26,8 +24,9 @@ class Indicators:
 
         Parameters
         ----------
-        column: str
-            Column name containing the LAeq values.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         use_chunks: bool default True
             whether to process the data in chunks for large datasets.
         day1: Optional[str], default None
@@ -40,6 +39,9 @@ class Indicators:
         DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA 
         values.
         """
+        if column is None:
+            column = self._noise_monitor.column
+
         # Compute hourly HARMONICA indicators
         temp_df = filter_by_days(self._noise_monitor.df, day1, day2)
         harmonica_df = harmonica(temp_df, column, use_chunks)
@@ -53,22 +55,22 @@ class Indicators:
 
         return daily_avg
     
-    @validate_column
     def weekly_levels(
         self, 
-        column: str, 
         freq: str='D', 
+        column: str = None,  
         values: bool=False
     ) -> pd.DataFrame:
         """Compute Leq,24h and Lden on a daily or weekly basis.
 
         Parameters
         ----------
-        column: str
-            Column name to use for calculations.
         freq: str, default 'D'
             frequency for the computation. 'D' for daily, 'W' for weekly, and
             'M' for monthly.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         values: bool, default False
             if set to True, the function will return individual day, evening
             and night values in addition to the lden.
@@ -77,6 +79,8 @@ class Indicators:
         ----------
         DataFrame: DataFrame with Leq,24h and Lden values for each day or week.
         """
+        if column is None:
+            column = self._noise_monitor.column
 
         results = []
 
@@ -151,12 +155,11 @@ class Indicators:
 
         return combined_results
     
-    @validate_column
     def overall_lden(
         self, 
-        column: str, 
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
+        column: str = None,  
         values: bool=True
     ) -> pd.DataFrame:
         """Return the Lden, a descriptor of noise level based on Leq over
@@ -167,14 +170,15 @@ class Indicators:
 
         Parameters
         ----------
-        column: str
-            column name to use for calculations. Should contain LAeq values.
         day1 (optional): str, a day of the week in english, case-insensitive
             first day of the week included in the Lden computation.
         day2 (optional): str, a day of the week in english, case-insensitive
             last (included) day of the week in the Lden computation. If day2 
             happens later in the week than day1 the average will be computed 
             outside of these days.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         values: bool, default False
             If set to True, the function will return individual day, evening
             and night values in addition to the lden.
@@ -184,19 +188,20 @@ class Indicators:
         dict: daily or weekly lden rounded to two decimals. Associated day,
             evening and night values are returned if values is set to True.
         """
+        if column is None:
+            column = self._noise_monitor.column
 
         temp = filter_by_days(self._noise_monitor.df, day1, day2)
 
         return lden(temp, column, values=values)
     
-    @validate_column
     def overall_leq(
         self, 
-        column: str, 
         hour1: int, 
         hour2: int, 
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
+        column: str = None,  
         stats: bool = True
     ) -> pd.DataFrame:
         """Return the equivalent level (and optionally statistical indicators)
@@ -205,8 +210,6 @@ class Indicators:
 
         Parameters
         ----------
-        column: str
-            column name to use for calculations.
         hour1: int, between 0 and 24
             hour for the starting time of the daily average.
         hour2: int, between 0 and 24
@@ -218,6 +221,9 @@ class Indicators:
             last (included) day of the week in the Lden computation. If day2 
             happens later in the week than day1 the average will be computed 
             outside of these days.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         stats: bool, default True
             If set to True, the function will return L10, L50 and L90 
             together with the Leq.
@@ -227,6 +233,8 @@ class Indicators:
         float: daily or weekly equivalent level rounded to two decimals. 
         Statistical indicators are included if stats is set to True.
         """
+        if column is None:
+            column = self._noise_monitor.column
 
         temp = filter_by_days(self._noise_monitor.df, day1, day2)
         array = filter_by_hours(temp, hour1, hour2)[column]
@@ -329,21 +337,18 @@ class Indicators:
 
         return results_df
     
-    @validate_column
     def nday(
         self, 
-        column: str, 
         indicator: str = 'Leq,24h', 
         bins: Optional[List[int]] = None,
-        freq: str = 'D'
+        freq: str = 'D',
+        column: str = None
     ) -> pd.DataFrame:
         """Compute the number of days in a dataset for which the indicators 
         are between given values of decibels.
 
         Parameters
         ----------
-        column: str
-            Column name to use for calculations.
         indicator: str, default 'Leq,24h'
             Indicator to use for the computation. Options are 'Leq,24h', 'Lden', 
             'Lday', 'Levening', and 'Lnight'.
@@ -352,18 +357,24 @@ class Indicators:
             and every 5 dBA until >=80 dBA.
         freq: str, default 'D'
             Frequency for the computation. 'D' for daily and 'W' for weekly.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
 
         Returns
         ----------
         DataFrame : DataFrame with the number of days for each decibel range.
         """
+        if column is None:
+            column = self._noise_monitor.column
+
         if bins is None:
             bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]
 
         # Compute daily or weekly indicators
         indicators_df = self.weekly_levels(
-            column, 
             freq=freq, 
+            column=column,
             values=True
         )
 

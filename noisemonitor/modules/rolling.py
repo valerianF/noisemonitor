@@ -8,22 +8,21 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from noisemonitor.utilities.process import filter_by_days, filter_by_hours
 from noisemonitor.utilities.compute import equivalent_level, noise_events
-from noisemonitor.utilities.decorators import validate_column, validate_interval
+from noisemonitor.utilities.decorators import validate_interval
 
 class Rolling:
     def __init__(self, noise_monitor):
         self._noise_monitor = noise_monitor
 
-    @validate_column
     @validate_interval("L10, L50, L90, traffic, or roughness noise "
                        "indicators")
     def weekly_levels(
         self, 
-        column: str, 
         hour1: int, 
-        hour2: int, 
+        hour2: int,
         day1: Optional[str] = None, 
         day2: Optional[str] = None, 
+        column: Optional[str] = None,  
         win: int=3600, 
         step: int=0,
         traffic_noise_indicators: bool = False,
@@ -34,8 +33,6 @@ class Rolling:
 
         Parameters
         ---------- 
-        column: str
-            column name to use for calculations.
         hour1: int, between 0 and 23
             hour for the starting time of the daily average.
         hour2: int, between 0 and 23
@@ -46,6 +43,9 @@ class Rolling:
             First day of the week included in the weekly average.
         day2: Optional[str], default None
             Last day of the week included in the weekly average.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         win: int, default 3600
             window size for the averaging function, in seconds.
         step: int, default 0
@@ -67,6 +67,8 @@ class Rolling:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
+        if column is None:
+            column = self._noise_monitor.column
         
         if step == 0:
             step = win
@@ -235,11 +237,9 @@ class Rolling:
 
         return combined_results
    
-    @validate_column
     @validate_interval("average Number of Noise Events")
     def nne(
         self,
-        column: str,
         hour1: int, 
         hour2: int, 
         background_type: str = 'leq',
@@ -247,6 +247,7 @@ class Rolling:
         min_gap: int = 3,
         win: int = 3600,
         step: int = 0,
+        column: str = None,  
         day1: Optional[str] = None,
         day2: Optional[str] = None
     ) -> pd.DataFrame:
@@ -259,8 +260,6 @@ class Rolling:
 
         Parameters
         ----------
-        column: str
-            Column name to use for calculations.
         hour1: int, between 0 and 23
             hour for the starting time of the daily average.
         hour2: int, between 0 and 23
@@ -280,6 +279,9 @@ class Rolling:
         step: int, default 0
             Step size to compute a sliding average. If set to 0 (default value), 
             the function will compute non-sliding averages.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         day1: Optional[str], default None
             First day of the week to include in the calculation.
         day2: Optional[str], default None
@@ -290,6 +292,8 @@ class Rolling:
         DataFrame: DataFrame with the number of noise events for each sliding 
         window.
         """
+        if column is None:
+            column = self._noise_monitor.column
 
         temp_df = filter_by_days(self._noise_monitor.df, day1, day2)
         temp_df = filter_by_hours(temp_df, hour1, hour2)
@@ -366,13 +370,12 @@ class Rolling:
             data={'Average NNEs': average_event_counts}
         )
     
-    @validate_column
     @validate_interval("L10, L50, and L90")
     def overall_levels(
         self, 
-        column: str, 
         win: int = 3600, 
         step: int = 0, 
+        column: str = None,  
         start_at_midnight: bool = False
     ) -> pd.DataFrame:
         """Sliding average of the entire sound level array, in terms of
@@ -380,8 +383,6 @@ class Rolling:
 
         Parameters
         ---------- 
-        column: str
-            column name to use for calculations.
         win: int, default 3600
             window size (in seconds) for the averaging function. For averages
             at a daily or weekly window, we recommend using the
@@ -389,6 +390,9 @@ class Rolling:
         step: int, default 0
             step size (in seconds) to compute a sliding average. If set to 0
             (default value), the function will compute non-sliding averages.
+        column: str, default None
+            column name to use for calculations. If None, the first column
+            of the DataFrame will be used.
         start_at_midnight: bool, default False
             if set to True, the computation will start at midnight.
 
@@ -398,6 +402,8 @@ class Rolling:
             Leq, L10, L50 and L90 at the corresponding columns
 
         """
+        if column is None:
+            column = self._noise_monitor.column
         
         step = step // self._noise_monitor.interval
         win = win // self._noise_monitor.interval
