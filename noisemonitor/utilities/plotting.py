@@ -537,7 +537,7 @@ def plot_nday(
 
 def plot_with_weather(
     df: pd.DataFrame, 
-    column: Optional[str] = None,
+    column: str = None,
     win: int = None,
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
@@ -578,7 +578,7 @@ def plot_with_weather(
     nm = NoiseMonitor(df)
 
     if win:
-        levels = nm.rolling.overall_levels(column, win=win, step=0)
+        levels = nm.rolling.overall_levels(column=column, win=win, step=0)
         _column_p = 'Leq'
         # Resample the weather data to match the window size
         resample_rule = f'{win}S'
@@ -628,7 +628,7 @@ def plot_with_weather(
 
 def plot_compare_weather_daily(
     df: pd.DataFrame,
-    column: Optional[str] = None,
+    column: str = None,
     show: str = 'Leq', 
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,

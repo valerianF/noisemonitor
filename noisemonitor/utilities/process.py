@@ -183,7 +183,7 @@ def week_indexes(
 
 def filter_weather_flags(
     df: pd.DataFrame, 
-    column: Optional[str] = None,  
+    column: str = None,  
     filter_wind_flag: bool = True,
     filter_rain_flag: bool = True,
     filter_temp_flag: bool = False,
