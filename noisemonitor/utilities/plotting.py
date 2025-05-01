@@ -96,7 +96,7 @@ def plot_compare(
     figsize: tuple = (10,8), 
     fill_between: bool = None, 
     **kwargs
-) -> None:
+) -> matplotlib.axes.Axes:
     """Compare multiple DataFrames by plotting their columns in the same plot.
 
     Parameters
@@ -105,6 +105,8 @@ def plot_compare(
         list of compatible DataFrames (typically generated with functions 
         load_data(), NoiseMonitor.daily() or NoiseMonitor.weekly() ),
         with a datetime, time or pandas.Timestamp index.
+    *args: str
+        column name(s) to be plotted.
     labels: list of str
         list of labels for each DataFrame.
     step: bool, default False
@@ -117,12 +119,15 @@ def plot_compare(
         list of tuples specifying the columns to use for filling in-between
         values. Each tuple should contain three column names: (lower_bound, 
         upper_bound, column_to_plot).
-    *args: str
-        column name(s) to be plotted.
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
     **kwargs: any
         ylim and title arguments can be passed to matplotlib. 
+
+    Returns
+    ----------
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     plt.rcParams.update({'font.size': 16})
     fig, ax = plt.subplots(figsize=figsize)
@@ -139,7 +144,7 @@ def plot_compare(
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
-    return
+    return ax
 
 def plot_freqs_overall(
     df: pd.DataFrame,
@@ -376,6 +381,11 @@ def plot_levels(
         type of sound level data, typically A, C or Z. 
     **kwargs: any
         ylim and title arguments can be passed to matplotlib. 
+
+    Returns
+    ----------
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     x = get_datetime_index(df)
     
