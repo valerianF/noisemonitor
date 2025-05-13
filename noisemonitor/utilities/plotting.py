@@ -591,7 +591,7 @@ def plot_with_weather(
         levels = nm.rolling.overall_levels(column=column, win=win, step=0)
         _column_p = 'Leq'
         # Resample the weather data to match the window size
-        resample_rule = f'{win}S'
+        resample_rule = f'{win}s'
         nm.df = nm.df.resample(resample_rule).mean(numeric_only=True)
     else:
         levels = nm.df

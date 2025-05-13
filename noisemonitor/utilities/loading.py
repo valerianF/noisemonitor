@@ -126,18 +126,24 @@ def load_data(
         df = pd.concat([df, temp])
 
     if use_chunks:
-    # Process chunks in parallel
+        # Process chunks in parallel
         with ProcessPoolExecutor() as executor:
-            futures = [executor.submit(
-                parse_data, 
-                chunk, 
-                datetimeindex, 
-                timeindex, 
-                dateindex, 
-                valueindexes, 
-                slm_type, 
-                timezone
-                ) for chunk in np.array_split(df, max(1, len(df) // chunksize))]
+            chunk_size = max(1, len(df) // chunksize)
+            slices = [(i * chunk_size, (i + 1) * chunk_size) 
+                      for i in range((len(df) + chunk_size - 1) // chunk_size)]
+            
+            futures = [
+                executor.submit(
+                    parse_data, 
+                    df.iloc[start:stop],  # Manual slicing
+                    datetimeindex, 
+                    timeindex, 
+                    dateindex, 
+                    valueindexes, 
+                    slm_type, 
+                    timezone
+                ) for start, stop in slices
+            ]
             df = pd.concat([future.result() for future in futures])
     else:
         # Process the entire file at once
@@ -158,7 +164,7 @@ def load_data(
     # Resample the data to fill gaps based on the interval between rows
     if len(df) > 2:
         interval = df.index[2] - df.index[1]
-        resample_freq = f'{interval.total_seconds()}S'
+        resample_freq = f'{interval.total_seconds()}s'
         df = df.resample(resample_freq).asfreq()
         
     return df
