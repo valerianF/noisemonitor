@@ -13,78 +13,7 @@ from datetime import datetime, time
 from typing import List, Optional
 from itertools import cycle
 
-from noisemonitor.profile import overall_levels, weekly_levels
-
-def convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
-    """Converts time index from dataframe to datetime array for plotting.
-
-    Parameters
-    ---------- 
-    df: DataFrame
-        DataFrame with a datetime, time, or pandas.Timestamp index.
-    """
-
-    if df.index[-1] < df.index[0]:
-        x1 = df.iloc[(df.index >= df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 9), a))
-        x2 = df.iloc[(df.index < df.index[0])].index.map(
-            lambda a: datetime.combine(datetime(1800, 10, 10), a))
-        x = x1.union(x2)
-    else:
-        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
-    
-    return x.to_pydatetime()
-
-def get_datetime_index(df: pd.DataFrame) -> np.ndarray:
-    """Get the datetime index for plotting.
-
-    Parameters
-    ---------- 
-    df: DataFrame
-        DataFrame with a datetime, time, or pandas.Timestamp index.
-
-    Returns
-    ---------- 
-    x: array-like
-        Array of datetime objects for plotting.
-    """
-    if isinstance(df.index[0], pd.Timestamp):
-        return df.index.to_pydatetime()
-    elif isinstance(df.index[0], time):
-        return convert_datetime_index(df)
-    elif not isinstance(df.index[0], datetime):
-        raise TypeError(f'DataFrame index must be of type datetime, \
-                        time or pd.Timestamp not {type(df.index[0])}')
-    
-def format_time_axis(ax, x, df) -> None:
-    """
-    Format the time axis for a plot.
-
-    Parameters
-    ----------
-    ax: matplotlib.axes.Axes
-        The axes object to format.
-    x: array-like
-        The datetime or time index for the x-axis.
-    df: DataFrame
-        The DataFrame containing the data.
-
-    Returns
-    ----------
-    None
-    """
-    if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
-        ax.figure.autofmt_xdate()
-        if (x[1] - x[0]).days < 30:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        else:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-        ax.set_xlabel('Date')
-    elif isinstance(df.index[0], time):
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.set_xlim(x[0], x[-1])
-        ax.set_xlabel('Time')
+from noisemonitor.profile import series, periodic
     
 def compare(
     dfs: List[pd.DataFrame], 
@@ -135,7 +64,7 @@ def compare(
 
     for df, label in zip(dfs, labels):
         for arg in args:
-            ax = levels(df, arg, ylabel=ylabel, weighting=weighting, 
+            ax = line(df, arg, ylabel=ylabel, weighting=weighting, 
                             step=step, show_points=show_points,
                             figsize=figsize, ax=ax, fill_between=fill_between,
                             **kwargs)
@@ -147,7 +76,7 @@ def compare(
     plt.show()
     return ax
 
-def freqs_overall(
+def freq_line(
     df: pd.DataFrame,
     weighting: str = "A",
     title: str = "Overall Frequency Bands",
@@ -203,8 +132,8 @@ def freqs_overall(
     plt.xticks( rotation=45)
     plt.tight_layout()
     plt.show()
-    
-def freqs_heatmap(
+
+def freq_map(
     df: pd.DataFrame,
     title: str = "Frequency Bands Heatmap",
     ylabel: str = "Frequency Band",
@@ -230,7 +159,7 @@ def freqs_heatmap(
     ----------
     None
     """
-    x = get_datetime_index(df)
+    x = _get_datetime_index(df)
 
     plt.rcParams.update({'font.size': 16})
     plt.figure(figsize=figsize)
@@ -247,7 +176,7 @@ def freqs_heatmap(
     cbar = plt.colorbar(pcm, ax=ax)
     cbar.set_label(f"Sound Level (dB{weighting})")
 
-    format_time_axis(ax, x, df)
+    _format_time_axis(ax, x, df)
 
     y_ticks = ax.get_yticks()
     if len(y_ticks) > 15:
@@ -336,7 +265,7 @@ def harmonica(
     plt.tight_layout()
     plt.show()
 
-def levels(
+def line(
         df: pd.DataFrame, 
         *args: str, 
         ylabel: str = "Sound Level (dBA)", 
@@ -388,7 +317,7 @@ def levels(
     ax: matplotlib.axes.Axes
         Axes object containing the plot.
     """
-    x = get_datetime_index(df)
+    x = _get_datetime_index(df)
     
     if ax is None:
         plt.rcParams.update({'font.size': 16})
@@ -433,7 +362,7 @@ def levels(
                 ax.fill_between(x, df[lower], df[upper], alpha=0.15,
                                 label=f"{column} - {lower} to {upper}")
 
-    format_time_axis(ax, x, df)
+    _format_time_axis(ax, x, df)
 
     ax.set_ylabel(ylabel)
 
@@ -546,7 +475,7 @@ def nday(
 
     return
 
-def levels_with_weather(
+def line_weather(
     df: pd.DataFrame, 
     column: int = 0,
     win: int = None,
@@ -585,7 +514,7 @@ def levels_with_weather(
     """
 
     if win:
-        levels_df = overall_levels(df, column=column, win=win, step=0)
+        levels_df = series(df, column=column, win=win, step=0)
         _column_p = 0
         # Resample the weather data to match the window size
         resample_rule = f'{win}s'
@@ -594,7 +523,7 @@ def levels_with_weather(
         levels_df = df
         _column_p = column
 
-    levels(
+    line(
         levels_df,
         levels_df.columns[_column_p],
         step=True,
@@ -706,7 +635,7 @@ def compare_weather_daily(
 
     weekly_levels_dict = {}
     for key, subset_df in subsets.items():
-        weekly_levels_dict[key] = weekly_levels(
+        weekly_levels_dict[key] = periodic(
             subset_df,
             1,
             23,
@@ -724,3 +653,73 @@ def compare_weather_daily(
         figsize=figsize
     )
 
+def _convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
+    """Converts time index from dataframe to datetime array for plotting.
+
+    Parameters
+    ---------- 
+    df: DataFrame
+        DataFrame with a datetime, time, or pandas.Timestamp index.
+    """
+
+    if df.index[-1] < df.index[0]:
+        x1 = df.iloc[(df.index >= df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 9), a))
+        x2 = df.iloc[(df.index < df.index[0])].index.map(
+            lambda a: datetime.combine(datetime(1800, 10, 10), a))
+        x = x1.union(x2)
+    else:
+        x = df.index.map(lambda a: datetime.combine(datetime(1800, 10, 10), a))
+    
+    return x.to_pydatetime()
+
+def _get_datetime_index(df: pd.DataFrame) -> np.ndarray:
+    """Get the datetime index for plotting.
+
+    Parameters
+    ---------- 
+    df: DataFrame
+        DataFrame with a datetime, time, or pandas.Timestamp index.
+
+    Returns
+    ---------- 
+    x: array-like
+        Array of datetime objects for plotting.
+    """
+    if isinstance(df.index[0], pd.Timestamp):
+        return df.index.to_pydatetime()
+    elif isinstance(df.index[0], time):
+        return _convert_datetime_index(df)
+    elif not isinstance(df.index[0], datetime):
+        raise TypeError(f'DataFrame index must be of type datetime, \
+                        time or pd.Timestamp not {type(df.index[0])}')
+    
+def _format_time_axis(ax, x, df) -> None:
+    """
+    Format the time axis for a plot.
+
+    Parameters
+    ----------
+    ax: matplotlib.axes.Axes
+        The axes object to format.
+    x: array-like
+        The datetime or time index for the x-axis.
+    df: DataFrame
+        The DataFrame containing the data.
+
+    Returns
+    ----------
+    None
+    """
+    if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
+        ax.figure.autofmt_xdate()
+        if (x[1] - x[0]).days < 30:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        else:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+        ax.set_xlabel('Date')
+    elif isinstance(df.index[0], time):
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlim(x[0], x[-1])
+        ax.set_xlabel('Time')

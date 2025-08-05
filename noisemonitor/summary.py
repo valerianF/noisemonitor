@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 from datetime import time
 from typing import Optional, List
 
-from .util.filter import _days, _hours
-from .util.core import harmonica, lden, equivalent_level, get_interval
-    
-def weekly_harmonica(
+from .util import filter
+from .util import core
+
+def harmonica_periodic(
     df: pd.DataFrame,
     column: Optional[int] = 0,  
     use_chunks: bool = True,
@@ -17,6 +17,7 @@ def weekly_harmonica(
     day2: Optional[str] = None
 ) -> pd.DataFrame:
     """Compute the average HARMONICA indicators for each hour of a day.
+    Optionally, can return the average values for specific days of the week.
 
     Parameters
     ----------
@@ -39,8 +40,8 @@ def weekly_harmonica(
     """
 
     # Compute hourly HARMONICA indicators
-    temp_df = _days(df, day1, day2)
-    harmonica_df = harmonica(temp_df, column, use_chunks)
+    temp_df = filter._days(df, day1, day2)
+    harmonica_df = core.harmonica(temp_df, column, use_chunks)
 
     # Compute the average values for each hour of the day
     daily_avg = harmonica_df.groupby(harmonica_df.index.hour).mean()
@@ -51,13 +52,13 @@ def weekly_harmonica(
 
     return daily_avg
 
-def weekly_levels(
+def periodic(
     df: pd.DataFrame,
     freq: str='D',
     column: Optional[int] = 0,
     values: bool=False
 ) -> pd.DataFrame:
-    """Compute Leq,24h and Lden on a daily or weekly basis.
+    """Compute Leq,24h and Lden on a periodic basis.
 
     Parameters
     ----------
@@ -92,8 +93,8 @@ def weekly_levels(
 
     for period, group in resampled:
         if len(group) > 0:
-            leq_value = equivalent_level(group.iloc[:, column])
-            lden_values = lden(group, column, values=values)
+            leq_value = core.equivalent_level(group.iloc[:, column])
+            lden_values = core.lden(group, column, values=values)
             result = {
                 'Period': period,
                 'Leq,24h': leq_value,
@@ -110,13 +111,13 @@ def weekly_levels(
     result_df = pd.DataFrame(results).set_index('Period')
     return result_df
 
-def weekly_bands(
+def freq_periodic(
     df: pd.DataFrame, 
     freq: str = 'D', 
     values: bool = False
 ) -> pd.DataFrame:
     """
-    Compute weekly or daily levels for each frequency band (e.g. octave 
+    Compute periodic levels for each frequency band (e.g. octave 
     band or third octave bands) in the input DataFrame.
 
     Parameters
@@ -137,7 +138,7 @@ def weekly_bands(
         DataFrame with weekly or daily levels for each frequency band.
     """
     results = {
-        col: weekly_levels(df, column=col, freq=freq, values=values)
+        col: periodic(df, column=col, freq=freq, values=values)
         for col in df.columns
     }
 
@@ -151,7 +152,7 @@ def weekly_bands(
 
     return combined_results
 
-def overall_lden(
+def lden(
     df: pd.DataFrame, 
     day1: Optional[str] = None, 
     day2: Optional[str] = None, 
@@ -187,11 +188,11 @@ def overall_lden(
         evening and night values are returned if values is set to True.
     """
 
-    temp = _days(df, day1, day2)
+    temp = filter._days(df, day1, day2)
 
-    return lden(temp, column, values=values)
+    return core.lden(temp, column, values=values)
 
-def overall_leq(
+def leq(
     df: pd.DataFrame, 
     hour1: int, 
     hour2: int, 
@@ -232,24 +233,24 @@ def overall_leq(
     Statistical indicators are included if stats is set to True.
     """
 
-    temp = _days(df, day1, day2)
-    array = _hours(temp, hour1, hour2).iloc[:, column]
+    temp = filter._days(df, day1, day2)
+    array = filter._hours(temp, hour1, hour2).iloc[:, column]
 
     if stats:
-        interval = get_interval(df)
+        interval = core.get_interval(df)
         if interval > 1:
             warnings.warn("Computing the L10, L50, and L90 should be done with "
                             "an integration time equal to or below 1s. Results"
                             " might not be valid for this descriptor.\n")
         return pd.DataFrame({
-            'leq': [np.round(equivalent_level(array), 2)],
+            'leq': [np.round(core.equivalent_level(array), 2)],
             'l10': [np.round(np.nanpercentile(array, 90), 2)],
             'l50': [np.round(np.nanpercentile(array, 50), 2)],
             'l90': [np.round(np.nanpercentile(array, 10), 2)]
         })
-    return pd.DataFrame({'leq': [np.round(equivalent_level(array), 2)]})
+    return pd.DataFrame({'leq': [np.round(core.equivalent_level(array), 2)]})
 
-def overall_bands(
+def freq_descriptors(
     df: pd.DataFrame,
     hour1: Optional[int] = 0,
     hour2: Optional[int] = 24,
@@ -289,7 +290,7 @@ def overall_bands(
 
     for col_idx in range(df.shape[1]):
         # Compute overall Leq
-        leq_result = overall_leq(
+        leq_result = leq(
             df,
             hour1=hour1,
             hour2=hour2,
@@ -300,7 +301,7 @@ def overall_bands(
         )
 
         # Compute overall Lden
-        lden_result = overall_lden(
+        lden_result = lden(
             df,
             day1=day1,
             day2=day2,
@@ -369,7 +370,7 @@ def nday(
         bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]
 
     # Compute daily or weekly indicators
-    indicators_df = weekly_levels(
+    indicators_df = periodic(
         df,
         freq=freq,
         column=column,

@@ -8,98 +8,6 @@ import numpy as np
 from datetime import datetime, time
 from typing import Optional
 
-def _get_week_indexes(
-    day1: str, 
-    day2: str
-    ) -> tuple:
-    """Return datetime compatible weekday indexes from weekday strings."""
-    week = [
-        'monday', 'tuesday', 'wednesday', 'thursday', 
-        'friday', 'saturday', 'sunday'
-        ]            
-    day1 = day1.lower()
-    day2 = day2.lower()
-    
-    if any(d not in week for d in [day1, day2]):
-        raise ValueError("Arguments day1 and day2 must be a day of the week.")
-    d1 = week.index(day1)
-    d2 = week.index(day2)
-    return d1, d2
-
-def _days(
-    df: pd.DataFrame, 
-    day1: Optional[str], 
-    day2: Optional[str]
-    ) -> pd.DataFrame:
-    """Filter the DataFrame based on the specified days of the week.
-
-    Parameters
-    ----------
-    df: pd.DataFrame
-        DataFrame with a datetime index.
-    day1: Optional[str]
-        First day of the week to include in the filtering.
-    day2: Optional[str]
-        Last day of the week to include in the filtering.
-
-    Returns
-    ----------
-    pd.DataFrame: Filtered DataFrame based on the specified days of the week.
-    """
-    if day1 and day2:
-        week = ['monday', 'tuesday', 'wednesday', 'thursday', 
-                'friday', 'saturday', 'sunday']
-        if day1.lower() not in week or day2.lower() not in week:
-            raise ValueError("Arguments day1 and day2 must be a day of "
-                            "the week.")
-
-        d1, d2 = _get_week_indexes(day1, day2)
-
-        if d1 <= d2:
-            return df.loc[
-                (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
-        else:
-            return df.loc[
-                (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
-    else:
-        return df
-
-def _hours(
-    df: pd.DataFrame, 
-    hour1: int, 
-    hour2: int
-    ) -> pd.DataFrame:
-    """Filter the DataFrame based on the specified hours.
-
-    Parameters
-    ----------
-    df: pd.DataFrame
-        DataFrame with a datetime index.
-    hour1: int
-        Hour for the starting time of the daily average.
-    hour2: int
-        Hour for the ending time of the daily average.
-
-    Returns
-    ----------
-    pd.Series: Filtered Series based on the specified hours.
-    """
-    
-    if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
-        raise ValueError("Hours must be between 0 and 24.")  
-
-    if hour1 == 24:
-        t1 = time(hour=23, minute=59, second=59)
-        t2 = time(hour=hour2)
-    elif hour2 == 24:
-        t1 = time(hour=hour1)
-        t2 = time(hour=23, minute=59, second=59)
-    else:
-        t1 = time(hour=hour1)
-        t2 = time(hour=hour2)
-
-    return df.between_time(t1, t2)
-
 def all_data(
     df: pd.DataFrame, 
     start_datetime: datetime, 
@@ -238,6 +146,98 @@ def weather_flags(
     print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
 
     return df
+
+def _get_week_indexes(
+    day1: str, 
+    day2: str
+    ) -> tuple:
+    """Return datetime compatible weekday indexes from weekday strings."""
+    week = [
+        'monday', 'tuesday', 'wednesday', 'thursday', 
+        'friday', 'saturday', 'sunday'
+        ]            
+    day1 = day1.lower()
+    day2 = day2.lower()
+    
+    if any(d not in week for d in [day1, day2]):
+        raise ValueError("Arguments day1 and day2 must be a day of the week.")
+    d1 = week.index(day1)
+    d2 = week.index(day2)
+    return d1, d2
+
+def _days(
+    df: pd.DataFrame, 
+    day1: Optional[str], 
+    day2: Optional[str]
+    ) -> pd.DataFrame:
+    """Filter the DataFrame based on the specified days of the week.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index.
+    day1: Optional[str]
+        First day of the week to include in the filtering.
+    day2: Optional[str]
+        Last day of the week to include in the filtering.
+
+    Returns
+    ----------
+    pd.DataFrame: Filtered DataFrame based on the specified days of the week.
+    """
+    if day1 and day2:
+        week = ['monday', 'tuesday', 'wednesday', 'thursday', 
+                'friday', 'saturday', 'sunday']
+        if day1.lower() not in week or day2.lower() not in week:
+            raise ValueError("Arguments day1 and day2 must be a day of "
+                            "the week.")
+
+        d1, d2 = _get_week_indexes(day1, day2)
+
+        if d1 <= d2:
+            return df.loc[
+                (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
+        else:
+            return df.loc[
+                (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+    else:
+        return df
+
+def _hours(
+    df: pd.DataFrame, 
+    hour1: int, 
+    hour2: int
+    ) -> pd.DataFrame:
+    """Filter the DataFrame based on the specified hours.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index.
+    hour1: int
+        Hour for the starting time of the daily average.
+    hour2: int
+        Hour for the ending time of the daily average.
+
+    Returns
+    ----------
+    pd.Series: Filtered Series based on the specified hours.
+    """
+    
+    if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
+        raise ValueError("Hours must be between 0 and 24.")  
+
+    if hour1 == 24:
+        t1 = time(hour=23, minute=59, second=59)
+        t2 = time(hour=hour2)
+    elif hour2 == 24:
+        t1 = time(hour=hour1)
+        t2 = time(hour=23, minute=59, second=59)
+    else:
+        t1 = time(hour=hour1)
+        t2 = time(hour=hour2)
+
+    return df.between_time(t1, t2)
 
 
 

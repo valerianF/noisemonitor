@@ -6,10 +6,10 @@ from datetime import time
 from typing import Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from .util.filter import _days, _hours
-from .util.core import equivalent_level, noise_events, get_interval
+from .util import filter
+from .util import core
 
-def weekly_levels(
+def periodic(
     df: pd.DataFrame,
     hour1: int,
     hour2: int,
@@ -21,7 +21,7 @@ def weekly_levels(
     traffic_noise_indicators: bool = False,
     roughness_indicators: bool = False
 ) -> pd.DataFrame:
-    """Compute daily or weekly sliding averages of the sound level, in 
+    """Compute daily or weekly rolling averages of the sound level, in 
     terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
 
     Parameters
@@ -42,8 +42,8 @@ def weekly_levels(
     win: int, default 3600
         window size for the averaging function, in seconds.
     step: int, default 0
-        step size to compute a sliding average. If set to 0 (default 
-        value), the function will compute non-sliding averages.
+        step size to compute a rolling average. If set to 0 (default 
+        value), the function will compute non-rolling averages.
     traffic_noise_indicators: bool, default False
         if set to True, the function will compute traffic noise indicators 
         Traffic Noise Index (Griffiths and Langdon, 1968) as well as the 
@@ -61,7 +61,7 @@ def weekly_levels(
 
     """
 
-    if get_interval(df) > 1:
+    if core.get_interval(df) > 1:
         warnings.warn(f"Computing the L10, L50, L90, traffic, or "
             "roughness noise indicators should be done with "
             "an integration time equal to or below 1s. Results"
@@ -70,7 +70,7 @@ def weekly_levels(
     if step == 0:
         step = win
 
-    temp = _days(df, day1, day2)
+    temp = filter._days(df, day1, day2)
 
     NLim = ((hour2-hour1)%24*3600)//step + 1
 
@@ -113,7 +113,7 @@ def weekly_levels(
         ))
 
         arr = temp_slice.iloc[:, column]
-        averages['Leq'][i] = equivalent_level(arr)
+        averages['Leq'][i] = core.equivalent_level(arr)
         averages['L10'][i] = np.nanpercentile(arr, 90)
         averages['L50'][i] = np.nanpercentile(arr, 50)
         averages['L90'][i] = np.nanpercentile(arr, 10)
@@ -144,7 +144,7 @@ def weekly_levels(
 
     return pd.DataFrame(index=times, data=averages)
     
-def weekly_bands(
+def freq_periodic(
     df: pd.DataFrame,
     hour1: int,
     hour2: int,
@@ -191,7 +191,7 @@ def weekly_bands(
         with ProcessPoolExecutor() as executor:
             futures = {
                 executor.submit(
-                    weekly_levels,
+                    periodic,
                     df,
                     hour1,
                     hour2,
@@ -208,7 +208,7 @@ def weekly_bands(
                 results[col] = future.result()
     else:
         results = {
-            col: weekly_levels(
+            col: periodic(
                 df,
                 hour1,
                 hour2,
@@ -294,7 +294,7 @@ def nne(
     DataFrame: DataFrame with the number of noise events for each sliding 
     window.
     """
-    if get_interval(df) > 1:
+    if core.get_interval(df) > 1:
         warnings.warn(f"Computing the average Number of "
             "Noise Events should be done with "
             "an integration time equal to or below 1s. Results"
@@ -303,8 +303,8 @@ def nne(
     if column is None:
         column = 0
 
-    temp_df = _days(df, day1, day2)
-    temp_df = _hours(temp_df, hour1, hour2)
+    temp_df = filter._days(df, day1, day2)
+    temp_df = filter._hours(temp_df, hour1, hour2)
 
     if step == 0:
         step = win
@@ -349,7 +349,7 @@ def nne(
 
             arr = temp.iloc[:, column]
             if background_type == 'leq':
-                threshold = equivalent_level(arr) + exceedance
+                threshold = core.equivalent_level(arr) + exceedance
             elif background_type == 'l50':
                 threshold = np.nanpercentile(arr, 50) + exceedance
             elif background_type == 'l90':
@@ -359,7 +359,7 @@ def nne(
             else:
                 raise ValueError("Invalid background type. Use 'leq', "
                                 "'l50', 'l90', or an int value.")
-            day_event_counts[i] = noise_events(
+            day_event_counts[i] = core.noise_events(
                 temp, column, threshold, min_gap)
         daily_event_counts.append(day_event_counts)
 
@@ -379,7 +379,7 @@ def nne(
         data={'Average NNEs': average_event_counts}
     )
     
-def overall_levels(
+def series(
     df: pd.DataFrame,
     win: int = 3600,
     step: int = 0,
@@ -410,7 +410,7 @@ def overall_levels(
         Leq, L10, L50 and L90 at the corresponding columns
 
     """
-    interval = get_interval(df)
+    interval = core.get_interval(df)
 
     if interval > 1:
         warnings.warn(f"Computing the L10, L50, and L90 should be done with "
@@ -449,7 +449,7 @@ def overall_levels(
         arr = df.iloc[
             int(start_index + i * step):int(start_index + i * step + win)
         ].iloc[:, column]
-        overallmean[i] = equivalent_level(arr)
+        overallmean[i] = core.equivalent_level(arr)
         if np.isnan(arr).all():
             if not nan_warning_issued:
                 warnings.warn(f"All-NaN slice(s) encountered. "

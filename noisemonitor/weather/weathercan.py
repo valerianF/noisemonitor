@@ -19,7 +19,7 @@ from io import StringIO
 
 from typing import List, Optional
 
-from noisemonitor.summary import overall_leq, overall_lden
+from noisemonitor.summary import leq, lden
 
 USER_AGENT = "env_canada/0.8.0"
 
@@ -428,13 +428,13 @@ def contingency_weather_flags(
         warnings.filterwarnings("ignore", category=UserWarning)
         
         for key, datafr in subsets.items():
-            ov_leq = overall_leq(
+            ov_leq = leq(
                 df=datafr,
                 column=column, 
                 hour1=0, 
                 hour2=24
                 )
-            ov_lden = overall_lden(df=datafr, column=column)
+            ov_lden = lden(df=datafr, column=column)
             results[key] = {
                 'Leq': ov_leq['leq'][0],
                 'Lden': ov_lden['lden'][0]
