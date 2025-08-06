@@ -155,7 +155,7 @@ def freq_periodic(
     chunks: bool = True
 ) -> pd.DataFrame:
     """
-    Compute weekly levels for each frequency band in the NoiseMonitor DataFrame.
+    Compute weekly levels for each frequency band in the DataFrame.
 
     Parameters
     ----------
@@ -197,7 +197,7 @@ def freq_periodic(
                     hour2,
                     day1,
                     day2,
-                    col,
+                    df.columns.get_loc(col),
                     win,
                     step
                 ): col
@@ -214,9 +214,89 @@ def freq_periodic(
                 hour2,
                 day1,
                 day2,
-                col,
+                df.columns.get_loc(col),
                 win,
                 step
+            )
+            for col in df.columns
+        }
+
+    warnings.resetwarnings()
+
+    float_columns = {col: float(col) for col in results.keys()}
+    results = {float_columns[col]: df for col, df in results.items()}
+
+    combined_results = pd.concat(results, axis=1, keys=results.keys())
+    combined_results.columns = pd.MultiIndex.from_tuples(
+        [(indicator, band) for band in combined_results.columns.levels[0]
+                            for indicator in combined_results[band].columns],
+        names=["Indicator", "Frequency Band"]
+    )
+
+    combined_results = combined_results.sort_index(
+        axis=1,
+        level="Frequency Band"
+    )
+
+    return combined_results
+
+def freq_series(
+    df: pd.DataFrame,
+    win: int = 3600,
+    step: int = 0,
+    chunks: bool = True,
+    start_at_midnight: bool = False
+) -> pd.DataFrame:
+    """
+    Compute time series of sound levels for each frequency band in the DataFrame.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and sound level values for each frequency band.
+    win: int, default 3600
+        Window size for the averaging function, in seconds.
+    step: int, default 0
+        Step size to compute a rolling average. If set to 0 (default value),
+        the function will compute non-rolling averages.
+    chunks: bool, default True
+        If set to True, the function will use parallel processing to compute
+        the series for each frequency band.
+    start_at_midnight: bool, default False
+        If set to True, the computation will start at midnight.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with time series for each frequency band.
+    """
+    warnings.simplefilter("ignore")
+
+    if chunks:
+        results = {}
+        with ProcessPoolExecutor() as executor:
+            futures = {
+                executor.submit(
+                    series,
+                    df,
+                    win,
+                    step,
+                    df.columns.get_loc(col),
+                    start_at_midnight
+                ): col
+                for col in df.columns
+            }
+            for future in as_completed(futures):
+                col = futures[future]
+                results[col] = future.result()
+    else:
+        results = {
+            col: series(
+                df,
+                win,
+                step,
+                df.columns.get_loc(col),
+                start_at_midnight
             )
             for col in df.columns
         }
