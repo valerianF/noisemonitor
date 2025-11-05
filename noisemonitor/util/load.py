@@ -164,7 +164,7 @@ def load(
     # Resample the data to fill gaps based on the interval between rows
     if len(df) > 2:
         interval = df.index[2] - df.index[1]
-        resample_freq = f'{interval.total_seconds()}s'
+        resample_freq = f'{int(interval.total_seconds())}s'
         df = df.resample(resample_freq).asfreq()
         
     return df
