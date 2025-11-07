@@ -4,14 +4,14 @@ import warnings
 import matplotlib.pyplot as plt
 
 from datetime import time
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from .util import filter
 from .util import core
 
 def harmonica_periodic(
     df: pd.DataFrame,
-    column: Optional[int] = 0,  
+    column: Optional[Union[int, str]] = 0,
     use_chunks: bool = True,
     day1: Optional[str] = None,
     day2: Optional[str] = None
@@ -23,9 +23,9 @@ def harmonica_periodic(
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and sound level values.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     use_chunks: bool default True
         whether to process the data in chunks for large datasets.
     day1: Optional[str], default None
@@ -35,9 +35,10 @@ def harmonica_periodic(
 
     Returns
     ----------
-    DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA 
+    pd.DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA 
     values.
     """
+    column = core._column_to_index(df, column)
 
     # Compute hourly HARMONICA indicators
     temp_df = filter._days(df, day1, day2)
@@ -55,7 +56,7 @@ def harmonica_periodic(
 def periodic(
     df: pd.DataFrame,
     freq: str='D',
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     values: bool=False
 ) -> pd.DataFrame:
     """Compute Leq,24h and Lden on a periodic basis.
@@ -67,17 +68,18 @@ def periodic(
     freq: str, default 'D'
         frequency for the computation. 'D' for daily, 'W' for weekly, and
         'M' for monthly.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     values: bool, default False
         if set to True, the function will return individual day, evening
         and night values in addition to the lden.
 
     Returns
     ----------
-    DataFrame: DataFrame with Leq,24h and Lden values for each day or week.
+    pd.DataFrame: DataFrame with Leq,24h and Lden values for each day or week.
     """
+    column = core._column_to_index(df, column)
 
     results = []
 
@@ -134,8 +136,8 @@ def freq_periodic(
 
     Returns
     ----------
-    pd.DataFrame
-        DataFrame with weekly or daily levels for each frequency band.
+    pd.DataFrame: DataFrame with weekly or daily levels for each 
+        frequency band.
     """
     results = {
         col: periodic(df, column=col, freq=freq, values=values)
@@ -156,7 +158,7 @@ def lden(
     df: pd.DataFrame, 
     day1: Optional[str] = None, 
     day2: Optional[str] = None, 
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     values: bool=True
 ) -> pd.DataFrame:
     """Return the Lden, a descriptor of noise level based on Leq over
@@ -175,18 +177,19 @@ def lden(
         last (included) day of the week in the Lden computation. If day2 
         happens later in the week than day1 the average will be computed 
         outside of these days.
-    column: int, default 0
-        column name to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     values: bool, default False
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
 
     Returns
     ---------- 
-    dict: daily or weekly lden rounded to two decimals. Associated day,
+    pd.DataFrame: daily or weekly lden rounded to two decimals. Associated day,
         evening and night values are returned if values is set to True.
     """
+    column = core._column_to_index(df, column)
 
     temp = filter._days(df, day1, day2)
 
@@ -198,7 +201,7 @@ def leq(
     hour2: int, 
     day1: Optional[str] = None, 
     day2: Optional[str] = None, 
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     stats: bool = True
 ) -> pd.DataFrame:
     """Return the equivalent level (and optionally statistical indicators)
@@ -220,9 +223,9 @@ def leq(
         last (included) day of the week in the Lden computation. If day2 
         happens later in the week than day1 the average will be computed 
         outside of these days.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     stats: bool, default True
         If set to True, the function will return L10, L50 and L90 
         together with the Leq.
@@ -230,8 +233,9 @@ def leq(
     Returns
     ---------- 
     float: daily or weekly equivalent level rounded to two decimals. 
-    Statistical indicators are included if stats is set to True.
+        Statistical indicators are included if stats is set to True.
     """
+    column = core._column_to_index(df, column)
 
     temp = filter._days(df, day1, day2)
     array = filter._hours(temp, hour1, hour2).iloc[:, column]
@@ -281,8 +285,7 @@ def freq_descriptors(
 
     Returns
     ----------
-    pd.DataFrame
-        DataFrame with rows corresponding to indicators (e.g., Leq, Lden, etc.) and 
+    pd.DataFrame: DataFrame with rows corresponding to indicators (e.g., Leq, Lden, etc.) and 
         columns corresponding to frequency bands.
     """
     # Initialize a dictionary to store results for each frequency band
@@ -342,7 +345,7 @@ def nday(
     indicator: str = 'Leq,24h',
     bins: Optional[List[int]] = None,
     freq: str = 'D',
-    column: Optional[int] = 0
+    column: Optional[Union[int, str]] = 0
 ) -> pd.DataFrame:
     """Compute the number of days in a dataset for which the indicators 
     are between given values of decibels.
@@ -357,14 +360,15 @@ def nday(
         and every 5 dBA until >=80 dBA.
     freq: str, default 'D'
         Frequency for the computation. 'D' for daily and 'W' for weekly.
-    column: int, default 0
-        column name to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
 
     Returns
     ----------
     DataFrame : DataFrame with the number of days for each decibel range.
     """
+    column = core._column_to_index(df, column)
 
     if bins is None:
         bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]

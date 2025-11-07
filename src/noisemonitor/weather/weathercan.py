@@ -12,6 +12,10 @@ import lxml.html
 import pandas as pd
 import warnings
 import numpy as np
+from typing import Optional, Union
+
+# Import the helper function
+from ..util.core import _column_to_index
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
@@ -365,7 +369,7 @@ def monthlist(daterange):
 
 def contingency_weather_flags(
     df: pd.DataFrame,
-    column: Optional[int] = 0,  
+    column: Optional[Union[int, str]] = 0,  
     include_wind_flag: bool = True, 
     include_rain_flag: bool = True, 
     include_temp_flag: bool = False,
@@ -381,8 +385,8 @@ def contingency_weather_flags(
     df: DataFrame
         Input DataFrame with a datetime index. Typically, the output of
         merge_weather().
-    column: Optional[int], default 0
-        The column index to use for calculations. 
+    column: Optional[int or str], default 0
+        The column index (int) or column name (str) to use for calculations. 
     include_wind_flag: bool, default True
         Whether to include the Wind Speed Flag in the contingency table.
     include_rain_flag: bool, default True
@@ -399,6 +403,7 @@ def contingency_weather_flags(
     pd.DataFrame: Contingency table with LAeq,24h, Lden, Lday, Levening, Lnight, 
     and the proportion of data covered from the initial dataset.
     """
+    column = _column_to_index(df, column)
 
     flags = {
         'Wind_Spd_Flag': include_wind_flag,

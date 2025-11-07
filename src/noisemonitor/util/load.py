@@ -197,6 +197,8 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
     
     chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
 
+    # Convert datetime column toavoid dtype inference
+    chunk['datetime'] = pd.to_datetime(chunk['datetime'])
     chunk = chunk.set_index('datetime')
 
     if timezone is not None:

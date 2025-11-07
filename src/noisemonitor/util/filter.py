@@ -6,7 +6,8 @@ import pandas as pd
 import numpy as np
 
 from datetime import datetime, time
-from typing import Optional
+from typing import Optional, Union
+from . import core
 
 def all_data(
     df: pd.DataFrame, 
@@ -48,7 +49,7 @@ def all_data(
     
 def extreme_values(
     df: pd.DataFrame, 
-    column: Optional[str] = None, 
+    column: Optional[Union[int, str]] = None, 
     min_value: int = 30, 
     max_value: int = 100
 ) -> pd.DataFrame:
@@ -60,8 +61,8 @@ def extreme_values(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str, default None
-        The column name to use for calculations. If None, the first column
+    column: Union[int, str], default None
+        The column name or index to use for calculations. If None, the first column
         will be used.
     min_value: int, default 30
         The minimum value threshold.
@@ -73,14 +74,17 @@ def extreme_values(
     pd.DataFrame: DataFrame with extreme values replaced by NaN.
     """
     if column is None:
-        column = df.columns[0]
+        column = 0
+    
+    column = core._column_to_index(df, column)
+    column_name = df.columns[column]
 
-    initial_count = df[column].notna().sum()
-    df[column] = df[column].apply(
+    initial_count = df[column_name].notna().sum()
+    df[column_name] = df[column_name].apply(
         lambda x: x if min_value <= x <= max_value else np.nan
     )
 
-    filtered_count = df[column].notna().sum()
+    filtered_count = df[column_name].notna().sum()
     filtered_out = initial_count - filtered_count
     proportion_filtered = (filtered_out / initial_count) * 100
 
@@ -90,7 +94,7 @@ def extreme_values(
 
 def weather_flags(
     df: pd.DataFrame, 
-    column: str = None,  
+    column: Union[int, str] = None,  
     filter_wind_flag: bool = True,
     filter_rain_flag: bool = True,
     filter_temp_flag: bool = False,
@@ -104,8 +108,8 @@ def weather_flags(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: str, default None
-        The column name to use for calculations. If None, the first column
+    column: Union[int, str], default None
+        The column name or index to use for calculations. If None, the first column
         will be used.
     include_wind_flag: bool, default False
         Whether to filter data with Wind Speed Flag.
@@ -123,7 +127,10 @@ def weather_flags(
     pd.DataFrame: DataFrame with flagged values replaced by NaN.
     """
     if column is None:
-        column = df.columns[0]
+        column = 0
+    
+    column = core._column_to_index(df, column)
+    column_name = df.columns[column]
 
     flags = {
         'Wind_Spd_Flag': filter_wind_flag,
@@ -133,13 +140,13 @@ def weather_flags(
         'Snow_Flag_Roll': filter_snow_flag
     }
 
-    initial_count = df[column].notna().sum()
+    initial_count = df[column_name].notna().sum()
 
     for flag, include in flags.items():
         if include and flag in df.columns:
-            df.loc[df[flag], column] = np.nan
+            df.loc[df[flag], column_name] = np.nan
 
-    filtered_count = df[column].notna().sum()
+    filtered_count = df[column_name].notna().sum()
     filtered_out = initial_count - filtered_count
     proportion_filtered = (filtered_out / initial_count) * 100
 
@@ -195,11 +202,17 @@ def _days(
         d1, d2 = _get_week_indexes(day1, day2)
 
         if d1 <= d2:
-            return df.loc[
+            filtered_df = df.loc[
                 (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
         else:
-            return df.loc[
+            filtered_df = df.loc[
                 (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+        
+        if filtered_df.empty:
+            raise ValueError(f"No data found for the specified day range "
+                           f"({day1.lower()} to {day2.lower()}). ")
+        
+        return filtered_df
     else:
         return df
 

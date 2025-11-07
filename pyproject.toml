@@ -1,6 +1,6 @@
 [project]
 name = "noisemonitor"
-version = "0.0.2"
+version = "1.0.0"
 authors = [
   { name="Valérian Fraisse", email="valerian.fraisse@mail.mcgill.ca" },
 ]
@@ -22,6 +22,14 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+weather = [
+    "requests >= 2.25.0",
+    "aiohttp >= 3.8.0",
+    "lxml >= 4.6.0",
+    "python-dateutil >= 2.8.0",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/valerianF/noisemonitor"
 "Bug Tracker" = "https://github.com/valerianF/noisemonitor/issues"
@@ -35,3 +43,25 @@ where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+python_classes = [
+    "Test*",
+]
+python_functions = [
+    "test_*",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]

@@ -10,10 +10,11 @@ import matplotlib.dates as mdates
 
 from matplotlib.patches import Polygon
 from datetime import datetime, time
-from typing import List, Optional
+from typing import List, Optional, Union
 from itertools import cycle
 
 from noisemonitor.profile import series, periodic
+from . import core
     
 def compare(
     dfs: List[pd.DataFrame], 
@@ -477,7 +478,7 @@ def nday(
 
 def line_weather(
     df: pd.DataFrame, 
-    column: int = 0,
+    column: Union[int, str] = 0,
     win: int = None,
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
@@ -492,8 +493,8 @@ def line_weather(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: int, default 0
-        The column index for sound levels. If None, the first column
+    column: Union[int, str], default 0
+        The column name or index for sound levels. If None, the first column
         will be used.
     window_size: int, optional
         The window size for rolling average. If None, no rolling average is applied.
@@ -512,6 +513,7 @@ def line_weather(
     ----------
     None
     """
+    column = core._column_to_index(df, column)
 
     if win:
         levels_df = series(df, column=column, win=win, step=0)
@@ -564,7 +566,7 @@ def line_weather(
 
 def compare_weather_daily(
     df: pd.DataFrame,
-    column: int = 0,
+    column: Union[int, str] = 0,
     show: str = 'Leq', 
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
@@ -583,8 +585,8 @@ def compare_weather_daily(
     ----------
     df: pd.DataFrame
         DataFrame containing the data.
-    column: int, default 0
-        The column index for sound levels. If None, the first column
+    column: Union[int, str], default 0
+        The column name or index for sound levels. If None, the first column
         will be used.
     show: str, default 'Leq'
         Column names to be plotted.
@@ -611,6 +613,7 @@ def compare_weather_daily(
     ----------
     None
     """
+    column = core._column_to_index(df, column)
 
     flags = {
         'Wind_Spd_Flag': include_wind_flag,

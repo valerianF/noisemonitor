@@ -9,4 +9,9 @@ dist/
 # dev
 __pycache__
 .vscode
+*.code-workspace
 env/
+.venv
+
+# test
+.pytest_cache

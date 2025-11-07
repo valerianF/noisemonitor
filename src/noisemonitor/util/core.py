@@ -2,9 +2,9 @@
 
 import pandas as pd
 import numpy as np
-import warnings
 
 from datetime import time
+from typing import Union
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -46,9 +46,9 @@ def harmonica(
     # Check interval
     interval = (df.index[1] - df.index[0]).total_seconds()
     if interval > 1:
-        warnings.warn("Computing the HARMONICA indicator should be done with "
-                    "an integration time equal to or below 1s. Results might"
-                    " not be valid.\n")
+        raise ValueError("Computing the HARMONICA indicator requires "
+                    "an integration time equal to or below 1s. "
+                    f"Current interval is {interval}s.")
         
     results = []
     previous_data = pd.DataFrame() 
@@ -127,7 +127,7 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
 
 def lden(
     df: pd.DataFrame, 
-    column: int, 
+    column: Union[int, str], 
     values: bool = False
     ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame.
@@ -136,8 +136,9 @@ def lden(
     ----------
     df: DataFrame
         DataFrame with a datetime index and sound level values.
-    column: int
-        column index to use for calculations. Should contain LAeq values.
+    column: int or str
+        column index (int) or column name (str) to use for calculations. 
+        Should contain LAeq values.
     values: bool, default False
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
@@ -146,6 +147,8 @@ def lden(
     ----------
     DataFrame: Lden value and optionally day, evening, and night levels.
     """
+    column = _column_to_index(df, column)
+    
     lday = equivalent_level(df.between_time(
         time(hour=7), time(hour=19)).iloc[:, column])
     levening = equivalent_level(df.between_time(
@@ -166,8 +169,8 @@ def lden(
             'lday': [np.round(lday, 2)],
             'levening': [np.round(levening, 2)],
             'lnight': [np.round(lnight, 2)]
-        })
-    return pd.DataFrame({'lden': [np.round(lden, 2)]})
+        }, dtype='float64')
+    return pd.DataFrame({'lden': [np.round(lden, 2)]}, dtype='float64')
 
 def noise_events(
     df: pd.DataFrame,
@@ -211,3 +214,9 @@ def noise_events(
                 last_event_end = timestamp
 
     return events
+
+def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
+    """Convert string column name to integer index if needed."""
+    if isinstance(column, str):
+        return df.columns.get_loc(column)
+    return column

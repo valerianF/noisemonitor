@@ -3,7 +3,7 @@ import numpy as np
 import warnings
 
 from datetime import time
-from typing import Optional
+from typing import Optional, Union
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from .util import filter
@@ -15,7 +15,7 @@ def periodic(
     hour2: int,
     day1: Optional[str] = None,
     day2: Optional[str] = None,
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     win: int = 3600,
     step: int = 0,
     traffic_noise_indicators: bool = False,
@@ -36,9 +36,9 @@ def periodic(
         First day of the week included in the weekly average.
     day2: Optional[str], default None
         Last day of the week included in the weekly average.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     win: int, default 3600
         window size for the averaging function, in seconds.
     step: int, default 0
@@ -60,6 +60,7 @@ def periodic(
         Leq, L10, L50 and L90 at the corresponding columns
 
     """
+    column = core._column_to_index(df, column)
 
     if core.get_interval(df) > 1:
         warnings.warn(f"Computing the L10, L50, L90, traffic, or "
@@ -329,7 +330,7 @@ def nne(
     min_gap: int = 3,
     win: int = 3600,
     step: int = 0,
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     day1: Optional[str] = None,
     day2: Optional[str] = None
 ) -> pd.DataFrame:
@@ -361,9 +362,9 @@ def nne(
     step: int, default 0
         Step size to compute a sliding average. If set to 0 (default value), 
         the function will compute non-sliding averages.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     day1: Optional[str], default None
         First day of the week to include in the calculation.
     day2: Optional[str], default None
@@ -374,6 +375,8 @@ def nne(
     DataFrame: DataFrame with the number of noise events for each sliding 
     window.
     """
+    column = core._column_to_index(df, column)
+    
     if core.get_interval(df) > 1:
         warnings.warn(f"Computing the average Number of "
             "Noise Events should be done with "
@@ -443,6 +446,12 @@ def nne(
                 temp, column, threshold, min_gap)
         daily_event_counts.append(day_event_counts)
 
+    if len(daily_event_counts) == 0:
+        raise ValueError(
+            f"No complete days found in the dataset. The NNE function requires "
+            f"complete daily data covering the specified time range"
+        )
+
     daily_event_counts = np.array(daily_event_counts)
     average_event_counts = np.mean(daily_event_counts, axis=0)
 
@@ -463,7 +472,7 @@ def series(
     df: pd.DataFrame,
     win: int = 3600,
     step: int = 0,
-    column: Optional[int] = 0,
+    column: Optional[Union[int, str]] = 0,
     start_at_midnight: bool = False
 ) -> pd.DataFrame:
     """Sliding average of the entire sound level array, in terms of
@@ -478,9 +487,9 @@ def series(
     step: int, default 0
         step size (in seconds) to compute a sliding average. If set to 0
         (default value), the function will compute non-sliding averages.
-    column: int, default 0
-        column index to use for calculations. If None, the first column
-        of the DataFrame will be used.
+    column: int or str, default 0
+        column index (int) or column name (str) to use for calculations. 
+        If None, the first column of the DataFrame will be used.
     start_at_midnight: bool, default False
         if set to True, the computation will start at midnight.
 
@@ -490,6 +499,8 @@ def series(
         Leq, L10, L50 and L90 at the corresponding columns
 
     """
+    column = core._column_to_index(df, column)
+    
     interval = core.get_interval(df)
 
     if interval > 1:
@@ -501,6 +512,9 @@ def series(
     win = win // interval
 
     N = len(df)
+
+    if N < win:
+        raise ValueError(f"Insufficient data: need at least {win} samples, got {N}")
 
     if step == 0:
         step = win
