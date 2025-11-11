@@ -69,6 +69,47 @@ def sample_octave_data():
 class TestPeriodic:
     """Test cases for the periodic function."""
     
+    def test_periodic_exact_values(self, laeq1s_data):
+        """Test periodic with exact expected values from dataset."""
+        # Test full day profile (0-23h) with 1-hour windows
+        result = periodic(
+            laeq1s_data,
+            hour1=0, 
+            hour2=23,
+            column=0,
+            win=3600 
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 24  # 24 hourly values
+        
+        expected_columns = ['Leq', 'L10', 'L50', 'L90']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        # Test exact values for first three hours from dataset
+        # Hour 0 (00:30:00)
+        assert abs(result.iloc[0]['Leq'] - 45.164192) < 1e-2
+        assert abs(result.iloc[0]['L10'] - 46.485907) < 1e-2
+        assert abs(result.iloc[0]['L50'] - 44.285907) < 1e-2
+        assert abs(result.iloc[0]['L90'] - 43.185907) < 1e-2
+        
+        # Hour 1 (01:30:00)
+        assert abs(result.iloc[1]['Leq'] - 43.236100) < 1e-2
+        assert abs(result.iloc[1]['L10'] - 44.685907) < 1e-2
+        assert abs(result.iloc[1]['L50'] - 42.685907) < 1e-2
+        assert abs(result.iloc[1]['L90'] - 41.685907) < 1e-2
+        
+        # Hour 2 (02:30:00)
+        assert abs(result.iloc[2]['Leq'] - 42.633263) < 1e-2
+        assert abs(result.iloc[2]['L10'] - 44.185907) < 1e-2
+        assert abs(result.iloc[2]['L50'] - 41.985907) < 1e-2
+        assert abs(result.iloc[2]['L90'] - 41.085907) < 1e-2
+        
+        # Verify ordering relationships hold
+        assert (result['L10'] >= result['L50']).all()
+        assert (result['L50'] >= result['L90']).all()
+    
     def test_periodic_basic_daytime(self, laeq1m_data):
         """Test basic daytime periodic averaging with 1-minute data."""
 
@@ -93,6 +134,40 @@ class TestPeriodic:
         assert (result['L10'] >= result['L50']).all()
         assert (result['L50'] >= result['L90']).all()
         assert result['Leq'].between(30, 90).all()
+    
+    def test_periodic_nighttime_exact_values(self, laeq1s_data):
+        """Test nighttime periodic with exact expected values from dataset."""
+        result = periodic(
+            laeq1s_data,
+            hour1=22,
+            hour2=6, 
+            column=0,
+            win=3600
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 9  # Hours 22, 23, 0, 1, 2, 3, 4, 5, 6
+        
+        expected_columns = ['Leq', 'L10', 'L50', 'L90']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        # Test exact values for first two night hours from dataset
+        # Hour 22 (22:30:00) - first entry in night profile
+        assert abs(result.iloc[0]['Leq'] - 52.327007) < 1e-2
+        assert abs(result.iloc[0]['L10'] - 55.185907) < 1e-2
+        assert abs(result.iloc[0]['L50'] - 49.385907) < 1e-2
+        assert abs(result.iloc[0]['L90'] - 46.585907) < 1e-2
+        
+        # Hour 23 (23:30:00) - second entry in night profile
+        assert abs(result.iloc[1]['Leq'] - 51.256863) < 1e-2
+        assert abs(result.iloc[1]['L10'] - 53.885907) < 1e-2
+        assert abs(result.iloc[1]['L50'] - 47.185907) < 1e-2
+        assert abs(result.iloc[1]['L90'] - 44.085907) < 1e-2
+        
+        # Verify ordering relationships hold
+        assert (result['L10'] >= result['L50']).all()
+        assert (result['L50'] >= result['L90']).all()
     
     def test_periodic_nighttime(self, laeq1m_data):
         """Test nighttime periodic averaging (hour2 < hour1)."""
@@ -274,7 +349,6 @@ class TestSeries:
     
     def test_series_handles_nan_data(self, laeq1m_data):
         """Test series handling of NaN data."""
-        # Create data with some NaN values
         test_data = laeq1m_data.copy()
         test_data.iloc[100:110, 0] = np.nan
         
@@ -373,8 +447,8 @@ class TestFreqPeriodic:
             sample_octave_data,
             hour1=8,
             hour2=18,
-            win=1800,  # 30-minute windows
-            chunks=False  # Disable parallel processing for simpler testing
+            win=1800,
+            chunks=False
         )
         
         assert isinstance(result, pd.DataFrame)
@@ -407,8 +481,8 @@ class TestFreqSeries:
         """Test basic frequency-domain time series."""
         result = freq_series(
             sample_octave_data,
-            win=1800,  # 30-minute windows
-            chunks=False  # Disable parallel processing for testing
+            win=1800,
+            chunks=False
         )
         
         assert isinstance(result, pd.DataFrame)
@@ -469,5 +543,4 @@ class TestProfileEdgeCases:
 
 
 if __name__ == "__main__":
-    # Allow running tests directly
     pytest.main([__file__])

@@ -71,12 +71,11 @@ class TestHarmonicaPeriodic:
     """Test cases for the harmonica_periodic function."""
     
     def test_harmonica_periodic(self, laeq1s_data):
-        """Test basic harmonica periodic computation."""
+        """Test basic harmonica periodic computation with exact expected values."""
         result = harmonica_periodic(
             laeq1s_data, 
             column=0,
-            day1='saturday', 
-            day2='sunday'
+            use_chunks=False
         )
         
         assert isinstance(result, pd.DataFrame)
@@ -87,9 +86,18 @@ class TestHarmonicaPeriodic:
         for col in expected_columns:
             assert col in result.columns
         
-        assert result['BGN'].between(0, 10).all()
-        assert result['EVT'].between(0, 10).all()
-        assert result['HARMONICA'].between(0, 15).all()
+        # Test exact values for first three hours from dataset
+        assert abs(result.iloc[0]['BGN'] - 0.496360) < 1e-5
+        assert abs(result.iloc[0]['EVT'] - 2.635803) < 1e-5  
+        assert abs(result.iloc[0]['HARMONICA'] - 3.132164) < 1e-5
+        
+        assert abs(result.iloc[1]['BGN'] - 0.339076) < 1e-5
+        assert abs(result.iloc[1]['EVT'] - 2.375998) < 1e-5
+        assert abs(result.iloc[1]['HARMONICA'] - 2.715074) < 1e-5
+        
+        assert abs(result.iloc[2]['BGN'] - 0.326900) < 1e-5
+        assert abs(result.iloc[2]['EVT'] - 2.265118) < 1e-5
+        assert abs(result.iloc[2]['HARMONICA'] - 2.592018) < 1e-5
     
     def test_harmonica_1m(self, laeq1m_data):
         """Test harmonica periodic raises error for intervals > 1s."""
@@ -109,6 +117,24 @@ class TestHarmonicaPeriodic:
 
 class TestPeriodic:
     """Test cases for the periodic function."""
+    
+    def test_periodic_daily_exact_values(self, laeq1s_data):
+        """Test daily periodic with exact expected values from dataset."""
+        result = periodic(laeq1s_data, freq='D', column=0, values=True)
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) >= 1  # At least one day of data
+        expected_columns = ['Leq,24h', 'Lden', 'Lday', 'Levening', 'Lnight']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        # Test exact values from dataset (first day)
+        first_day = result.iloc[0] 
+        assert abs(first_day['Leq,24h'] - 49.736828) < 1e-5
+        assert abs(first_day['Lden'] - 54.72) < 0.01
+        assert abs(first_day['Lday'] - 49.66) < 0.01
+        assert abs(first_day['Levening'] - 53.02) < 0.01
+        assert abs(first_day['Lnight'] - 46.38) < 0.01
     
     def test_periodic_daily(self, laeq1m_data):
         """Test daily periodic with individual day/evening/night values."""
@@ -205,8 +231,25 @@ class TestFreq:
 class TestLevels:
     """Test cases for the levels (Lden and Leq) functions."""
     
-    def test_lden(self, laeq1m_data):
-        """Test basic Lden computation."""
+    def test_lden(self, laeq1s_data):
+        """Test basic Lden computation with exact expected values."""
+        # Use 1s data for exact value testing
+        result = lden(laeq1s_data, column=0)
+        
+        assert isinstance(result, pd.DataFrame)
+        assert 'lden' in result
+        assert 'lday' in result
+        assert 'levening' in result
+        assert 'lnight' in result
+        
+        # Test exact values from dataset
+        assert abs(result['lden'][0] - 54.72) < 0.01
+        assert abs(result['lday'][0] - 49.66) < 0.01  
+        assert abs(result['levening'][0] - 53.02) < 0.01
+        assert abs(result['lnight'][0] - 46.38) < 0.01
+    
+    def test_lden_1m_data(self, laeq1m_data):
+        """Test Lden computation with 1m data (original generic test).""" 
         result = lden(
             laeq1m_data, 
             column=0, 
@@ -223,30 +266,35 @@ class TestLevels:
         lden_value = result['lden'][0]
         assert 30 <= lden_value <= 90
     
-    def test_leq(self, laeq1m_data):
-        """Test basic Leq computation."""
-        with pytest.warns(
-            UserWarning, 
-            match="Computing the L10, L50, and L90"
-            ):
-            result = leq(
-                laeq1m_data, 
-                hour1=6, 
-                hour2=22, 
-                day1='Monday', 
-                day2='Friday', 
-                column=0
-            )
+    def test_leq(self, laeq1s_data):
+        """Test basic Leq computation with exact expected values."""
+        # Test day period (7-22h) with exact values
+        result_day = leq(laeq1s_data, hour1=7, hour2=22, column=0)
             
-        assert isinstance(result, pd.DataFrame)
+        assert isinstance(result_day, pd.DataFrame)
         
         expected_columns = ['leq', 'l10', 'l50', 'l90']
         for col in expected_columns:
-            assert col in result.columns
+            assert col in result_day.columns
         
-        assert result['leq'].between(30, 90).all()
-        assert (result['l10'] >= result['l50']).all()
-        assert (result['l50'] >= result['l90']).all()
+        # Test exact values for day period from dataset
+        assert abs(result_day['leq'][0] - 50.65) < 0.01
+        assert abs(result_day['l10'][0] - 52.89) < 0.01
+        assert abs(result_day['l50'][0] - 48.59) < 0.01 
+        assert abs(result_day['l90'][0] - 44.89) < 0.01
+        
+        # Test night period (22-7h) 
+        result_night = leq(laeq1s_data, hour1=22, hour2=7, column=0)
+            
+        # Test exact values for night period from dataset
+        assert abs(result_night['leq'][0] - 47.6) < 0.01
+        assert abs(result_night['l10'][0] - 49.29) < 0.01
+        assert abs(result_night['l50'][0] - 44.89) < 0.01
+        assert abs(result_night['l90'][0] - 41.79) < 0.01
+        
+        # Verify ordering relationships
+        assert (result_day['l10'] >= result_day['l50']).all()
+        assert (result_day['l50'] >= result_day['l90']).all()
 
 class TestNday:
     """Test cases for the nday function."""
