@@ -174,8 +174,10 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
     """Process a chunk of data to convert it into a DataFrame suitable for
     sound level analysis."""
     try:
-        chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')]
-    except TypeError:
+        # Only try to remove Unnamed columns if columns are string type
+        if hasattr(chunk.columns, 'str'):
+            chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')]
+    except (TypeError, AttributeError):
         pass
 
     if datetimeindex is not None:
@@ -189,7 +191,7 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
             lambda a: parser.parse(a).time())
         chunk.iloc[:, dateindex] = chunk.apply(
             lambda a: datetime.combine(
-                a.iloc[:, dateindex], a.iloc[:, timeindex]))
+                a.iloc[dateindex], a.iloc[timeindex]), axis=1)
         datetimeindex = dateindex
     else:
         raise Exception("You must provide either a datetime "
@@ -205,11 +207,12 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
         chunk.index = chunk.index.tz_convert(
             timezone).tz_localize(None)
 
-    
+    # Apply NoiseSentry formatting only to value columns, not datetime
     for valueindex in valueindexes:
         if slm_type == 'NoiseSentry':
+            # Convert European decimal format only for numeric value columns
             chunk.iloc[:, valueindex-1] = chunk.iloc[:, valueindex-1].map(
-                lambda a: locale.atof(a.replace(',', '.')))
+                lambda a: locale.atof(str(a).replace(',', '.')) if pd.notna(a) else a)
 
     chunk = chunk.iloc[:, [i-1 for i in valueindexes]]
     return chunk
