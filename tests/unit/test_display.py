@@ -216,7 +216,9 @@ class TestWeatherPlotFunctions:
         """Test weather line plotting with rolling window."""
         column_name = sample_weather_data.columns[0]
         
-        with pytest.warns(UserWarning, match="Computing the L10, L50, and L90"):
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50, and L90"
+        ):
             result = line_weather(
                 sample_weather_data, 
                 column=column_name,

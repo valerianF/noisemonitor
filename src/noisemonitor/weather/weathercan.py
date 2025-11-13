@@ -14,7 +14,6 @@ import warnings
 import numpy as np
 from typing import Optional, Union
 
-# Import the helper function
 from ..util.core import _column_to_index
 
 from dateutil.relativedelta import relativedelta
@@ -70,7 +69,9 @@ def get_historical_stations(
     associated time granulation (hourly, daily or monthly).
     """
     if radius < 25 or radius > 100:
-        raise ValueError("Radius available range is between 25 and 100 kilometers")
+        raise ValueError(
+            "Radius available range is between 25 and 100 kilometers"
+        )
     lat, lng = coordinates
     params = {
         "searchType": "stnProx",
@@ -400,7 +401,9 @@ def contingency_weather_flags(
 
     Returns
     ----------
-    pd.DataFrame: Contingency table with LAeq,24h, Lden, Lday, Levening, Lnight, 
+    pd.DataFrame:
+        Contingency table with LAeq,24h, Lden, Lday, Levening,
+        Lnight, and other indicators. 
     and the proportion of data covered from the initial dataset.
     """
     column = _column_to_index(df, column)
@@ -454,9 +457,12 @@ def contingency_weather_flags(
             contingency_table[level] - full_data_levels[level]
         )
 
-    total_data_points = len(subsets['All Data'].iloc[:,column])
+    total_data_points = len(subsets['All Data'].iloc[:, column])
     contingency_table['Covered data (%)'] = contingency_table.index.map(
-        lambda x: np.round(((len(subsets[x].iloc[:,column]) / total_data_points) * 100), 1), 
+        lambda x: np.round(
+            (len(subsets[x].iloc[:, column]) / total_data_points) * 100,
+            1
+        ),
     )
 
     # Rename columns based on flag thresholds
@@ -470,7 +476,10 @@ def contingency_weather_flags(
         'No Wind_Spd_Flag': 'No Flag - Wind',
         'Rain_Flag_Roll': f'Rain in the last {rolling_window_hours}h',
         'No Rain_Flag_Roll': 'No Flag - Rain',
-        'Temp_Flag': f'Temperature below {temp_range_flag[0]}°C or above {temp_range_flag[1]}°C',
+        'Temp_Flag': (
+            f'Temperature below {temp_range_flag[0]}°C or above '
+            f'{temp_range_flag[1]}°C'
+        ),
         'No Temp_Flag': 'No Flag - Temperature',
         'Rel_Hum_Flag': f'Humidity above {hum_flag}%',
         'No Rel_Hum_Flag': 'No Flag - Humidity',
@@ -485,7 +494,10 @@ def contingency_weather_flags(
         'All Data',
         f'Wind speed >= {wind_speed_flag} km/h',
         f'Rain in the last {rolling_window_hours}h',
-        f'Temperature below {temp_range_flag[0]}°C or above {temp_range_flag[1]}°C',
+        (
+            f'Temperature below {temp_range_flag[0]}°C or above '
+            f'{temp_range_flag[1]}°C'
+        ),
         f'Humidity above {hum_flag}%',
         f'Snow in the last {rolling_window_hours}h',
         'No Flag - Wind',

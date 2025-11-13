@@ -19,7 +19,9 @@ def periodic(
     win: int = 3600,
     step: int = 0,
     traffic_noise_indicators: bool = False,
-    roughness_indicators: bool = False
+    roughness_indicators: bool = False,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute daily or weekly rolling averages of the sound level, in 
     terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
@@ -53,6 +55,11 @@ def periodic(
         if set to True, the function will compute roughness indicators 
         based on difference between consecutive LAeq,1s values according 
         to (DeFrance et al., 2010).
+    coverage_check: bool, default True
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ---------- 
@@ -114,7 +121,12 @@ def periodic(
         ))
 
         arr = temp_slice.iloc[:, column]
-        averages['Leq'][i] = core.equivalent_level(arr)
+        averages['Leq'][i] = core.equivalent_level(
+            temp_slice, column,
+            coverage_check=coverage_check,
+            coverage_threshold=coverage_threshold,
+            win=win
+        )
         averages['L10'][i] = np.nanpercentile(arr, 90)
         averages['L50'][i] = np.nanpercentile(arr, 50)
         averages['L90'][i] = np.nanpercentile(arr, 10)
@@ -153,7 +165,9 @@ def freq_periodic(
     day2: Optional[str] = None,
     win: int = 3600,
     step: int = 0,
-    chunks: bool = True
+    chunks: bool = True,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
     Compute weekly levels for each frequency band in the DataFrame.
@@ -179,6 +193,11 @@ def freq_periodic(
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         weekly levels for each frequency band.
+    coverage_check: bool, default True
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ----------
@@ -200,7 +219,11 @@ def freq_periodic(
                     day2,
                     df.columns.get_loc(col),
                     win,
-                    step
+                    step,
+                    False,
+                    False,
+                    coverage_check,
+                    coverage_threshold
                 ): col
                 for col in df.columns
             }
@@ -217,7 +240,11 @@ def freq_periodic(
                 day2,
                 df.columns.get_loc(col),
                 win,
-                step
+                step,
+                False,
+                False,
+                coverage_check,
+                coverage_threshold
             )
             for col in df.columns
         }
@@ -246,7 +273,9 @@ def freq_series(
     win: int = 3600,
     step: int = 0,
     chunks: bool = True,
-    start_at_midnight: bool = False
+    start_at_midnight: bool = False,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
     Compute time series of sound levels for each frequency band in the DataFrame.
@@ -265,6 +294,11 @@ def freq_series(
         the series for each frequency band.
     start_at_midnight: bool, default False
         If set to True, the computation will start at midnight.
+    coverage_check: bool, default True
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     -------
@@ -283,7 +317,9 @@ def freq_series(
                     win,
                     step,
                     df.columns.get_loc(col),
-                    start_at_midnight
+                    start_at_midnight,
+                    coverage_check,
+                    coverage_threshold
                 ): col
                 for col in df.columns
             }
@@ -297,7 +333,9 @@ def freq_series(
                 win,
                 step,
                 df.columns.get_loc(col),
-                start_at_midnight
+                start_at_midnight,
+                coverage_check,
+                coverage_threshold
             )
             for col in df.columns
         }
@@ -332,7 +370,9 @@ def nne(
     step: int = 0,
     column: Optional[Union[int, str]] = 0,
     day1: Optional[str] = None,
-    day2: Optional[str] = None
+    day2: Optional[str] = None,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute the Number of Noise Events (NNE) following the algorithm 
     proposed in (Brown and De Coensel, 2018). The function computes the 
@@ -369,6 +409,11 @@ def nne(
         First day of the week to include in the calculation.
     day2: Optional[str], default None
         Last day of the week to include in the calculation.
+    coverage_check: bool, default True
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ----------
@@ -432,7 +477,13 @@ def nne(
 
             arr = temp.iloc[:, column]
             if background_type == 'leq':
-                threshold = core.equivalent_level(arr) + exceedance
+                threshold = (
+                    core.equivalent_level(
+                        arr,
+                        coverage_check=coverage_check,
+                        coverage_threshold=coverage_threshold
+                    ) + exceedance
+                )
             elif background_type == 'l50':
                 threshold = np.nanpercentile(arr, 50) + exceedance
             elif background_type == 'l90':
@@ -448,8 +499,9 @@ def nne(
 
     if len(daily_event_counts) == 0:
         raise ValueError(
-            f"No complete days found in the dataset. The NNE function requires "
-            f"complete daily data covering the specified time range"
+            f"No complete days found in the dataset. The NNE function "
+            f"requires complete daily data covering the specified "
+            f"time range"
         )
 
     daily_event_counts = np.array(daily_event_counts)
@@ -473,7 +525,9 @@ def series(
     win: int = 3600,
     step: int = 0,
     column: Optional[Union[int, str]] = 0,
-    start_at_midnight: bool = False
+    start_at_midnight: bool = False,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Sliding average of the entire sound level array, in terms of
     equivalent level (LEQ), and percentiles (L10, L50 and L90).
@@ -492,6 +546,11 @@ def series(
         If None, the first column of the DataFrame will be used.
     start_at_midnight: bool, default False
         if set to True, the computation will start at midnight.
+    coverage_check: bool, default True
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ---------- 
@@ -514,7 +573,9 @@ def series(
     N = len(df)
 
     if N < win:
-        raise ValueError(f"Insufficient data: need at least {win} samples, got {N}")
+        raise ValueError(
+            f"Insufficient data: need at least {win} samples, got {N}"
+        )
 
     if step == 0:
         step = win
@@ -543,7 +604,11 @@ def series(
         arr = df.iloc[
             int(start_index + i * step):int(start_index + i * step + win)
         ].iloc[:, column]
-        overallmean[i] = core.equivalent_level(arr)
+        overallmean[i] = core.equivalent_level(
+            arr,
+            coverage_check=coverage_check,
+            coverage_threshold=coverage_threshold
+        )
         if np.isnan(arr).all():
             if not nan_warning_issued:
                 warnings.warn(f"All-NaN slice(s) encountered. "

@@ -40,12 +40,20 @@ def all_data(
     DataFrame: input dataframe filtered to the specified dates range.
     """
     try:
-        if between: 
-            return df.loc[(df.index < start_datetime) | (df.index > end_datetime)]
-        return df.loc[(df.index >= start_datetime) & (df.index <= end_datetime)]
+        if between:
+            return df.loc[
+                (df.index < start_datetime) |
+                (df.index > end_datetime)
+            ]
+        return df.loc[
+            (df.index >= start_datetime) &
+            (df.index <= end_datetime)
+        ]
     except TypeError as e:
-        raise TypeError("Invalid comparison. Please check whether a timezone "
-                        "argument should be indicated when loading data.") from e
+        raise TypeError(
+            "Invalid comparison. Please check whether a timezone "
+            "argument should be indicated when loading data."
+        ) from e
     
 def extreme_values(
     df: pd.DataFrame, 
@@ -109,8 +117,8 @@ def weather_flags(
     df: pd.DataFrame
         DataFrame containing the data.
     column: Union[int, str], default None
-        The column name or index to use for calculations. If None, the first column
-        will be used.
+        The column name or index to use for calculations. 
+        If None, the first column will be used.
     include_wind_flag: bool, default False
         Whether to filter data with Wind Speed Flag.
     include_rain_flag: bool, default True
@@ -150,7 +158,8 @@ def weather_flags(
     filtered_out = initial_count - filtered_count
     proportion_filtered = (filtered_out / initial_count) * 100
 
-    print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
+    print(f"Proportion of values filtered out: "
+          f"{proportion_filtered:.2f}%")
 
     return df
 

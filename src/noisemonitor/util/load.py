@@ -210,9 +210,13 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, valueindexes,
     # Apply NoiseSentry formatting only to value columns, not datetime
     for valueindex in valueindexes:
         if slm_type == 'NoiseSentry':
-            # Convert European decimal format only for numeric value columns
+            # Convert European decimal format only for numeric columns
             chunk.iloc[:, valueindex-1] = chunk.iloc[:, valueindex-1].map(
-                lambda a: locale.atof(str(a).replace(',', '.')) if pd.notna(a) else a)
+                lambda a: (
+                    locale.atof(str(a).replace(',', '.'))
+                    if pd.notna(a) else a
+                )
+            )
 
     chunk = chunk.iloc[:, [i-1 for i in valueindexes]]
     return chunk

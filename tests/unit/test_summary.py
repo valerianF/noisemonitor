@@ -101,7 +101,11 @@ class TestHarmonicaPeriodic:
     
     def test_harmonica_1m(self, laeq1m_data):
         """Test harmonica periodic raises error for intervals > 1s."""
-        with pytest.raises(ValueError, match="Computing the HARMONICA indicator requires"):
+        # Test that it raises ValueError for insufficient data
+        with pytest.raises(
+            ValueError,
+            match="Computing the HARMONICA indicator requires"
+        ):
             harmonica_periodic(
                 laeq1m_data, 
                 column=0
@@ -165,7 +169,7 @@ class TestPeriodic:
     
     def test_periodic_monthly(self, laeq1m_data):
         """Test monthly periodic computation."""
-        result = periodic(laeq1m_data, freq='M', column=0)
+        result = periodic(laeq1m_data, freq='ME', column=0)
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
@@ -199,7 +203,11 @@ class TestFreq:
             
         band = '63'
 
-        valid_mask = result[('Leq,24h', band)].notna() & result[('Lden', band)].notna()
+        for band in octave_bands:
+            valid_mask = (
+                result[('Leq,24h', band)].notna() &
+                result[('Lden', band)].notna()
+            )
         assert (result.loc[valid_mask, ('Leq,24h', band)] <= 
             result.loc[valid_mask, ('Lden', band)]).all()
         
@@ -252,10 +260,8 @@ class TestLevels:
         """Test Lden computation with 1m data (original generic test).""" 
         result = lden(
             laeq1m_data, 
-            column=0, 
-            day1='Monday', 
-            day2='Friday'
-            )
+            column=0
+        )
         
         assert isinstance(result, pd.DataFrame)
         assert 'lden' in result

@@ -9,5 +9,6 @@ from .util.load import load
 try:
     from . import weather
 except ImportError:
-    # Weather module dependencies not available - will be handled by weather.__init__.py
+    # Weather module dependencies not available - will be handled
+    # by weather.__init__.py
     from . import weather

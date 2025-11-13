@@ -359,7 +359,11 @@ def line(
 
     if fill_between:
         for lower, upper, column in fill_between:
-            if lower in df.columns and upper in df.columns and column in df.columns:
+            if (
+                lower in df.columns and
+                upper in df.columns and
+                column in df.columns
+            ):
                 ax.fill_between(x, df[lower], df[upper], alpha=0.15,
                                 label=f"{column} - {lower} to {upper}")
 
@@ -623,7 +627,10 @@ def compare_weather_daily(
         'Snow_Flag_Roll': include_snow_flag
     }
 
-    _active_flags = {flag: include for flag, include in flags.items() if include}
+    _active_flags = {
+        flag: include for flag, include in flags.items()
+        if include
+    }
 
     subsets = {
         'All Data': df

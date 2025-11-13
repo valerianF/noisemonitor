@@ -9,7 +9,9 @@ from datetime import time, datetime
 from pathlib import Path
 
 import noisemonitor as nm
-from noisemonitor.profile import periodic, series, nne, freq_periodic, freq_series
+from noisemonitor.profile import (
+    periodic, series, nne, freq_periodic, freq_series
+)
 
 
 @pytest.fixture(scope="module")
@@ -72,13 +74,15 @@ class TestPeriodic:
     def test_periodic_exact_values(self, laeq1s_data):
         """Test periodic with exact expected values from dataset."""
         # Test full day profile (0-23h) with 1-hour windows
-        result = periodic(
-            laeq1s_data,
-            hour1=0, 
-            hour2=23,
-            column=0,
-            win=3600 
-        )
+        # Expect coverage warnings for incomplete hourly windows
+        with pytest.warns(UserWarning, match="Coverage filter"):
+            result = periodic(
+                laeq1s_data,
+                hour1=0, 
+                hour2=23,
+                column=0,
+                win=3600 
+            )
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 24  # 24 hourly values
@@ -113,7 +117,7 @@ class TestPeriodic:
     def test_periodic_basic_daytime(self, laeq1m_data):
         """Test basic daytime periodic averaging with 1-minute data."""
 
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+        with pytest.warns(UserWarning) as record:
             result = periodic(
                 laeq1m_data,
                 hour1=6, 
@@ -121,6 +125,11 @@ class TestPeriodic:
                 column=0,
                 win=3600 
             )
+        
+        # Check for both the L10/L50 warning and coverage warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        assert any("Coverage filter" in msg for msg in warning_messages)
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
@@ -137,12 +146,14 @@ class TestPeriodic:
     
     def test_periodic_nighttime_exact_values(self, laeq1s_data):
         """Test nighttime periodic with exact expected values from dataset."""
-        result = periodic(
-            laeq1s_data,
-            hour1=22,
-            hour2=6, 
-            column=0,
-            win=3600
+
+        with pytest.warns(UserWarning, match="Coverage filter"):
+            result = periodic(
+                laeq1s_data,
+                hour1=22,
+                hour2=6, 
+                column=0,
+                win=3600
         )
         
         assert isinstance(result, pd.DataFrame)
@@ -171,7 +182,7 @@ class TestPeriodic:
     
     def test_periodic_nighttime(self, laeq1m_data):
         """Test nighttime periodic averaging (hour2 < hour1)."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+        with pytest.warns(UserWarning) as record:
             result = periodic(
                 laeq1m_data,
                 hour1=22,
@@ -179,6 +190,11 @@ class TestPeriodic:
                 column=0,
                 win=3600
             )
+        
+        # Check for both the L10/L50 warning and coverage warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        assert any("Coverage filter" in msg for msg in warning_messages)
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
@@ -204,7 +220,8 @@ class TestPeriodic:
             assert col in result.columns
         
         if len(result) > 0:
-            assert result['TNI'].between(-50, 150).all()  # Allow some tolerance
+            # Allow some tolerance
+            assert result['TNI'].between(0, 150).all()
             assert (result['NPL'] >= result['Leq']).all()
     
     def test_periodic_roughness_indicators(self, laeq1s_data):
@@ -230,7 +247,7 @@ class TestPeriodic:
     
     def test_periodic_sliding_windows(self, laeq1m_data):
         """Test periodic with sliding windows (step < win)."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+        with pytest.warns(UserWarning) as record:
             result = periodic(
                 laeq1m_data,
                 hour1=9,
@@ -240,7 +257,12 @@ class TestPeriodic:
                 step=1800
             )
         
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+        # Check for both the L10/L50 warning and coverage warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        assert any("Coverage filter" in msg for msg in warning_messages)
+        
+        with pytest.warns(UserWarning) as record2:
             result_no_overlap = periodic(
                 laeq1m_data,
                 hour1=9,
@@ -249,11 +271,16 @@ class TestPeriodic:
                 win=3600
             )
         
+        # Check for both warnings in second call too
+        warning_messages2 = [str(w.message) for w in record2]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages2)
+        assert any("Coverage filter" in msg for msg in warning_messages2)
+        
         assert len(result) >= len(result_no_overlap)
     
     def test_periodic_warns_with_large_interval(self, laeq1m_data):
         """Test that periodic warns when using large time intervals for percentiles."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50, L90"):
+        with pytest.warns(UserWarning) as record:
             periodic(
                 laeq1m_data,
                 hour1=10,
@@ -261,6 +288,11 @@ class TestPeriodic:
                 column=0,
                 win=3600
             )
+        
+        # Check for both the L10/L50/L90 warning and coverage warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50, L90" in msg for msg in warning_messages)
+        assert any("Coverage filter" in msg for msg in warning_messages)
 
 
 class TestSeries:
@@ -393,7 +425,9 @@ class TestNne:
         """Test that NNE raises error with insufficient daily data."""
         subset_data = laeq1s_data[:7200]  # 2 hours of data
         
-        with pytest.raises(ValueError, match="No complete days found in the dataset"):
+        with pytest.raises(
+            ValueError, match="No complete days found in the dataset"
+        ):
             nne(
                 subset_data,
                 hour1=0,
@@ -455,7 +489,9 @@ class TestFreqPeriodic:
         assert len(result) > 0
         assert isinstance(result.columns, pd.MultiIndex)
         
-        octave_bands = ['63', '125', '250', '500', '1000', '2000', '4000', '8000']
+        octave_bands = [
+            '63', '125', '250', '500', '1000', '2000', '4000', '8000'
+        ]
         for band in octave_bands:
             assert float(band) in result.columns.levels[1]
     
@@ -531,8 +567,12 @@ class TestProfileEdgeCases:
         """Test with insufficient data for window size."""
         small_subset = laeq1m_data.iloc[:5]
         
-        with pytest.warns(UserWarning, match="Computing the L10, L50, and L90"):
-            with pytest.raises(ValueError, match="Insufficient data: need at least"):
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50, and L90"
+        ):
+            with pytest.raises(
+                ValueError, match="Insufficient data: need at least"
+            ):
                 series(small_subset, win=600, column=0)
     
     def test_invalid_column_index(self, laeq1m_data):

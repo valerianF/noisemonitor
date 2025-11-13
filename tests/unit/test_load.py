@@ -522,7 +522,10 @@ class TestLoad:
 
 
 class TestLoadIntegration:
-    """Integration tests for load function with various file formats and edge cases."""
+    """Integration tests for load function.
+    
+    With various file formats and edge cases.
+    """
 
     def test_load_comprehensive_csv(self):
         """Test load function with comprehensive CSV data."""

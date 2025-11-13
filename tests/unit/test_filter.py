@@ -78,7 +78,11 @@ class TestAllData:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) < original_len
-        outside_range = (result.index < start_datetime) | (result.index > end_datetime)
+        # Verify all returned timestamps are outside the range
+        outside_range = (
+            (result.index < start_datetime) |
+            (result.index > end_datetime)
+        )
         assert outside_range.all()
     
     def test_empty_result(self, laeq1m_data):
