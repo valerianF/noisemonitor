@@ -58,7 +58,7 @@ def periodic(
     freq: str='D',
     column: Optional[Union[int, str]] = 0,
     values: bool=False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute Leq,24h and Lden on a periodic basis.
@@ -69,14 +69,14 @@ def periodic(
         DataFrame with a datetime index and sound level values.
     freq: str, default 'D'
         frequency for the computation. 'D' for daily, 'W' for weekly, and
-        'M'/'ME' for monthly (both formats supported).
+        'MS' for monthly.
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
     values: bool, default False
         if set to True, the function will return individual day, evening
         and night values in addition to the lden.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -92,22 +92,25 @@ def periodic(
 
     if freq == 'D':
         resampled = df.resample('D')
-    elif freq == 'ME':
+    elif freq == 'MS':
         resampled = df.resample('MS')
     elif freq == 'W':
         resampled = df.resample('W-MON')
     else:
         raise ValueError("Invalid frequency. Use 'D' for daily, 'W' for" 
-                            " weekly or 'ME' for monthly.")
+                            " weekly or 'MS' for monthly.")
 
     for period, group in resampled:
         if len(group) > 0:
-            leq_value = core.equivalent_level(group.iloc[:, column])
+            leq_value = core.equivalent_level(
+                group.iloc[:, column],
+                coverage_check=coverage_check,
+                coverage_threshold=coverage_threshold
+            )
             lden_values = core.lden(
                 group, column, values=values,
                 coverage_check=coverage_check,
-                coverage_threshold=coverage_threshold,
-                freq=freq
+                coverage_threshold=coverage_threshold
             )
             result = {
                 'Period': period,
@@ -129,7 +132,7 @@ def freq_periodic(
     df: pd.DataFrame, 
     freq: str = 'D', 
     values: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
@@ -143,11 +146,11 @@ def freq_periodic(
         columns.
     freq: str, default 'D'
         Frequency for the computation. 'D' for daily, 'W' for weekly, 
-        and 'M' for monthly.
+        and 'MS' for monthly.
     values: bool, default False
         If set to True, the function will return individual day, 
         evening, and night values in addition to the Lden.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -160,7 +163,7 @@ def freq_periodic(
     """
     results = {
         col: periodic(df, column=col, freq=freq, values=values,
-                     coverage_check=coverage_check, coverage_threshold=coverage_threshold)
+                    coverage_check=coverage_check, coverage_threshold=coverage_threshold)
         for col in df.columns
     }
 
@@ -180,7 +183,7 @@ def lden(
     day2: Optional[str] = None, 
     column: Optional[Union[int, str]] = 0,
     values: bool=True,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Return the Lden, a descriptor of noise level based on Leq over
@@ -205,7 +208,7 @@ def lden(
     values: bool, default False
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -234,7 +237,7 @@ def leq(
     day2: Optional[str] = None, 
     column: Optional[Union[int, str]] = 0,
     stats: bool = True,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Return the equivalent level (and optionally statistical indicators)
@@ -262,7 +265,7 @@ def leq(
     stats: bool, default True
         If set to True, the function will return L10, L50 and L90 
         together with the Leq.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -322,7 +325,7 @@ def freq_descriptors(
     day2: Optional[str] = None,
     stats: bool = False,
     values: bool = True,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
@@ -346,7 +349,7 @@ def freq_descriptors(
     values: bool, default True
         If set to True, the function will include individual
         day, evening, and night values in addition to Lden.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -421,7 +424,7 @@ def nday(
     bins: Optional[List[int]] = None,
     freq: str = 'D',
     column: Optional[Union[int, str]] = 0,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute the number of days in a dataset for which the indicators 
@@ -440,7 +443,7 @@ def nday(
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5

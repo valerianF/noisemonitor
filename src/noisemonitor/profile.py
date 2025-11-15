@@ -20,7 +20,7 @@ def periodic(
     step: int = 0,
     traffic_noise_indicators: bool = False,
     roughness_indicators: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute daily or weekly rolling averages of the sound level, in 
@@ -55,7 +55,7 @@ def periodic(
         if set to True, the function will compute roughness indicators 
         based on difference between consecutive LAeq,1s values according 
         to (DeFrance et al., 2010).
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -122,10 +122,9 @@ def periodic(
 
         arr = temp_slice.iloc[:, column]
         averages['Leq'][i] = core.equivalent_level(
-            temp_slice, column,
+            arr,
             coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold,
-            win=win
+            coverage_threshold=coverage_threshold
         )
         averages['L10'][i] = np.nanpercentile(arr, 90)
         averages['L50'][i] = np.nanpercentile(arr, 50)
@@ -166,7 +165,7 @@ def freq_periodic(
     win: int = 3600,
     step: int = 0,
     chunks: bool = True,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
@@ -193,7 +192,7 @@ def freq_periodic(
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         weekly levels for each frequency band.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -274,7 +273,7 @@ def freq_series(
     step: int = 0,
     chunks: bool = True,
     start_at_midnight: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
@@ -294,7 +293,7 @@ def freq_series(
         the series for each frequency band.
     start_at_midnight: bool, default False
         If set to True, the computation will start at midnight.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -371,7 +370,7 @@ def nne(
     column: Optional[Union[int, str]] = 0,
     day1: Optional[str] = None,
     day2: Optional[str] = None,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute the Number of Noise Events (NNE) following the algorithm 
@@ -409,7 +408,7 @@ def nne(
         First day of the week to include in the calculation.
     day2: Optional[str], default None
         Last day of the week to include in the calculation.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
@@ -526,7 +525,7 @@ def series(
     step: int = 0,
     column: Optional[Union[int, str]] = 0,
     start_at_midnight: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Sliding average of the entire sound level array, in terms of
@@ -546,7 +545,7 @@ def series(
         If None, the first column of the DataFrame will be used.
     start_at_midnight: bool, default False
         if set to True, the computation will start at midnight.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5

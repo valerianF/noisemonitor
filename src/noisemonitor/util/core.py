@@ -10,289 +10,18 @@ from typing import Union, Callable, Tuple, Optional, Dict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
+class CoverageWarning(UserWarning):
+    """Warning emitted when data coverage is insufficient."""
+    pass
+
+warnings.simplefilter('once', CoverageWarning)
+
+
 def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
     """Convert string column name to integer index if needed."""
     if isinstance(column, str):
         return df.columns.get_loc(column)
     return column
-
-
-def _assess_coverage(
-    df: pd.DataFrame, period: str = 'D', threshold: float = 0.5
-) -> pd.Series:
-    """Assess data coverage using pandas groupby operations.
-    
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input DataFrame with datetime index
-    period : str, default 'D'
-        Resampling period (e.g., 'D' for daily, 'W' for weekly,
-        'h' for hourly, '1800s' for 30min windows)
-    threshold : float, default 0.5
-        Minimum coverage ratio required
-    
-    Returns
-    -------
-    pd.Series
-        Boolean Series indicating which periods meet coverage threshold
-    """
-    # Count non-null values per period using resample
-    valid_counts = df.resample(period).count().iloc[:, 0]
-    total_counts = df.resample(period).size()
-    
-    # Calculate coverage ratio using vectorized operations 
-    coverage_ratio = valid_counts / total_counts
-    
-    # Return boolean mask for periods meeting threshold
-    return coverage_ratio >= threshold
-
-
-def _assess_lden_coverage(
-    df: pd.DataFrame, period: str = 'D', threshold: float = 0.5
-) -> Dict[str, pd.Series]:
-    """Assess coverage for Lden periods (day/evening/night).
-    
-    Parameters
-    ---------- 
-    df : pd.DataFrame
-        Input DataFrame with datetime index
-    period : str, default 'D'
-        Resampling period for grouping (e.g., 'D' for daily, 'W' for weekly)
-    threshold : float, default 0.5
-        Minimum coverage ratio required
-        
-    Returns
-    -------
-    Dict[str, pd.Series]
-        Dictionary with coverage assessment for each Lden period
-    """
-    
-    # Define period masks using vectorized datetime operations
-    hour = df.index.hour
-    day_mask = (hour >= 7) & (hour < 19)
-    evening_mask = (hour >= 19) & (hour < 23) 
-    night_mask = (hour >= 23) | (hour < 7)
-    
-    coverage = {}
-    for period_name, mask in [
-        ('day', day_mask), ('evening', evening_mask), ('night', night_mask)
-    ]:
-        period_data = df[mask]
-        if len(period_data) > 0:
-            # Use the specified period for coverage assessment (not just daily)
-            valid_counts = period_data.resample(period).count().iloc[:, 0]
-            total_counts = period_data.resample(period).size()
-            coverage[period_name] = (valid_counts / total_counts) >= threshold
-        else:
-            # Create empty series with proper datetime index
-            # to avoid concatenation issues
-            coverage[period_name] = pd.Series(
-                [], dtype=bool, name=period_name
-            )
-    
-    return coverage
-
-
-def with_coverage_check(
-    coverage_threshold: float = 0.5,
-    period_type: str = 'auto'
-):
-    """Concise decorator for adding coverage checking to core functions.
-    
-    Uses pandas built-in functions for efficiency - no row iteration.
-    When coverage_check=True, filtering and warnings are automatically applied.
-    """
-    def decorator(func):
-        def wrapper(
-            df: Union[pd.DataFrame, np.ndarray],
-            column: Union[int, str] = 0,
-            coverage_check: bool = True,
-            coverage_threshold: float = coverage_threshold, 
-                   freq: Optional[str] = None,
-                   win: Optional[int] = None,
-                   **kwargs):
-            
-            # Handle arrays and Series - check for sufficient non-NaN values
-            if not isinstance(df, pd.DataFrame):
-                if coverage_check:
-                    # For arrays/Series, check if we have enough valid data
-                    if isinstance(df, pd.Series):
-                        data = df.values
-                    else:
-                        data = np.asarray(df)
-                    
-                    valid_count = np.sum(~np.isnan(data))
-                    total_count = len(data)
-                    
-                    if total_count > 0:
-                        coverage_ratio = valid_count / total_count
-                        if coverage_ratio < coverage_threshold:
-                            warnings.warn(
-                                f"Coverage check: {valid_count}/{total_count} "
-                                f"valid values ({coverage_ratio*100:.1f}%) below "
-                                f"{coverage_threshold*100}% threshold",
-                                UserWarning
-                            )
-                
-                return func(df, column, **kwargs)
-            
-            # Skip coverage assessment if disabled
-            if not coverage_check:
-                col_idx = _column_to_index(df, column)
-                original_kwargs = {
-                    k: v for k, v in kwargs.items()
-                    if k not in [
-                        'coverage_check', 'coverage_threshold', 'freq', 'win'
-                    ]
-                }
-                return func(df, col_idx, **original_kwargs)
-            
-            # Convert column to index if needed
-            col_idx = _column_to_index(df, column)
-            
-            # Determine period for coverage assessment
-            if period_type == 'lden':
-                # Determine resampling period from function context
-                if freq:
-                    period = freq
-                else:
-                    period = 'D'  # Default to daily
-                
-                # For Lden, assess day/evening/night periods with the
-                # specified frequency
-                coverage = _assess_lden_coverage(
-                    df, period=period, threshold=coverage_threshold
-                )
-                # Filter out empty series before concatenation
-                non_empty_coverage = {
-                    k: v for k, v in coverage.items() if not v.empty
-                }
-                if non_empty_coverage:
-                    meets_threshold = pd.concat(
-                        non_empty_coverage.values()
-                    ).groupby(level=0).all()
-                else:
-                    # If all periods are empty, create empty boolean series
-                    meets_threshold = pd.Series([], dtype=bool)
-            else:
-                # Determine resampling period from function context
-                if freq:
-                    # From summary.periodic - use freq parameter
-                    period = freq
-                elif win:
-                    # From profile.periodic - convert window size
-                    # to resampling period
-                    period = f'{win}s'
-                else:
-                    # Default to daily
-                    period = 'D'
-                
-                meets_threshold = _assess_coverage(
-                    df, period=period, threshold=coverage_threshold
-                )
-            
-            # Apply filtering automatically when coverage check is enabled
-            if len(meets_threshold) > 0 and not meets_threshold.all():
-                filtered_df = df.copy()
-                # Set periods that don't meet threshold to NaN
-                for date in meets_threshold[~meets_threshold].index:
-                    if (period_type == 'lden' or
-                        period in ['D', 'W', 'ME', 'W-MON', 'MS']):
-                        # For daily/weekly/monthly periods,
-                        # filter entire periods
-                        if period == 'D':
-                            # Use pd.Timestamp.normalize() instead of
-                            # deprecated .date()
-                            date_normalized = pd.Timestamp(date).normalize()
-                            next_day = (
-                                date_normalized + pd.Timedelta(days=1)
-                            )
-                            mask = (
-                                (filtered_df.index >= date_normalized) &
-                                (filtered_df.index < next_day)
-                            )
-                        elif period in ['W', 'W-MON']:
-                            # For weekly, filter the entire week
-                            week_start = pd.Timestamp(date)
-                            week_end = (
-                                week_start + pd.Timedelta(weeks=1)
-                            )
-                            mask = (
-                                (filtered_df.index >= week_start) &
-                                (filtered_df.index < week_end)
-                            )
-                        elif period in ['ME', 'MS']:
-                            # For monthly, filter the entire month
-                            month_start = pd.Timestamp(date)
-                            month_end = (
-                                month_start + pd.DateOffset(months=1)
-                            )
-                            mask = (
-                                (filtered_df.index >= month_start) &
-                                (filtered_df.index < month_end)
-                            )
-                    else:
-                        # For window-based periods (e.g., '3600s')
-                        date_start = pd.Timestamp(date)
-                        
-                        # Window-based (e.g., '3600s')
-                        if period.endswith('s'):
-                            try:
-                                seconds = int(period[:-1])
-                                date_end = (
-                                    date_start +
-                                    pd.Timedelta(seconds=seconds)
-                                )
-                            except ValueError:
-                                # Fallback for invalid period format
-                                date_end = (
-                                    date_start + pd.Timedelta(hours=1)
-                                )
-                        else:
-                            date_end = date_start + pd.Timedelta(days=1)
-                        
-                        mask = (
-                            (filtered_df.index >= date_start) &
-                            (filtered_df.index < date_end)
-                        )
-                    
-                    filtered_df.loc[mask, :] = np.nan
-                
-                # Emit warning automatically
-                n_filtered = (~meets_threshold).sum()
-                n_total = len(meets_threshold)
-                pct = (n_filtered / n_total * 100) if n_total > 0 else 0
-                warnings.warn(
-                    f"Coverage filter: {n_filtered}/{n_total} periods "
-                    f"({pct:.1f}%) below {coverage_threshold*100}% threshold",
-                    UserWarning
-                )
-            else:
-                filtered_df = df
-            
-            # Call original function with original parameters
-            # (excluding coverage ones)
-            original_kwargs = {
-                k: v for k, v in kwargs.items()
-                if k not in [
-                    'coverage_check', 'coverage_threshold', 'freq', 'win'
-                ]
-            }
-            result = func(filtered_df, col_idx, **original_kwargs)
-            
-            # Store coverage info as result attribute
-            if hasattr(result, 'attrs'):
-                result.attrs['coverage_check'] = meets_threshold
-                
-            return result
-            
-        # Preserve original function metadata
-        wrapper.__name__ = func.__name__
-        wrapper.__doc__ = func.__doc__
-        return wrapper
-    return decorator
-
 
 def get_interval(df):
     """Compute the interval in seconds between rows 2 and 3.
@@ -307,36 +36,47 @@ def get_interval(df):
         )
     return (df.index[2] - df.index[1]).seconds
 
-@with_coverage_check()
 def equivalent_level(
-    data: Union[np.ndarray, pd.DataFrame],
-    column: Union[int, str] = 0
-) -> float:
-    """Compute the equivalent sound level from the input.
-    
+    array: np.array,
+    coverage_check: bool = False,
+    coverage_threshold: float = 0.5
+    ) -> float:
+    """Compute the equivalent sound level from the input array.
+
     Parameters
     ----------
-    data : np.ndarray or pd.DataFrame
-        Input data - can be a numpy array or DataFrame with datetime index
-    column : int or str, default 0
-        Column index or name if data is a DataFrame. Ignored for arrays.
-        
+    array: np.array
+        Input array of sound levels in decibels.
+    coverage_check: bool, default False
+        Whether to perform data coverage check. If set to True, the function
+        will assess data coverage and automatically return NaN if the coverage
+        is below the specified threshold.
+    coverage_threshold: float, default 0.5
+        Minimum data coverage ratio required (0.0 to 1.0).
+
     Returns
-    -------
+    ----------
     float
-        Equivalent sound level in dB
+        Equivalent sound level in decibels.
     """
-    # Handle DataFrame or array input
-    if isinstance(data, pd.DataFrame):
-        col_idx = _column_to_index(data, column)
-        array = data.iloc[:, col_idx].values
-    else:
-        array = data
-    
-    # Compute equivalent level
+
     if len(array) == 0 or np.isnan(array).all():
         return np.nan
-    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10)))
+
+    if coverage_check:
+        valid_mask = ~np.isnan(array)
+        valid_count = np.sum(valid_mask)
+        total_count = len(array)
+        coverage_ratio = valid_count / total_count if total_count > 0 else 0
+        
+        if coverage_ratio < coverage_threshold:
+            warnings.warn(
+                "Insufficient data coverage detected. Some periods will return NaN.",
+                CoverageWarning,
+                stacklevel=2
+            )
+            return np.nan
+    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
 
 def harmonica(
         df: pd.DataFrame, 
@@ -441,12 +181,11 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
         'HARMONICA': harmonica
         }
 
-@with_coverage_check(period_type='lden')
 def lden(
     df: pd.DataFrame, 
     column: Union[int, str], 
     values: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
     ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame.
@@ -461,6 +200,11 @@ def lden(
     values: bool, default False
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
+    coverage_check: bool, default False
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ----------
@@ -469,11 +213,17 @@ def lden(
     column = _column_to_index(df, column)
     
     lday = equivalent_level(df.between_time(
-        time(hour=7), time(hour=19)).iloc[:, column])
+        time(hour=7), time(hour=19)).iloc[:, column], 
+        coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold)
     levening = equivalent_level(df.between_time(
-        time(hour=19), time(hour=23)).iloc[:, column])
+        time(hour=19), time(hour=23)).iloc[:, column],
+        coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold)
     lnight = equivalent_level(df.between_time(
-        time(hour=23), time(hour=7)).iloc[:, column])
+        time(hour=23), time(hour=7)).iloc[:, column],
+        coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold)
 
     lden = 10 * np.log10(
         (
@@ -490,10 +240,6 @@ def lden(
             'lnight': [np.round(lnight, 2)]
         }, dtype='float64')
     return pd.DataFrame({'lden': [np.round(lden, 2)]}, dtype='float64')
-
-
-
-
 
 def noise_events(
     df: pd.DataFrame,

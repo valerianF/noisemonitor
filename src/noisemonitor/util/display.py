@@ -488,7 +488,9 @@ def line_weather(
     include_rain_flag: bool = True,
     include_temp_flag: bool = False,
     include_rel_hum_flag: bool = False,
-    include_snow_flag: bool = False
+    include_snow_flag: bool = False,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5
 ):
     """
     Plot sound levels with weather flags.
@@ -512,6 +514,10 @@ def line_weather(
         Whether to show the Temperature Flag.
     show_snow_flag: bool, default True
         Whether to show the Snow Flag.
+    coverage_check: bool, default True
+        Whether to check data coverage when computing levels.
+    coverage_threshold: float, default 0.5
+        Minimum coverage ratio required (0.0-1.0).
 
     Returns
     ----------
@@ -520,7 +526,9 @@ def line_weather(
     column = core._column_to_index(df, column)
 
     if win:
-        levels_df = series(df, column=column, win=win, step=0)
+        levels_df = series(df, column=column, win=win, step=0,
+                          coverage_check=coverage_check,
+                          coverage_threshold=coverage_threshold)
         _column_p = 0
         # Resample the weather data to match the window size
         resample_rule = f'{win}s'
@@ -579,6 +587,8 @@ def compare_weather_daily(
     include_snow_flag: bool = False,
     win: int = 3600,
     step: int = 1200,
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.5,
     title: str = "Daily Leq Profiles for Different Weather Conditions",
     figsize: tuple = (12, 8)
 ):
@@ -608,6 +618,10 @@ def compare_weather_daily(
         The window size for rolling average.
     step: int, default 1200
         The step size for rolling average.
+    coverage_check: bool, default True
+        Whether to check data coverage when computing levels.
+    coverage_threshold: float, default 0.5
+        Minimum coverage ratio required (0.0-1.0).
     title: str, default "Daily Leq Profiles for Different Conditions"
         The title of the plot.
     figsize: tuple, default (12, 8)
@@ -651,7 +665,9 @@ def compare_weather_daily(
             23,
             column=column,
             win=win,
-            step=step
+            step=step,
+            coverage_check=coverage_check,
+            coverage_threshold=coverage_threshold
         )
 
     # Plot daily Leq profiles using nm.plot_compare
