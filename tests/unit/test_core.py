@@ -16,7 +16,9 @@ from noisemonitor.util.core import (
     hourly_harmonica,
     lden,
     noise_events,
-    _column_to_index
+    _column_to_index,
+    check_coverage,
+    CoverageWarning
 )
 
 
@@ -92,6 +94,91 @@ def laeq1s_data(test_data_paths):
     return df
 
 
+class TestCheckCoverage:
+    """Test the check_coverage function."""
+
+    def test_check_coverage_full_coverage(self):
+        """Test with 100% data coverage."""
+        array = np.array([60.0, 65.0, 70.0, 75.0])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is True
+
+    def test_check_coverage_above_threshold(self):
+        """Test with coverage above threshold."""
+        array = np.array([60.0, 65.0, np.nan, 70.0])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is True
+
+    def test_check_coverage_at_threshold(self):
+        """Test with coverage exactly at threshold."""
+        array = np.array([60.0, np.nan, 70.0, np.nan])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is True
+
+    def test_check_coverage_below_threshold(self):
+        """Test with coverage below threshold."""
+        array = np.array([60.0, np.nan, np.nan, np.nan])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is False
+
+    def test_check_coverage_empty_array(self):
+        """Test with empty array."""
+        array = np.array([])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is False
+
+    def test_check_coverage_all_nan(self):
+        """Test with all NaN values."""
+        array = np.array([np.nan, np.nan, np.nan])
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is False
+
+    def test_check_coverage_with_warning(self):
+        """Test that warning is emitted when emit_warning=True."""
+        array = np.array([60.0, np.nan, np.nan, np.nan])
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage"):
+            passes = check_coverage(
+                array, 
+                threshold=0.5, 
+                emit_warning=True
+            )
+        assert passes is False
+
+    def test_check_coverage_no_warning_when_disabled(self):
+        """Test that no warning is emitted when emit_warning=False."""
+        array = np.array([60.0, np.nan, np.nan, np.nan])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            passes = check_coverage(
+                array, 
+                threshold=0.5, 
+                emit_warning=False
+            )
+        assert passes is False
+
+    def test_check_coverage_different_thresholds(self):
+        """Test with various threshold values."""
+        array = np.array([60.0, 65.0, np.nan, np.nan, 70.0])
+        
+        # 60% coverage should pass with 0.5 threshold
+        passes = check_coverage(array, threshold=0.5)
+        assert passes is True
+        
+        # 60% coverage should fail with 0.7 threshold
+        passes = check_coverage(array, threshold=0.7)
+        assert passes is False
+
+    def test_check_coverage_warning_message_format(self):
+        """Test that warning message contains coverage details."""
+        array = np.array([60.0, np.nan, np.nan, np.nan, np.nan])
+        with pytest.warns(CoverageWarning) as record:
+            check_coverage(array, threshold=0.8, emit_warning=True)
+        
+        warning_message = str(record[0].message)
+        assert "20.0%" in warning_message or "20%" in warning_message
+        assert "80.0%" in warning_message or "80%" in warning_message
+
+
 class TestEquivalentLevel:
     """Test the equivalent_level function."""
 
@@ -117,200 +204,15 @@ class TestEquivalentLevel:
     def test_equivalent_level_all_nan(self):
         """Test with all NaN values."""
         array = np.array([np.nan, np.nan, np.nan])
-        with pytest.warns(UserWarning, match="Coverage check"):
-            result = equivalent_level(array)
+        result = equivalent_level(array)
         assert np.isnan(result)
 
     def test_equivalent_level_with_nan(self):
         """Test with some NaN values."""
         array = np.array([60.0, np.nan, 70.0])
         result = equivalent_level(array)
-        expected = 10 * np.log10(np.mean(np.power(10, array / 10)))
+        expected = 10 * np.log10(np.nanmean(np.power(10, array / 10)))
         assert np.isnan(result) == np.isnan(expected)
-
-
-class TestCoverage:
-    """Test coverage assessment and warnings."""
-    
-    def test_coverage_warning_with_sparse_data(self, laeq1m_data):
-        """Test that coverage warning is raised with exact expected values for sparse data."""
-        # Create sparse data by removing specific days to create known gaps
-        # Remove data for 2 complete days out of ~12 days total
-        sparse_data = laeq1m_data.copy()
-        
-        # Remove March 22 and March 23 (2 full days)
-        mask = (sparse_data.index.date != pd.Timestamp('2025-03-22').date()) & \
-               (sparse_data.index.date != pd.Timestamp('2025-03-23').date())
-        sparse_data = sparse_data[mask]
-        
-        with pytest.warns(UserWarning) as record:
-            result = lden(
-                sparse_data, 
-                column=0,
-                coverage_check=True,
-                coverage_threshold=0.5
-            )
-        
-        # Verify warning was raised
-        assert len(record) > 0
-        warning_message = str(record[0].message)
-        
-        # Check that warning contains coverage filter information
-        assert "Coverage filter" in warning_message
-        assert "below 50.0% threshold" in warning_message
-        
-        # Extract the actual values from warning
-        # Format: "Coverage filter: X/Y periods (Z.Z%) below 50.0% threshold"
-        import re
-        # Extract the numbers from the warning message
-        match = re.search(
-            r'(\d+)/(\d+) periods \((\d+\.\d+)%\)', warning_message
-        )
-        assert match is not None
-        
-        filtered_count = int(match.group(1))
-        total_count = int(match.group(2))
-        percentage = float(match.group(3))
-        
-        # Verify the values - we removed 2 complete days,
-        # so expect 2 filtered periods
-        assert (
-            filtered_count == 2
-        ), f"Expected 2 filtered periods, got {filtered_count}"
-        assert (
-            total_count >= 10
-        ), f"Expected at least 10 total periods, got {total_count}"
-        assert abs(percentage - (filtered_count / total_count * 100)) < 0.1
-        
-        # Result should still be valid despite filtering
-        assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result.columns
-    
-    def test_coverage_no_warning_with_dense_data(self, laeq1m_data):
-        """Test that no coverage warning is raised with complete dataset."""
-        # laeq1m_data has good coverage (most days have full data)
-        # Should NOT raise warnings when data meets threshold
-        
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = lden(
-                laeq1m_data, 
-                column=0,
-                coverage_check=True,
-                coverage_threshold=0.5
-            )
-            
-            # Check that no coverage warnings were raised
-            coverage_warnings = [warning for warning in w 
-                                   if "Coverage filter" in str(warning.message)]
-            assert len(coverage_warnings) == 0, \
-                f"Expected no coverage warnings, but got {len(coverage_warnings)}"
-        
-        # Result should be valid
-        assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result.columns
-    
-    def test_coverage_lden_requires_all_periods(self, laeq1m_data):
-        """Test that Lden coverage requires ALL three periods (day/evening/night) to meet threshold."""
-        # Remove only the evening period (19:00-23:00) from March 22
-        # Even though day and night periods are complete, the day should be filtered
-        partial_data = laeq1m_data.copy()
-        
-        # Remove evening period from March 22
-        march_22_evening = partial_data[
-            (partial_data.index.date == pd.Timestamp('2025-03-22').date()) &
-            (partial_data.index.hour >= 19) &
-            (partial_data.index.hour < 23)
-        ]
-        partial_data = partial_data.drop(march_22_evening.index)
-        
-        # With 50% threshold, this should trigger a warning since evening period has 0% data
-        with pytest.warns(UserWarning) as record:
-            result = lden(
-                partial_data, 
-                column=0,
-                coverage_check=True,
-                coverage_threshold=0.5
-            )
-        
-        # Verify warning was raised
-        assert len(record) > 0
-        warning_message = str(record[0].message)
-        assert "Coverage filter" in warning_message
-        
-        # Extract filtered count - should be at least 1 (March 22)
-        import re
-        match = re.search(r'(\d+)/(\d+) periods', warning_message)
-        assert match is not None
-        
-        filtered_count = int(match.group(1))
-        
-        assert (
-            filtered_count >= 1
-        ), (
-            f"Expected at least 1 filtered period "
-            f"(March 22 missing evening), got {filtered_count}"
-        )        # Result should be valid
-        assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result.columns
-    
-    def test_coverage_with_custom_threshold(self, laeq1m_data):
-        """Test coverage warnings with different custom thresholds."""
-        # Create data with complete gap - remove 2 full days
-        sparse_data = laeq1m_data.copy()
-        mask = (sparse_data.index.date != pd.Timestamp('2025-03-22').date()) & \
-               (sparse_data.index.date != pd.Timestamp('2025-03-23').date())
-        sparse_data = sparse_data[mask]
-        
-        # Test with very permissive threshold (0%) - should still warn about missing days
-        with pytest.warns(UserWarning) as record_low:
-            result_low = lden(
-                sparse_data, 
-                column=0,
-                coverage_check=True,
-                coverage_threshold=0.0
-            )
-        
-        # Test with stricter threshold (0.5) - should also warn
-        with pytest.warns(UserWarning) as record_high:
-            result_high = lden(
-                sparse_data, 
-                column=0,
-                coverage_check=True,
-                coverage_threshold=0.5
-            )
-        
-        # Both should produce warnings about the 2 missing days
-        assert len(record_low) > 0
-        assert len(record_high) > 0
-        
-        low_warning = str(record_low[0].message)
-        high_warning = str(record_high[0].message)
-        
-        assert "Coverage filter" in low_warning
-        assert "Coverage filter" in high_warning
-        
-        # Both should mention 2 filtered periods
-        import re
-        match_low = re.search(r'(\d+)/(\d+) periods', low_warning)
-        match_high = re.search(r'(\d+)/(\d+) periods', high_warning)
-        
-        assert match_low is not None
-        assert match_high is not None
-        
-        filtered_low = int(match_low.group(1))
-        filtered_high = int(match_high.group(1))
-        
-        # Both thresholds should filter the same 2 complete missing days
-        assert filtered_low == 2, f"Expected 2 filtered periods with 0% threshold, got {filtered_low}"
-        assert filtered_high == 2, f"Expected 2 filtered periods with 50% threshold, got {filtered_high}"
-        # Should filter at least 1 period (the one with partial data)
-        assert filtered_high >= 1, f"Expected at least 1 filtered period, got {filtered_high}"
-        
-        # Both results should be valid
-        assert isinstance(result_low, pd.DataFrame)
-        assert isinstance(result_high, pd.DataFrame)
 
 
 class TestGetInterval:

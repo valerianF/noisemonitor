@@ -83,22 +83,22 @@ def periodic(
     NLim = ((hour2-hour1)%24*3600)//step + 1
 
     averages = {
-        'Leq': np.zeros(NLim),
-        'L10': np.zeros(NLim),
-        'L50': np.zeros(NLim),
-        'L90': np.zeros(NLim)
+        'Leq': np.full(NLim, np.nan),
+        'L10': np.full(NLim, np.nan),
+        'L50': np.full(NLim, np.nan),
+        'L90': np.full(NLim, np.nan)
     }
 
     if traffic_noise_indicators:
         averages.update({
-            'TNI': np.zeros(NLim),
-            'NPL': np.zeros(NLim)
+            'TNI': np.full(NLim, np.nan),
+            'NPL': np.full(NLim, np.nan)
         })
     if roughness_indicators:
         averages.update({
-            'dLav': np.zeros(NLim),
-            'dLmax,1': np.zeros(NLim),
-            'dLmin,90': np.zeros(NLim)
+            'dLav': np.full(NLim, np.nan),
+            'dLmax,1': np.full(NLim, np.nan),
+            'dLmin,90': np.full(NLim, np.nan)
         })
 
     times = []
@@ -120,12 +120,25 @@ def periodic(
                 second=(t2%3600)%60
         ))
 
+        times.append(time(
+            hour=(t//3600)%24, 
+            minute=(t%3600)//60, 
+            second=(t%3600)%60
+            ))
+
         arr = temp_slice.iloc[:, column]
-        averages['Leq'][i] = core.equivalent_level(
-            arr,
-            coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold
-        )
+
+        if coverage_check:
+            passes_threshold = core.check_coverage(
+                arr,
+                coverage_threshold,
+                emit_warning = True
+            )
+
+            if not passes_threshold:
+                continue
+
+        averages['Leq'][i] = core.equivalent_level(arr)
         averages['L10'][i] = np.nanpercentile(arr, 90)
         averages['L50'][i] = np.nanpercentile(arr, 50)
         averages['L90'][i] = np.nanpercentile(arr, 10)
@@ -144,15 +157,9 @@ def periodic(
 
         if roughness_indicators:
             dL = np.abs(np.diff(arr.dropna()))
-            averages['dLav'][i] = np.mean(dL)
-            averages['dLmax,1'][i] = np.mean(dL[dL >= np.percentile(dL, 99)])
-            averages['dLmin,90'][i] = np.mean(dL[dL <= np.percentile(dL, 10)])
-
-        times.append(time(
-            hour=(t//3600)%24, 
-            minute=(t%3600)//60, 
-            second=(t%3600)%60
-            ))
+            averages['dLav'][i] = np.nanmean(dL)
+            averages['dLmax,1'][i] = np.nanmean(dL[dL >= np.percentile(dL, 99)])
+            averages['dLmin,90'][i] = np.nanmean(dL[dL <= np.percentile(dL, 10)])
 
     return pd.DataFrame(index=times, data=averages)
     
@@ -376,7 +383,7 @@ def nne(
     """Compute the Number of Noise Events (NNE) following the algorithm 
     proposed in (Brown and De Coensel, 2018). The function computes the 
     average NNE using sliding windows, computing daily or weekly profiles.
-    Note that this function is computaionally expensive as noise NNEs are
+    Note that this function is computationally expensive as noise NNEs are
     separately computed for each individual day and then averaged since
     background levels are relative to each day.
 
@@ -441,23 +448,12 @@ def nne(
     event_times = []
     daily_event_counts = []
 
-    # Compute the expected number of values for each day
-    freq = (temp_df.index[2] - temp_df.index[1])
-    expected_intervals = pd.date_range(
-        start=temp_df.index.min().normalize(),
-        end=temp_df.index.min().normalize() + (
-            pd.Timedelta(hours=(hour2-hour1)%24)),
-        freq=freq
-    )
-
-    expected_intervals_count = len(expected_intervals)
+    coverage_warning_issued = False
 
     for day, group in temp_df.groupby(temp_df.index.date):
-        # Check if the day is missing data
-        if len(group) != expected_intervals_count:
-            continue
 
-        day_event_counts = np.zeros(NLim)
+        day_event_counts = np.full(NLim, np.nan)
+
         for i in range(0, NLim):
             t1 = hour1*3600 + i*step
             t2 = hour1*3600 + i*step + win
@@ -475,14 +471,19 @@ def nne(
             ))
 
             arr = temp.iloc[:, column]
-            if background_type == 'leq':
-                threshold = (
-                    core.equivalent_level(
-                        arr,
-                        coverage_check=coverage_check,
-                        coverage_threshold=coverage_threshold
-                    ) + exceedance
+
+            if coverage_check:
+                passes_threshold = core.check_coverage(
+                    arr,
+                    coverage_threshold,
+                    emit_warning = not coverage_warning_issued
                 )
+                if not passes_threshold:
+                    coverage_warning_issued = True
+                    continue
+
+            if background_type == 'leq':
+                threshold = (core.equivalent_level(arr) + exceedance)
             elif background_type == 'l50':
                 threshold = np.nanpercentile(arr, 50) + exceedance
             elif background_type == 'l90':
@@ -496,15 +497,8 @@ def nne(
                 temp, column, threshold, min_gap)
         daily_event_counts.append(day_event_counts)
 
-    if len(daily_event_counts) == 0:
-        raise ValueError(
-            f"No complete days found in the dataset. The NNE function "
-            f"requires complete daily data covering the specified "
-            f"time range"
-        )
-
     daily_event_counts = np.array(daily_event_counts)
-    average_event_counts = np.mean(daily_event_counts, axis=0)
+    average_event_counts = np.nanmean(daily_event_counts, axis=0)
 
     for i in range(0, NLim):
         t = hour1*3600 + i*step + win//2
@@ -591,31 +585,37 @@ def series(
 
     NLim = max((N - start_index - win) // step + 1, 1)
 
-    overallmean = np.zeros(NLim)
-    overallL10 = np.zeros(NLim)
-    overallL50 = np.zeros(NLim)
-    overallL90 = np.zeros(NLim)
+    overallmean = np.full(NLim, np.nan)
+    overallL10 = np.full(NLim, np.nan)
+    overallL50 = np.full(NLim, np.nan)
+    overallL90 = np.full(NLim, np.nan)
     overalltime = []
 
     nan_warning_issued = False
+    coverage_warning_issued = False
 
     for i in range(0, NLim):
         arr = df.iloc[
             int(start_index + i * step):int(start_index + i * step + win)
         ].iloc[:, column]
-        overallmean[i] = core.equivalent_level(
-            arr,
-            coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold
-        )
+
+        if coverage_check:
+            passes_threshold = core.check_coverage(
+                arr,
+                coverage_threshold,
+                emit_warning = not coverage_warning_issued
+            )
+            if not passes_threshold:
+                coverage_warning_issued = True
+                continue
+
+        overallmean[i] = core.equivalent_level(arr)
+
         if np.isnan(arr).all():
             if not nan_warning_issued:
                 warnings.warn(f"All-NaN slice(s) encountered. "
                             "Check for gaps in the data.")
                 nan_warning_issued = True
-            overallL10[i] = np.nan
-            overallL50[i] = np.nan
-            overallL90[i] = np.nan
         else:
             overallL10[i] = np.nanpercentile(arr, 90)
             overallL50[i] = np.nanpercentile(arr, 50)

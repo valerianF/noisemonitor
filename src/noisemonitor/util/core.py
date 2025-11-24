@@ -36,23 +36,56 @@ def get_interval(df):
         )
     return (df.index[2] - df.index[1]).seconds
 
-def equivalent_level(
+def check_coverage(
     array: np.array,
-    coverage_check: bool = False,
-    coverage_threshold: float = 0.5
-    ) -> float:
+    threshold: float = 0.5,
+    emit_warning: bool = False
+) -> bool:
+    """Check if data coverage meets the specified threshold.
+    
+    Assesses the proportion of valid (non-NaN) values in an array and
+    determines if it meets the minimum coverage requirement.
+    
+    Parameters
+    ----------
+    array: np.array
+        Input array to assess for data coverage.
+    threshold: float, default 0.5
+        Minimum data coverage ratio required (0.0 to 1.0).
+    emit_warning: bool, default False
+        If True, emit a warning when coverage is insufficient.
+    
+    Returns
+    -------
+    bool: True if coverage meets threshold, False otherwise
+    """
+    if len(array) == 0:
+        return False
+    
+    valid_mask = ~np.isnan(array)
+    valid_count = np.sum(valid_mask)
+    total_count = len(array)
+    coverage_ratio = valid_count / total_count
+    
+    passes_threshold = bool(coverage_ratio >= threshold)
+    
+    if emit_warning and not passes_threshold:
+        warnings.warn(
+            f"Insufficient data coverage detected ({coverage_ratio:.1%} < "
+            f"{threshold:.1%}). Some periods will be filtered and return NaN.",
+            CoverageWarning,
+            stacklevel=3
+        )
+    
+    return passes_threshold
+
+def equivalent_level(array: np.array) -> float:
     """Compute the equivalent sound level from the input array.
 
     Parameters
     ----------
     array: np.array
         Input array of sound levels in decibels.
-    coverage_check: bool, default False
-        Whether to perform data coverage check. If set to True, the function
-        will assess data coverage and automatically return NaN if the coverage
-        is below the specified threshold.
-    coverage_threshold: float, default 0.5
-        Minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ----------
@@ -62,21 +95,8 @@ def equivalent_level(
 
     if len(array) == 0 or np.isnan(array).all():
         return np.nan
-
-    if coverage_check:
-        valid_mask = ~np.isnan(array)
-        valid_count = np.sum(valid_mask)
-        total_count = len(array)
-        coverage_ratio = valid_count / total_count if total_count > 0 else 0
-        
-        if coverage_ratio < coverage_threshold:
-            warnings.warn(
-                "Insufficient data coverage detected. Some periods will return NaN.",
-                CoverageWarning,
-                stacklevel=2
-            )
-            return np.nan
-    return 10*np.log10(np.mean(np.power(np.full(len(array), 10), array/10))) 
+            
+    return 10*np.log10(np.nanmean(np.power(np.full(len(array), 10), array/10))) 
 
 def harmonica(
         df: pd.DataFrame, 
@@ -184,9 +204,7 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
 def lden(
     df: pd.DataFrame, 
     column: Union[int, str], 
-    values: bool = False,
-    coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    values: bool = False
     ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame.
 
@@ -213,17 +231,11 @@ def lden(
     column = _column_to_index(df, column)
     
     lday = equivalent_level(df.between_time(
-        time(hour=7), time(hour=19)).iloc[:, column], 
-        coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold)
+        time(hour=7), time(hour=19)).iloc[:, column])
     levening = equivalent_level(df.between_time(
-        time(hour=19), time(hour=23)).iloc[:, column],
-        coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold)
+        time(hour=19), time(hour=23)).iloc[:, column])
     lnight = equivalent_level(df.between_time(
-        time(hour=23), time(hour=7)).iloc[:, column],
-        coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold)
+        time(hour=23), time(hour=7)).iloc[:, column])
 
     lden = 10 * np.log10(
         (
@@ -269,6 +281,9 @@ def noise_events(
     ----------
     int: Number of noise events.
     """
+    if len(df) == 0:
+        return 0
+        
     events = 0
     in_event = False
     last_event_end = df.iloc[:, column].index[0]

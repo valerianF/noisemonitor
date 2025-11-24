@@ -99,19 +99,41 @@ def periodic(
     else:
         raise ValueError("Invalid frequency. Use 'D' for daily, 'W' for" 
                             " weekly or 'MS' for monthly.")
+    
+    coverage_warning_issued = False
 
     for period, group in resampled:
         if len(group) > 0:
-            leq_value = core.equivalent_level(
-                group.iloc[:, column],
+            array = group.iloc[:, column]
+
+            passes_threshold = core.check_coverage(
+                array,
+                coverage_threshold,
+                emit_warning = not coverage_warning_issued
+            )
+
+            if passes_threshold: 
+                leq_value = core.equivalent_level(array)
+            else:
+                leq_value = np.nan
+                coverage_warning_issued = True
+
+            lden_values, coverage_lden = lden(
+                group, 
+                column, 
+                values=values,
                 coverage_check=coverage_check,
                 coverage_threshold=coverage_threshold
             )
-            lden_values = core.lden(
-                group, column, values=values,
-                coverage_check=coverage_check,
-                coverage_threshold=coverage_threshold
-            )
+            if coverage_check and not coverage_warning_issued and \
+                not coverage_lden:
+                    warnings.warn(
+                        f"Lden computation: Insufficient data coverage detected. "
+                        "Some periods will be filtered and return NaN.",
+                        core.CoverageWarning,
+                        stacklevel=3
+                    )
+                    coverage_warning_issued = True
             result = {
                 'Period': period,
                 'Leq,24h': leq_value,
@@ -210,24 +232,63 @@ def lden(
         and night values in addition to the lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
     ---------- 
-    pd.DataFrame: daily or weekly lden rounded to two decimals. Associated day,
-        evening and night values are returned if values is set to True.
+    tuple of (pd.DataFrame, bool): dataframe with daily or 
+        weekly lden rounded to two decimals. Associated day, evening and night 
+        values are returned if values is set to True. 
+        If coverage check is enable, a boolean indicates 
+        whether the data coverage threshold was met for all three periods.
     """
     column = core._column_to_index(df, column)
 
     temp = filter._days(df, day1, day2)
 
-    return core.lden(
-        temp, column, values=values,
-        coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold
-    )
+    if coverage_check:
+
+        day = temp.between_time(time(hour=7), time(hour=19)).iloc[:, column]
+        evening = temp.between_time(time(hour=19), time(hour=23)).iloc[:, column]
+        night = temp.between_time(time(hour=23), time(hour=7)).iloc[:, column]
+
+        passes_threshold_day = core.check_coverage(
+            day,
+            coverage_threshold
+        )
+        passes_threshold_evening = core.check_coverage(
+            evening,
+            coverage_threshold
+        )
+        passes_threshold_night = core.check_coverage(
+            night,
+            coverage_threshold
+        )
+        if not (passes_threshold_day and passes_threshold_evening and 
+                passes_threshold_night):
+            warnings.warn(
+                f"Lden computation: Insufficient data coverage detected. "
+                "Some periods will be filtered and return NaN.",
+                core.CoverageWarning,
+                stacklevel=3
+            )
+            if not values:
+                return pd.DataFrame({'lden': [np.nan]}), False
+            else:
+                temp_lden = core.lden(temp, column, values=values)
+                temp_lden['lden'][0] = np.nan
+                if not passes_threshold_day:
+                    temp_lden['lday'][0] = np.nan
+                if not passes_threshold_evening:
+                    temp_lden['levening'][0] = np.nan
+                if not passes_threshold_night:
+                    temp_lden['lnight'][0] = np.nan
+                return temp_lden, False
+
+        return core.lden(temp, column, values=values), True
+    return core.lden(temp, column, values=values), None
 
 def leq(
     df: pd.DataFrame, 
@@ -281,6 +342,22 @@ def leq(
     temp = filter._days(df, day1, day2)
     array = filter._hours(temp, hour1, hour2).iloc[:, column]
 
+    if coverage_check:
+        passes_threshold = core.check_coverage(
+            array,
+            coverage_threshold,
+            emit_warning=True
+        )
+        if not passes_threshold:
+            if stats:
+                return pd.DataFrame({
+                    'leq': [np.nan],
+                    'l10': [np.nan],
+                    'l50': [np.nan],
+                    'l90': [np.nan]
+                })
+            return pd.DataFrame({'leq': [np.nan]})
+
     if stats:
         interval = core.get_interval(df)
         if interval > 1:
@@ -290,31 +367,13 @@ def leq(
                 " might not be valid for this descriptor.\n"
             )
         return pd.DataFrame({
-            'leq': [
-                np.round(
-                    core.equivalent_level(
-                        array,
-                        coverage_check=coverage_check,
-                        coverage_threshold=coverage_threshold
-                    ),
-                    2
-                )
-            ],
+            'leq': [np.round(core.equivalent_level(array),2)],
             'l10': [np.round(np.nanpercentile(array, 90), 2)],
             'l50': [np.round(np.nanpercentile(array, 50), 2)],
             'l90': [np.round(np.nanpercentile(array, 10), 2)]
         })
     return pd.DataFrame({
-        'leq': [
-            np.round(
-                core.equivalent_level(
-                    array,
-                    coverage_check=coverage_check,
-                    coverage_threshold=coverage_threshold
-                ),
-                2
-            )
-        ]
+        'leq': [np.round(core.equivalent_level(array), 2)]
     })
 
 def freq_descriptors(
@@ -380,7 +439,7 @@ def freq_descriptors(
         )
 
         # Compute overall Lden
-        lden_result = lden(
+        lden_result, lden_coverage = lden(
             df,
             day1=day1,
             day2=day2,
@@ -475,7 +534,7 @@ def nday(
 
     # Count the number of days for each decibel range
     counts = pd.cut(
-        indicators_df[indicator], 
+        indicators_df[indicator].dropna(), 
         bins=[-float('inf')] + bins + [float('inf')], 
         right=False
         ).value_counts().sort_index()
