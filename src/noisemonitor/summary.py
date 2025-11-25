@@ -106,21 +106,24 @@ def periodic(
         if len(group) > 0:
             array = group.iloc[:, column]
 
-            passes_threshold = core.check_coverage(
-                array,
-                coverage_threshold,
-                emit_warning = not coverage_warning_issued
-            )
+            if coverage_check:
+                passes_threshold = core.check_coverage(
+                    array,
+                    coverage_threshold,
+                    emit_warning = not coverage_warning_issued
+                )
 
-            if passes_threshold: 
-                leq_value = core.equivalent_level(array)
+                if passes_threshold: 
+                    leq_value = core.equivalent_level(array)
+                else:
+                    leq_value = np.nan
+                    coverage_warning_issued = True
             else:
-                leq_value = np.nan
-                coverage_warning_issued = True
+                leq_value = core.equivalent_level(array)
 
             lden_values, coverage_lden = lden(
-                group, 
-                column, 
+                group,
+                column=column,
                 values=values,
                 coverage_check=coverage_check,
                 coverage_threshold=coverage_threshold

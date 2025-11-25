@@ -201,7 +201,7 @@ class TestFreq:
         for band in octave_bands:
             assert band in frequency_bands
             
-        # Check that Leq,24h >= Lden for each band (due to evening/night penalties)
+        # Check that Lden >= Leq,24h for each band (due to evening/night penalties)
         for band in octave_bands:
             valid_mask = (
                 result[('Leq,24h', band)].notna() &
@@ -209,9 +209,9 @@ class TestFreq:
             )
             if valid_mask.any():
                 # Allow small numerical differences
-                assert (result.loc[valid_mask, ('Leq,24h', band)] >= 
-                    result.loc[valid_mask, ('Lden', band)] + 0.1).all(), \
-                    f"Leq,24h > Lden for band {band}"
+                assert (result.loc[valid_mask, ('Lden', band)] >= 
+                    result.loc[valid_mask, ('Leq,24h', band)] - 0.1).all(), \
+                    f"Lden should be >= Leq,24h for band {band}"
         
     def test_freq_descriptors(self, sample_octave_data):
         """Test basic frequency descriptors computation."""
