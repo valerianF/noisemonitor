@@ -14,8 +14,6 @@ class CoverageWarning(UserWarning):
     """Warning emitted when data coverage is insufficient."""
     pass
 
-warnings.simplefilter('once', CoverageWarning)
-
 
 def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
     """Convert string column name to integer index if needed."""

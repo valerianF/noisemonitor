@@ -12,6 +12,7 @@ from noisemonitor.summary import (
     harmonica_periodic, periodic, freq_periodic, lden, leq, 
     freq_descriptors, nday
 )
+from noisemonitor.util.core import CoverageWarning
 
 
 @pytest.fixture(scope="module")
@@ -65,6 +66,47 @@ def sample_octave_data():
         data[band] = base_level + variation
     
     return pd.DataFrame(data, index=dates)
+
+@pytest.fixture(scope="module")
+def data_with_gaps(laeq1m_data):
+    """Create data with gaps: 3 days with 60% of day 2 set to NaN."""
+    # Take 3 days of data
+    test_data = laeq1m_data[:3 * 1440].copy()
+    
+    # Find day 2 indices (1440 to 2880)
+    day2_start = 1440
+    day2_end = 2880
+    day2_indices = test_data.index[day2_start:day2_end]
+    
+    # Randomly set 60% of day 2 data to NaN
+    np.random.seed(42)
+    nan_indices = np.random.choice(
+        day2_indices, 
+        size=int(len(day2_indices) * 0.6), 
+        replace=False
+    )
+    test_data.loc[nan_indices] = np.nan
+    return test_data
+
+@pytest.fixture(scope="module")
+def data_with_time_gaps(laeq1s_data):
+    """Create data with time-specific gaps: 70% of evening period set to NaN."""
+    # Take 1 day of data
+    test_data = laeq1s_data[:86400].copy()
+    
+    # Find evening period (19:00-23:00)
+    evening_mask = (test_data.index.hour >= 19) & (test_data.index.hour < 23)
+    evening_indices = test_data.index[evening_mask]
+    
+    # Randomly set 70% of evening data to NaN
+    np.random.seed(42)
+    nan_indices = np.random.choice(
+        evening_indices,
+        size=int(len(evening_indices) * 0.7),
+        replace=False
+    )
+    test_data.loc[nan_indices] = np.nan
+    return test_data
 
 
 class TestHarmonicaPeriodic:
@@ -365,6 +407,141 @@ class TestSummaryEdgeCases:
         assert isinstance(daily_result, pd.DataFrame)
         print(daily_result)
         assert len(daily_result) == 1
+
+
+class TestCoverageCheck:
+    """Tests for coverage_check functionality across summary functions."""
+    
+    def test_periodic_coverage_check(self, data_with_gaps):
+        """Test periodic function with coverage_check enabled."""
+        # With coverage_check, day 2 should be filtered (40% < 50% threshold)
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = periodic(
+                data_with_gaps, 
+                freq='D', 
+                column=0, 
+                coverage_check=True
+            )
+        
+        assert len(result) == 3
+        # Day 2 (index 1) should be NaN due to insufficient coverage
+        assert pd.isna(result.iloc[1]['Leq,24h'])
+        assert pd.isna(result.iloc[1]['Lden'])
+        # Days 1 and 3 should have values
+        assert not pd.isna(result.iloc[0]['Leq,24h'])
+        assert not pd.isna(result.iloc[2]['Leq,24h'])
+    
+    def test_lden_coverage_check(self, data_with_time_gaps):
+        """Test lden function with coverage_check enabled."""
+        # With coverage_check, evening period should be filtered
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result, coverage_passed = lden(
+                data_with_time_gaps,
+                column=0,
+                coverage_check=True,
+                values=True
+            )
+        
+        # Should have daily result
+        assert len(result) == 1
+        
+        # coverage_passed should be False due to insufficient evening coverage
+        assert coverage_passed is False
+        
+        # Evening value should be NaN (70% removed > 50% threshold)
+        assert pd.isna(result['levening'].iloc[0])
+        
+        # Day and night should still have values (sufficient coverage)
+        assert not pd.isna(result['lday'].iloc[0])
+        assert not pd.isna(result['lnight'].iloc[0])
+    
+    def test_leq_coverage_check(self, laeq1m_data):
+        """Test leq function with coverage_check enabled."""
+        # Create data with evening period having only 40% coverage
+        test_data = laeq1m_data[:1440].copy()  # 1 day
+        
+        # Set 60% of evening data (19:00-23:00) to NaN
+        evening_mask = (test_data.index.hour >= 19) & (test_data.index.hour < 23)
+        evening_indices = test_data.index[evening_mask]
+        np.random.seed(42)
+        nan_indices = np.random.choice(
+            evening_indices,
+            size=int(len(evening_indices) * 0.6),
+            replace=False
+        )
+        test_data.loc[nan_indices] = np.nan
+        
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = leq(
+                test_data,
+                hour1=19,
+                hour2=23,
+                column=0,
+                coverage_check=True
+            )
+        
+        # Result should be NaN for evening period with insufficient coverage
+        assert pd.isna(result.iloc[0, 0])
+    
+    def test_freq_descriptors_coverage_check(self, laeq1m_data):
+        """Test freq_descriptors function with coverage_check enabled."""
+        # Create data with gaps in nighttime period
+        test_data = laeq1m_data[:1440].copy()  # 1 day
+        
+        # Set 60% of night data (23:00-7:00) to NaN
+        night_mask = (test_data.index.hour >= 23) | (test_data.index.hour < 7)
+        night_indices = test_data.index[night_mask]
+        np.random.seed(42)
+        nan_indices = np.random.choice(
+            night_indices,
+            size=int(len(night_indices) * 0.6),
+            replace=False
+        )
+        test_data.loc[nan_indices] = np.nan
+        
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = freq_descriptors(
+                test_data,
+                hour1=23,
+                hour2=7,
+                coverage_check=True
+            )
+        
+        # Should not have result with NaN values for insufficient coverage
+        # Check that at least one frequency band has NaN
+        has_nan = result.isna().any().any()
+        assert has_nan
+    
+    def test_nday_coverage_check(self, data_with_gaps):
+        """Test nday function with coverage_check enabled."""
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result, bins = nday(
+                data_with_gaps,
+                column=0,
+                coverage_check=True
+            )
+        
+        # Check that the sum of 'Number of Days' equals 2 (days 1 and 3)
+        total_days = result['Number of Days'].sum()
+        assert total_days == 2
+    
+    def test_coverage_warning_emitted(self, data_with_gaps):
+        """Verify that coverage warnings are emitted when coverage is insufficient."""
+        # Use pytest.warns() which collects all warnings
+        with pytest.warns(CoverageWarning) as warning_list:
+            result = periodic(
+                data_with_gaps,
+                freq='D',
+                column=0,
+                coverage_check=True
+            )
+        
+        # Should have warnings emitted (periodic checks both Leq,24h and Lden)
+        assert len(warning_list) >= 1
+        # Verify the warning message
+        assert any("Insufficient data coverage detected" in str(w.message) 
+                   for w in warning_list)
+
 
 if __name__ == "__main__":
     # Allow running tests directly

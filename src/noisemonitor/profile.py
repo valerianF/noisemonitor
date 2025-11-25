@@ -210,7 +210,6 @@ def freq_periodic(
     pd.DataFrame
         DataFrame with weekly levels for each frequency band.
     """
-    warnings.simplefilter("ignore")
 
     if chunks:
         results = {}
@@ -598,6 +597,7 @@ def series(
         arr = df.iloc[
             int(start_index + i * step):int(start_index + i * step + win)
         ].iloc[:, column]
+        overalltime.append(df.index[int(start_index + i*step + win/2)])
 
         if coverage_check:
             passes_threshold = core.check_coverage(
@@ -620,7 +620,6 @@ def series(
             overallL10[i] = np.nanpercentile(arr, 90)
             overallL50[i] = np.nanpercentile(arr, 50)
             overallL90[i] = np.nanpercentile(arr, 10)
-        overalltime.append(df.index[int(start_index + i*step + win/2)])
 
     meandf = pd.DataFrame(
         index=overalltime,

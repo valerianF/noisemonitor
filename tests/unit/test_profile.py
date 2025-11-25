@@ -12,6 +12,7 @@ import noisemonitor as nm
 from noisemonitor.profile import (
     periodic, series, nne, freq_periodic, freq_series
 )
+from noisemonitor.util.core import CoverageWarning
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +51,7 @@ def laeq1s_data(test_data_paths):
     return df
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def sample_octave_data():
     """Create sample octave band data for frequency analysis tests."""
     start_time = datetime(2023, 1, 1, 0, 0, 0)
@@ -66,6 +67,47 @@ def sample_octave_data():
         data[band] = base_level + variation
     
     return pd.DataFrame(data, index=index)
+
+@pytest.fixture(scope="module")
+def data_with_gaps(laeq1m_data):
+    """Create data with gaps: 3 days with 60% of day 2 set to NaN."""
+    # Take 3 days of data
+    test_data = laeq1m_data[:3 * 1440].copy()
+    
+    # Find day 2 indices (1440 to 2880)
+    day2_start = 1440
+    day2_end = 2880
+    day2_indices = test_data.index[day2_start:day2_end]
+    
+    # Randomly set 60% of day 2 data to NaN
+    np.random.seed(42)
+    nan_indices = np.random.choice(
+        day2_indices, 
+        size=int(len(day2_indices) * 0.6), 
+        replace=False
+    )
+    test_data.loc[nan_indices] = np.nan
+    return test_data
+
+@pytest.fixture(scope="module")
+def data_with_time_gaps(laeq1s_data):
+    """Create data with time-specific gaps: 70% of evening period set to NaN."""
+    # Take 1 day of data
+    test_data = laeq1s_data[:86400].copy()
+    
+    # Find evening period (19:00-23:00)
+    evening_mask = (test_data.index.hour >= 19) & (test_data.index.hour < 23)
+    evening_indices = test_data.index[evening_mask]
+    
+    # Randomly set 70% of evening data to NaN
+    np.random.seed(42)
+    nan_indices = np.random.choice(
+        evening_indices,
+        size=int(len(evening_indices) * 0.7),
+        replace=False
+    )
+    test_data.loc[nan_indices] = np.nan
+    return test_data
 
 
 class TestPeriodic:
@@ -573,6 +615,52 @@ class TestProfileEdgeCases:
             with pytest.warns(UserWarning, match="Computing the L10, L50"):
                 series(laeq1m_data, win=300, column=99)
 
+class TestCoverageCheck:
+    """Tests for coverage_check functionality across profile functions."""
+    
+    def test_periodic_coverage_check(self, data_with_time_gaps):
+        """Test periodic function with coverage_check enabled."""
+        # data_with_time_gaps has 70% NaN in evening hours (19:00-23:00)
+        # With coverage_check (threshold=0.5), windows in evening period should be filtered
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = periodic(
+                data_with_time_gaps,
+                hour1=18,
+                hour2=23,
+                column=0,
+                win=3600,  # 1-hour windows
+                coverage_check=True
+            )
+        
+        # Result should have 6 windows: 18:30, 19:30, 20:30, 21:30, 22:30, 23:30
+        # (centered at hour + 30 min for 1-hour windows)
+        assert len(result) == 6
+        
+        # Windows at 18:30 should have values (18:00-19:00, before the gap)
+        assert not pd.isna(result.iloc[0]['Leq'])
+        assert not pd.isna(result.iloc[0]['L10'])
+        assert not pd.isna(result.iloc[0]['L50'])
+        assert not pd.isna(result.iloc[0]['L90'])
+        
+        # Windows at 19:30, 20:30, 21:30, 22:30 should be NaN (70% missing > 50% threshold)
+        # These windows span 19:00-20:00, 20:00-21:00, 21:00-22:00, 22:00-23:00
+        for i in range(1, 5):  # indices 1-4 correspond to hours 19-22
+            assert pd.isna(result.iloc[i]['Leq']), f"Expected NaN at index {i} (hour {19+i-1})"
+            assert pd.isna(result.iloc[i]['L10']), f"Expected NaN at index {i}"
+            assert pd.isna(result.iloc[i]['L50']), f"Expected NaN at index {i}"
+            assert pd.isna(result.iloc[i]['L90']), f"Expected NaN at index {i}"
+        
+        # Window at 23:30 (23:00-00:00) might have values or NaN depending on exact coverage
+        # Just verify it exists in the result
+        assert len(result) == 6
+    
+    # def test_freq_periodic_coverage_check(self, data_with_gaps):
+    
+    # def test_freq_series_coverage_check(self, data_with_time_gaps):
+    
+    # def test_series_coverage_check(self, data_with_time_gaps):
+    
+    # def test_coverage_warning_emitted(self, data_with_gaps):
 
 if __name__ == "__main__":
     pytest.main([__file__])
