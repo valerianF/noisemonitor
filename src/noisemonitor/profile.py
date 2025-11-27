@@ -210,7 +210,7 @@ def freq_periodic(
     pd.DataFrame
         DataFrame with weekly levels for each frequency band.
     """
-
+    
     if chunks:
         results = {}
         with ProcessPoolExecutor() as executor:
@@ -235,6 +235,17 @@ def freq_periodic(
             for future in as_completed(futures):
                 col = futures[future]
                 results[col] = future.result()
+        
+        # Emit a single warning at parent level if coverage_check found issues
+        if coverage_check:
+            has_nans = any(df.isna().any().any() for df in results.values())
+            if has_nans:
+                warnings.warn(
+                    "Insufficient data coverage detected. "
+                    "Some periods will be filtered and return NaN.",
+                    core.CoverageWarning,
+                    stacklevel=2
+                )
     else:
         results = {
             col: periodic(
@@ -310,7 +321,6 @@ def freq_series(
     pd.DataFrame
         DataFrame with time series for each frequency band.
     """
-    warnings.simplefilter("ignore")
 
     if chunks:
         results = {}
@@ -331,6 +341,16 @@ def freq_series(
             for future in as_completed(futures):
                 col = futures[future]
                 results[col] = future.result()
+        
+        if coverage_check:
+            has_nans = any(df.isna().any().any() for df in results.values())
+            if has_nans:
+                warnings.warn(
+                    "Insufficient data coverage detected. "
+                    "Some periods will be filtered and return NaN.",
+                    core.CoverageWarning,
+                    stacklevel=2
+                )
     else:
         results = {
             col: series(

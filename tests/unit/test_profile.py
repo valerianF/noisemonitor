@@ -55,7 +55,7 @@ def laeq1s_data(test_data_paths):
 def sample_octave_data():
     """Create sample octave band data for frequency analysis tests."""
     start_time = datetime(2023, 1, 1, 0, 0, 0)
-    index = pd.date_range(start=start_time, periods=100, freq='1min')
+    index = pd.date_range(start=start_time, periods=360, freq='1min')  # 6 hours of data
     
     np.random.seed(42) 
     octave_bands = ['63', '125', '250', '500', '1000', '2000', '4000', '8000']
@@ -104,6 +104,26 @@ def data_with_time_gaps(laeq1s_data):
     nan_indices = np.random.choice(
         evening_indices,
         size=int(len(evening_indices) * 0.7),
+        replace=False
+    )
+    test_data.loc[nan_indices] = np.nan
+    return test_data
+
+
+@pytest.fixture(scope="module")
+def octave_data_with_gaps(sample_octave_data):
+    """Create octave band data with gaps: 70% of hour 2 set to NaN."""
+    test_data = sample_octave_data.copy()
+    
+    # Find hour 2 (02:00-03:00)
+    hour_mask = (test_data.index.hour == 2)
+    hour_indices = test_data.index[hour_mask]
+    
+    # Randomly set 70% of that hour's data to NaN for all bands
+    np.random.seed(42)
+    nan_indices = np.random.choice(
+        hour_indices,
+        size=int(len(hour_indices) * 0.7),
         replace=False
     )
     test_data.loc[nan_indices] = np.nan
@@ -555,11 +575,14 @@ class TestFreqSeries:
     
     def test_freq_series_basic(self, sample_octave_data):
         """Test basic frequency-domain time series."""
-        result = freq_series(
-            sample_octave_data,
-            win=1800,
-            chunks=False
-        )
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50"
+        ):
+            result = freq_series(
+                sample_octave_data,
+                win=1800,
+                chunks=False
+            )
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
@@ -572,21 +595,27 @@ class TestFreqSeries:
     
     def test_freq_series_sliding_windows(self, sample_octave_data):
         """Test frequency series with sliding windows."""
-        result = freq_series(
-            sample_octave_data,
-            win=1200,
-            step=600, 
-            chunks=False
-        )
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50"
+        ):
+            result = freq_series(
+                sample_octave_data,
+                win=1200,
+                step=600, 
+                chunks=False
+            )
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         
-        result_no_overlap = freq_series(
-            sample_octave_data,
-            win=1200,
-            chunks=False
-        )
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50"
+        ):
+            result_no_overlap = freq_series(
+                sample_octave_data,
+                win=1200,
+                chunks=False
+            )
         
         assert len(result) >= len(result_no_overlap)
 
@@ -626,8 +655,6 @@ class TestCoverageCheck:
     
     def test_periodic_coverage_check(self, data_with_time_gaps):
         """Test periodic function with coverage_check enabled."""
-        # data_with_time_gaps has 70% NaN in evening hours (19:00-23:00)
-        # With coverage_check (threshold=0.5), windows in evening period should be filtered
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
             result = periodic(
                 data_with_time_gaps,
@@ -638,35 +665,97 @@ class TestCoverageCheck:
                 coverage_check=True
             )
         
-        # Result should have 6 windows: 18:30, 19:30, 20:30, 21:30, 22:30, 23:30
-        # (centered at hour + 30 min for 1-hour windows)
         assert len(result) == 6
         
-        # Windows at 18:30 should have values (18:00-19:00, before the gap)
         assert not pd.isna(result.iloc[0]['Leq'])
         assert not pd.isna(result.iloc[0]['L10'])
         assert not pd.isna(result.iloc[0]['L50'])
         assert not pd.isna(result.iloc[0]['L90'])
         
-        # Windows at 19:30, 20:30, 21:30, 22:30 should be NaN (70% missing > 50% threshold)
-        # These windows span 19:00-20:00, 20:00-21:00, 21:00-22:00, 22:00-23:00
-        for i in range(1, 5):  # indices 1-4 correspond to hours 19-22
+        for i in range(1, 5):
             assert pd.isna(result.iloc[i]['Leq']), f"Expected NaN at index {i} (hour {19+i-1})"
             assert pd.isna(result.iloc[i]['L10']), f"Expected NaN at index {i}"
             assert pd.isna(result.iloc[i]['L50']), f"Expected NaN at index {i}"
             assert pd.isna(result.iloc[i]['L90']), f"Expected NaN at index {i}"
         
-        # Window at 23:30 (23:00-00:00) might have values or NaN depending on exact coverage
-        # Just verify it exists in the result
         assert len(result) == 6
     
-    # def test_freq_periodic_coverage_check(self, data_with_gaps):
+    def test_freq_periodic_coverage_check(self, octave_data_with_gaps):
+        """Test freq_periodic function with coverage_check enabled."""
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = freq_periodic(
+                octave_data_with_gaps,
+                hour1=0,
+                hour2=5,
+                win=3600,
+                chunks=True,
+                coverage_check=True,
+                coverage_threshold=0.5
+            )
+
+        assert isinstance(result.columns, pd.MultiIndex)
+        assert result.columns.names == ["Indicator", "Frequency Band"]
+        assert len(result) > 0
+        
+        target_time = time(2, 30, 0)
+        matching_indices = [i for i, t in enumerate(result.index) if t == target_time]
+        
+        if matching_indices:
+            idx = matching_indices[0]
+            nan_count = 0
+            for band in ['63', '125', '250', '500', '1000', '2000', '4000', '8000']:
+                if ('Leq', float(band)) in result.columns:
+                    if pd.isna(result.iloc[idx][('Leq', float(band))]):
+                        nan_count += 1
+            assert nan_count > 0, "Expected some NaN values for bands at hour 2 due to insufficient coverage"
     
-    # def test_freq_series_coverage_check(self, data_with_time_gaps):
+    def test_freq_series_coverage_check(self, octave_data_with_gaps):
+        """Test freq_series function with coverage_check enabled."""
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = freq_series(
+                octave_data_with_gaps,
+                win=3600,
+                step=1800,
+                chunks=True,
+                coverage_check=True,
+                coverage_threshold=0.5
+            )
+        
+        assert isinstance(result.columns, pd.MultiIndex)
+        assert result.columns.names == ["Indicator", "Frequency Band"]
+        assert len(result) > 0
+        
+        has_nans = False
+        for band in ['63', '125', '250', '500', '1000', '2000', '4000', '8000']:
+            if ('Leq', float(band)) in result.columns:
+                if result[('Leq', float(band))].isna().any():
+                    has_nans = True
+                    break
+        assert has_nans, "Expected some NaN values due to insufficient coverage in gaps"
     
-    # def test_series_coverage_check(self, data_with_time_gaps):
-    
-    # def test_coverage_warning_emitted(self, data_with_gaps):
+    def test_series_coverage_check(self, data_with_time_gaps):
+        """Test series function with coverage_check enabled."""
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = series(
+                data_with_time_gaps,
+                win=3600,
+                step=1800,
+                column=0,
+                coverage_check=True,
+                coverage_threshold=0.5
+            )
+        
+        assert 'Leq' in result.columns
+        assert 'L10' in result.columns
+        assert 'L50' in result.columns
+        assert 'L90' in result.columns
+        assert len(result) > 0
+        
+        evening_results = result[(result.index.hour >= 19) & (result.index.hour < 23)]
+        
+        if len(evening_results) > 0:
+            assert evening_results['Leq'].isna().any(), \
+                "Expected some NaN values in evening hours due to insufficient coverage"
 
 if __name__ == "__main__":
     pytest.main([__file__])
