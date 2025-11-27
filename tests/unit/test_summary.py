@@ -114,11 +114,13 @@ class TestHarmonicaPeriodic:
     
     def test_harmonica_periodic(self, laeq1s_data):
         """Test basic harmonica periodic computation with exact expected values."""
-        result = harmonica_periodic(
-            laeq1s_data, 
-            column=0,
-            use_chunks=False
-        )
+        with pytest.warns(CoverageWarning, 
+                          match="Insufficient data coverage detected"):
+            result = harmonica_periodic(
+                laeq1s_data, 
+                column=0,
+                use_chunks=False
+            )
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 24 
@@ -128,7 +130,6 @@ class TestHarmonicaPeriodic:
         for col in expected_columns:
             assert col in result.columns
         
-        # Test exact values for first three hours from dataset
         assert abs(result.iloc[0]['BGN'] - 0.496360) < 1e-5
         assert abs(result.iloc[0]['EVT'] - 2.635803) < 1e-5  
         assert abs(result.iloc[0]['HARMONICA'] - 3.132164) < 1e-5
@@ -155,11 +156,12 @@ class TestHarmonicaPeriodic:
     
     def test_harmonica_periodic_no_chunks(self, laeq1s_data):
         """Test harmonica periodic without chunks."""
-        result = harmonica_periodic(laeq1s_data, column=0, use_chunks=False)
+        with pytest.warns(CoverageWarning, 
+                          match="Insufficient data coverage detected"):
+            result = harmonica_periodic(laeq1s_data, column=0, use_chunks=False)
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 24
-
 
 class TestPeriodic:
     """Test cases for the periodic function."""
@@ -536,8 +538,36 @@ class TestCoverageCheck:
         # Should have warnings emitted (periodic checks both Leq,24h and Lden)
         assert len(warning_list) >= 1
         # Verify the warning message
-        assert any("Insufficient data coverage detected" in str(w.message) 
+        assert any("Insufficient data coverage detected" in str(w.message)
                    for w in warning_list)
+    
+    def test_harmonica_periodic_coverage_check(self, laeq1s_data):
+        """Test harmonica_periodic function emits warning when coverage is below 80%."""
+        test_data = laeq1s_data[:86400].copy()  # 1 full day
+        
+        hour_mask = (test_data.index.hour == 10)
+        hour_indices = test_data.index[hour_mask]
+        np.random.seed(42)
+        nan_indices = np.random.choice(
+            hour_indices,
+            size=int(len(hour_indices) * 0.25),
+            replace=False
+        )
+        test_data.loc[nan_indices] = np.nan
+        
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+            result = harmonica_periodic(
+                test_data,
+                column=0,
+                use_chunks=True
+            )
+        
+        assert len(result) == 24
+        assert 'HARMONICA' in result.columns
+        assert 'BGN' in result.columns
+        assert 'EVT' in result.columns
+        
+        assert isinstance(result, pd.DataFrame)
 
 
 if __name__ == "__main__":

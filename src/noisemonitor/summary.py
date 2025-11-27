@@ -51,6 +51,14 @@ def harmonica_periodic(
     time_index = [time(hour=h) for h in range(24)]
     daily_avg.index = time_index
 
+    if harmonica_df['HARMONICA'].isna().any():
+        warnings.warn(
+            "Insufficient data coverage detected when computing HARMONICA "
+            "indices. Some hours were filtered out before averaging.",
+            core.CoverageWarning,
+            stacklevel=2
+        )
+
     return daily_avg
 
 def periodic(
