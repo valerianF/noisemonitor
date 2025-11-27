@@ -286,7 +286,7 @@ class TestLevels:
     def test_lden(self, laeq1s_data):
         """Test basic Lden computation with exact expected values."""
         # Use 1s data for exact value testing
-        result, coverage_info = lden(laeq1s_data, column=0)
+        result = lden(laeq1s_data, column=0)
         
         assert isinstance(result, pd.DataFrame)
         assert 'lden' in result
@@ -302,7 +302,7 @@ class TestLevels:
     
     def test_lden_1m_data(self, laeq1m_data):
         """Test Lden computation with 1m data (original generic test).""" 
-        result, coverage_info = lden(
+        result = lden(
             laeq1m_data, 
             column=0
         )
@@ -383,7 +383,7 @@ class TestSummaryEdgeCases:
         with pytest.raises((ValueError, IndexError, KeyError)):
             periodic(empty_df, freq='D')
 
-        result, coverage_info = lden(empty_df, column=0)
+        result = lden(empty_df, column=0)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
 
@@ -399,7 +399,7 @@ class TestSummaryEdgeCases:
         """Test functions with single day of data."""
         single_day_data = laeq1s_data.iloc[:-1]
         
-        result, coverage_info = lden(single_day_data, column=0)
+        result = lden(single_day_data, column=0)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
         
@@ -435,7 +435,7 @@ class TestCoverageCheck:
         """Test lden function with coverage_check enabled."""
         # With coverage_check, evening period should be filtered
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
-            result, coverage_passed = lden(
+            result = lden(
                 data_with_time_gaps,
                 column=0,
                 coverage_check=True,
@@ -444,9 +444,6 @@ class TestCoverageCheck:
         
         # Should have daily result
         assert len(result) == 1
-        
-        # coverage_passed should be False due to insufficient evening coverage
-        assert coverage_passed is False
         
         # Evening value should be NaN (70% removed > 50% threshold)
         assert pd.isna(result['levening'].iloc[0])

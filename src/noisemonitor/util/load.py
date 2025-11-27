@@ -6,12 +6,16 @@ import os
 import locale
 import pandas as pd
 import numpy as np
+import sys
+import warnings
+import multiprocessing
 
 from datetime import datetime
 from dateutil import parser
 from xlrd import XLRDError
 from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 def load(
     path: Union[str, List[str]], 
@@ -126,27 +130,44 @@ def load(
         df = pd.concat([df, temp])
 
     if use_chunks:
-        # Process chunks in parallel
-        with ProcessPoolExecutor() as executor:
-            chunk_size = max(1, len(df) // chunksize)
-            slices = [(i * chunk_size, (i + 1) * chunk_size) 
-                      for i in range((len(df) + chunk_size - 1) // chunk_size)]
-            
-            futures = [
-                executor.submit(
-                    _parse_data, 
-                    df.iloc[start:stop],  # Manual slicing
-                    datetimeindex, 
-                    timeindex, 
-                    dateindex, 
-                    valueindexes, 
-                    slm_type, 
-                    timezone
-                ) for start, stop in slices
-            ]
-            df = pd.concat([future.result() for future in futures])
+        try:
+            with ProcessPoolExecutor() as executor:
+                num_chunks = max(1, (len(df) + chunksize - 1) // chunksize)
+                slices = []
+                for i in range(num_chunks):
+                    start = i * chunksize
+                    stop = min((i + 1) * chunksize, len(df))
+                    slices.append((start, stop))
+                
+                futures = [
+                    executor.submit(
+                        _parse_data, 
+                        df.iloc[start:stop],
+                        datetimeindex, 
+                        timeindex, 
+                        dateindex, 
+                        valueindexes, 
+                        slm_type, 
+                        timezone
+                    ) for start, stop in slices
+                ]
+                df = pd.concat([future.result() for future in futures])
+        except (BrokenProcessPool, RuntimeError, OSError) as e:
+            # If multiprocessing fails fall back to single-threaded processing
+            warnings.warn(
+                f"Parallel processing unavailable ({type(e).__name__}), "
+                "using single-threaded processing instead.",
+                RuntimeWarning
+            )
+            df = _parse_data(
+                df, 
+                datetimeindex, 
+                timeindex, 
+                dateindex, 
+                valueindexes, 
+                slm_type, 
+                timezone)
     else:
-        # Process the entire file at once
         df = _parse_data(
             df, 
             datetimeindex, 

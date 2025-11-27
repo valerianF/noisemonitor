@@ -511,13 +511,19 @@ class TestFreqPeriodic:
     
     def test_freq_periodic_basic(self, sample_octave_data):
         """Test basic frequency-domain periodic analysis."""
-        result = freq_periodic(
-            sample_octave_data,
-            hour1=8,
-            hour2=18,
-            win=1800,
-            chunks=False
-        )
+        with pytest.warns(
+            UserWarning, match="Computing the L10, L50, L90"
+        ):
+            with pytest.warns(
+                RuntimeWarning, match="Mean of empty slice"
+            ):
+                result = freq_periodic(
+                    sample_octave_data,
+                    hour1=8,
+                    hour2=18,
+                    win=1800,
+                    chunks=False
+                )
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0

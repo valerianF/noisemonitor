@@ -121,22 +121,13 @@ def periodic(
             else:
                 leq_value = core.equivalent_level(array)
 
-            lden_values, coverage_lden = lden(
+            lden_values = core.lden(
                 group,
                 column=column,
                 values=values,
                 coverage_check=coverage_check,
                 coverage_threshold=coverage_threshold
             )
-            if coverage_check and not coverage_warning_issued and \
-                not coverage_lden:
-                    warnings.warn(
-                        f"Lden computation: Insufficient data coverage detected. "
-                        "Some periods will be filtered and return NaN.",
-                        core.CoverageWarning,
-                        stacklevel=3
-                    )
-                    coverage_warning_issued = True
             result = {
                 'Period': period,
                 'Leq,24h': leq_value,
@@ -213,8 +204,8 @@ def lden(
 ) -> pd.DataFrame:
     """Return the Lden, a descriptor of noise level based on Leq over
     a whole day with a penalty for evening (19h-23h) and night (23h-7h)
-    time noise. By default, an average Lden is computed that is 
-    representative of all the sound level data. Can return a Lden value
+    time noise. By default, an average Lden encompassing
+    all the dataset is computed. Can return a Lden value
     corresponding to specific days of the week.
 
     Parameters
@@ -241,57 +232,20 @@ def lden(
 
     Returns
     ---------- 
-    tuple of (pd.DataFrame, bool): dataframe with daily or 
-        weekly lden rounded to two decimals. Associated day, evening and night 
-        values are returned if values is set to True. 
-        If coverage check is enable, a boolean indicates 
-        whether the data coverage threshold was met for all three periods.
+    pd.DataFrame: dataframe with daily or weekly lden rounded to two decimals. 
+        Associated day, evening and night values are returned if values 
+        is set to True.
     """
     column = core._column_to_index(df, column)
-
     temp = filter._days(df, day1, day2)
 
-    if coverage_check:
-
-        day = temp.between_time(time(hour=7), time(hour=19)).iloc[:, column]
-        evening = temp.between_time(time(hour=19), time(hour=23)).iloc[:, column]
-        night = temp.between_time(time(hour=23), time(hour=7)).iloc[:, column]
-
-        passes_threshold_day = core.check_coverage(
-            day,
-            coverage_threshold
+    return core.lden(
+        temp, 
+        column, 
+        values=values,
+        coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold  
         )
-        passes_threshold_evening = core.check_coverage(
-            evening,
-            coverage_threshold
-        )
-        passes_threshold_night = core.check_coverage(
-            night,
-            coverage_threshold
-        )
-        if not (passes_threshold_day and passes_threshold_evening and 
-                passes_threshold_night):
-            warnings.warn(
-                f"Lden computation: Insufficient data coverage detected. "
-                "Some periods will be filtered and return NaN.",
-                core.CoverageWarning,
-                stacklevel=3
-            )
-            if not values:
-                return pd.DataFrame({'lden': [np.nan]}), False
-            else:
-                temp_lden = core.lden(temp, column, values=values)
-                temp_lden['lden'][0] = np.nan
-                if not passes_threshold_day:
-                    temp_lden['lday'][0] = np.nan
-                if not passes_threshold_evening:
-                    temp_lden['levening'][0] = np.nan
-                if not passes_threshold_night:
-                    temp_lden['lnight'][0] = np.nan
-                return temp_lden, False
-
-        return core.lden(temp, column, values=values), True
-    return core.lden(temp, column, values=values), None
 
 def leq(
     df: pd.DataFrame, 
@@ -442,7 +396,7 @@ def freq_descriptors(
         )
 
         # Compute overall Lden
-        lden_result, lden_coverage = lden(
+        lden_result = lden(
             df,
             day1=day1,
             day2=day2,

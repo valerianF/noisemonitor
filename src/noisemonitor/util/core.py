@@ -3,11 +3,14 @@
 import pandas as pd
 import numpy as np
 import warnings
+import sys
+import multiprocessing
 
 from datetime import time
 from typing import Union, Callable, Tuple, Optional, Dict
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 
 
 class CoverageWarning(UserWarning):
@@ -128,11 +131,35 @@ def harmonica(
     previous_data = pd.DataFrame() 
 
     if use_chunks:
-        with ProcessPoolExecutor() as executor:
-            futures = []
+        try:
+            with ProcessPoolExecutor() as executor:
+                futures = []
+                for hour, group in df.resample('h'):
+                    futures.append(executor.submit(
+                        hourly_harmonica, 
+                        hour, 
+                        group, 
+                        column, 
+                        interval, 
+                        previous_data
+                    ))
+                    previous_data = group
+
+                for future in as_completed(futures):
+                    results.append(future.result())
+        except (BrokenProcessPool, RuntimeError, OSError) as e:
+            # If multiprocessing fails (e.g., in testing environments),
+            # fall back to single-threaded processing
+            warnings.warn(
+                f"Parallel processing unavailable ({type(e).__name__}), "
+                "using single-threaded processing instead.",
+                RuntimeWarning,
+                stacklevel=2
+            )
+            results = []
+            previous_data = pd.DataFrame()
             for hour, group in df.resample('h'):
-                futures.append(executor.submit(
-                    hourly_harmonica, 
+                results.append(hourly_harmonica(
                     hour, 
                     group, 
                     column, 
@@ -140,9 +167,6 @@ def harmonica(
                     previous_data
                 ))
                 previous_data = group
-
-            for future in as_completed(futures):
-                results.append(future.result())
     else:
         for hour, group in df.resample('h'):
             results.append(hourly_harmonica(
@@ -202,7 +226,9 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
 def lden(
     df: pd.DataFrame, 
     column: Union[int, str], 
-    values: bool = False
+    values: bool = False,
+    coverage_check: bool = False,
+    coverage_threshold: float = 0.5
     ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame.
 
@@ -228,28 +254,62 @@ def lden(
     """
     column = _column_to_index(df, column)
     
-    lday = equivalent_level(df.between_time(
-        time(hour=7), time(hour=19)).iloc[:, column])
-    levening = equivalent_level(df.between_time(
-        time(hour=19), time(hour=23)).iloc[:, column])
-    lnight = equivalent_level(df.between_time(
-        time(hour=23), time(hour=7)).iloc[:, column])
+    day = df.between_time(
+        time(hour=7), time(hour=19)).iloc[:, column]
+    evening = df.between_time(
+        time(hour=19), time(hour=23)).iloc[:, column]
+    night = df.between_time(
+        time(hour=23), time(hour=7)).iloc[:, column]
+    
+    lday = np.round(equivalent_level(day), 2)
+    levening = np.round(equivalent_level(evening), 2)
+    lnight = np.round(equivalent_level(night), 2)
 
-    lden = 10 * np.log10(
+    lden = np.round(10 * np.log10(
         (
             12 * np.power(10, lday / 10)
             + 4 * np.power(10, (levening + 5) / 10)
             + 8 * np.power(10, (lnight + 10) / 10)
-        ) / 24)
+        ) / 24), 2)
+    
+    if coverage_check:
+        passes_threshold_day = check_coverage(
+            day,
+            coverage_threshold
+        )
+        passes_threshold_evening = check_coverage(
+            evening,
+            coverage_threshold
+        )
+        passes_threshold_night = check_coverage(
+            night,
+            coverage_threshold
+        )
+
+        if not (passes_threshold_day and passes_threshold_evening and 
+                    passes_threshold_night):
+            warnings.warn(
+                f"Lden computation: Insufficient data coverage detected. "
+                "Some periods will be filtered and return NaN.",
+                CoverageWarning,
+                stacklevel=3
+                )
+            lden = np.nan
+            if not passes_threshold_day:
+                lday = np.nan
+            if not passes_threshold_evening:
+                levening = np.nan
+            if not passes_threshold_night:
+                lnight = np.nan
 
     if values:
         return pd.DataFrame({
-            'lden': [np.round(lden, 2)],
-            'lday': [np.round(lday, 2)],
-            'levening': [np.round(levening, 2)],
-            'lnight': [np.round(lnight, 2)]
+            'lden': [lden],
+            'lday': [lday],
+            'levening': [levening],
+            'lnight': [lnight]
         }, dtype='float64')
-    return pd.DataFrame({'lden': [np.round(lden, 2)]}, dtype='float64')
+    return pd.DataFrame({'lden': [lden]}, dtype='float64')
 
 def noise_events(
     df: pd.DataFrame,
