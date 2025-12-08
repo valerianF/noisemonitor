@@ -72,8 +72,8 @@ def check_coverage(
     
     if emit_warning and not passes_threshold:
         warnings.warn(
-            f"Insufficient data coverage detected ({coverage_ratio:.1%} < "
-            f"{threshold:.1%}). Some periods will be filtered and return NaN.",
+            f"Insufficient data coverage detected < "
+            f"Some periods will be filtered and return NaN.",
             CoverageWarning,
             stacklevel=3
         )
@@ -289,7 +289,7 @@ def lden(
         if not (passes_threshold_day and passes_threshold_evening and 
                     passes_threshold_night):
             warnings.warn(
-                f"Lden computation: Insufficient data coverage detected. "
+                f"Insufficient data coverage detected for Lden computation. "
                 "Some periods will be filtered and return NaN.",
                 CoverageWarning,
                 stacklevel=3

@@ -489,7 +489,7 @@ def line_weather(
     include_temp_flag: bool = False,
     include_rel_hum_flag: bool = False,
     include_snow_flag: bool = False,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ):
     """
@@ -514,7 +514,7 @@ def line_weather(
         Whether to show the Temperature Flag.
     show_snow_flag: bool, default True
         Whether to show the Snow Flag.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         Whether to check data coverage when computing levels.
     coverage_threshold: float, default 0.5
         Minimum coverage ratio required (0.0-1.0).
@@ -527,8 +527,8 @@ def line_weather(
 
     if win:
         levels_df = series(df, column=column, win=win, step=0,
-                          coverage_check=coverage_check,
-                          coverage_threshold=coverage_threshold)
+                        coverage_check=coverage_check,
+                        coverage_threshold=coverage_threshold)
         _column_p = 0
         # Resample the weather data to match the window size
         resample_rule = f'{win}s'
@@ -587,7 +587,7 @@ def compare_weather_daily(
     include_snow_flag: bool = False,
     win: int = 3600,
     step: int = 1200,
-    coverage_check: bool = True,
+    coverage_check: bool = False,
     coverage_threshold: float = 0.5,
     title: str = "Daily Leq Profiles for Different Weather Conditions",
     figsize: tuple = (12, 8)
@@ -618,7 +618,7 @@ def compare_weather_daily(
         The window size for rolling average.
     step: int, default 1200
         The step size for rolling average.
-    coverage_check: bool, default True
+    coverage_check: bool, default False
         Whether to check data coverage when computing levels.
     coverage_threshold: float, default 0.5
         Minimum coverage ratio required (0.0-1.0).
