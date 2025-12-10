@@ -10,7 +10,7 @@ from pathlib import Path
 import noisemonitor as nm
 from noisemonitor.summary import (
     harmonica_periodic, periodic, freq_periodic, lden, leq, 
-    freq_descriptors, nday
+    freq_indicators, nday
 )
 from noisemonitor.util.core import CoverageWarning
 
@@ -157,7 +157,7 @@ class TestHarmonicaPeriodic:
     def test_harmonica_periodic_no_chunks(self, laeq1s_data):
         """Test harmonica periodic without chunks."""
         with pytest.warns(CoverageWarning, 
-                          match="Insufficient data coverage detected"):
+                        match="Insufficient data coverage detected"):
             result = harmonica_periodic(laeq1s_data, column=0, use_chunks=False)
         
         assert isinstance(result, pd.DataFrame)
@@ -257,13 +257,13 @@ class TestFreq:
                     result.loc[valid_mask, ('Leq,24h', band)] - 0.1).all(), \
                     f"Lden should be >= Leq,24h for band {band}"
         
-    def test_freq_descriptors(self, sample_octave_data):
-        """Test basic frequency descriptors computation."""
+    def test_freq_indicators(self, sample_octave_data):
+        """Test basic frequency indicators computation."""
         with pytest.warns(
             UserWarning, 
             match="Computing the L10, L50, and L90"
             ):
-            result = freq_descriptors(
+            result = freq_indicators(
                 sample_octave_data, 
                 stats=True,
                 hour1=6,
@@ -482,8 +482,8 @@ class TestCoverageCheck:
         # Result should be NaN for evening period with insufficient coverage
         assert pd.isna(result.iloc[0, 0])
     
-    def test_freq_descriptors_coverage_check(self, laeq1m_data):
-        """Test freq_descriptors function with coverage_check enabled."""
+    def test_freq_indicators_coverage_check(self, laeq1m_data):
+        """Test freq_indicators function with coverage_check enabled."""
         # Create data with gaps in nighttime period
         test_data = laeq1m_data[:1440].copy()  # 1 day
         
@@ -499,7 +499,7 @@ class TestCoverageCheck:
         test_data.loc[nan_indices] = np.nan
         
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
-            result = freq_descriptors(
+            result = freq_indicators(
                 test_data,
                 hour1=23,
                 hour2=7,

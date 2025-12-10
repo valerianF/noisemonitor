@@ -25,7 +25,6 @@ def compare(
     step: bool = False, 
     show_points: bool = False, 
     figsize: tuple = (10,8), 
-    fill_between: bool = None, 
     **kwargs
 ) -> matplotlib.axes.Axes:
     """Compare multiple DataFrames by plotting their columns in the same plot.
@@ -46,10 +45,6 @@ def compare(
         if True, scatter points will be added on top of the line plots.
     figsize: tuple, default (10,8)
         figure size in inches.
-    fill_between: list of tuples, default None
-        list of tuples specifying the columns to use for filling in-between
-        values. Each tuple should contain three column names: (lower_bound, 
-        upper_bound, column_to_plot).
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
     **kwargs: any
@@ -67,7 +62,7 @@ def compare(
         for arg in args:
             ax = line(df, arg, ylabel=ylabel, weighting=weighting, 
                             step=step, show_points=show_points,
-                            figsize=figsize, ax=ax, fill_between=fill_between,
+                            figsize=figsize, ax=ax,
                             **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
 
@@ -221,7 +216,7 @@ def harmonica(
         df[(df.index >= time(0, 0)) & (df.index < time(22, 0))]
     ])
 
-    for hour, row in df.iterrows():
+    for position, (hour, row) in enumerate(df.iterrows()):
         hour = hour.hour
         if 6 <= hour < 22:
             if row['HARMONICA'] < 4:
@@ -238,11 +233,11 @@ def harmonica(
             else:
                 color = 'red'
 
-        plt.bar(hour, row['BGN'], color=color, width=0.81, zorder=2)
+        plt.bar(position, row['BGN'], color=color, width=0.81, zorder=2)
         triangle = Polygon(
-            [[hour - 0.4, row['BGN'] + 0.1],
-            [hour + 0.4, row['BGN'] + 0.1],
-            [hour, row['HARMONICA']]],
+            [[position - 0.4, row['BGN'] + 0.1],
+            [position + 0.4, row['BGN'] + 0.1],
+            [position, row['HARMONICA']]],
             closed=True, 
             color=color,
             zorder=3
@@ -275,7 +270,6 @@ def line(
         fill_background: bool = False, 
         figsize: tuple = (10,8), 
         ax: matplotlib.axes.Axes = None,
-        fill_between: bool = None, 
         **kwargs
 ) -> matplotlib.axes.Axes:
     """Plot columns of a dataframe according to the index, using matplotlib.
@@ -304,10 +298,6 @@ def line(
         figure size in inches.
     ax: matplotlib.axes.Axes, default None
         Axes object to plot on. If None, a new figure and axes are created.
-    fill_between: list of tuples, default None
-        list of tuples specifying the columns to use for filling in-between
-        values. Each tuple should contain three column names: (lower_bound, 
-        upper_bound, column_to_plot).
     weighting: str, default "A"
         type of sound level data, typically A, C or Z. 
     **kwargs: any
@@ -356,16 +346,6 @@ def line(
         if show_points:
             ax.scatter(x, df.loc[:, args[i]], color=line.get_color(), s=15,
                 zorder=3)
-
-    if fill_between:
-        for lower, upper, column in fill_between:
-            if (
-                lower in df.columns and
-                upper in df.columns and
-                column in df.columns
-            ):
-                ax.fill_between(x, df[lower], df[upper], alpha=0.15,
-                                label=f"{column} - {lower} to {upper}")
 
     _format_time_axis(ax, x, df)
 

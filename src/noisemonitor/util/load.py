@@ -24,7 +24,7 @@ def load(
     dateindex: Optional[int] = None, 
     valueindexes: Optional[Union[int, List[int]]] = 1, 
     header: Optional[int] = 0, 
-    sep: str = '\t', 
+    sep: str = ',', 
     slm_type: Optional[str] = None, 
     timezone: Optional[str] = None,
     use_chunks: bool = True,
@@ -65,7 +65,7 @@ def load(
     header: int, None, default 0
         row index for datasheet header. If None, the datasheet has 
         no header.
-    sep: str, default '\t'
+    sep: str, default ','
         separator if reading .csv file(s).
     slm_type: str, default None
         performs specific parsing operation for known sound level monitor

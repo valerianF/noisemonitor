@@ -15,3 +15,5 @@ env/
 
 # test
 .pytest_cache
+*.ipynb
+.ipynb_checkpoint

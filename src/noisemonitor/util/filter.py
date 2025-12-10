@@ -119,15 +119,15 @@ def weather_flags(
     column: Union[int, str], default None
         The column name or index to use for calculations. 
         If None, the first column will be used.
-    include_wind_flag: bool, default False
+    filter_wind_flag: bool, default False
         Whether to filter data with Wind Speed Flag.
-    include_rain_flag: bool, default True
+    filter_rain_flag: bool, default True
         Whether to filter data with Rain Flag.
-    include_temp_flag: bool, default False
+    filter_temp_flag: bool, default False
         Whether to filter data with Temperature Flag.
-    include_rel_hum_flag: bool, default False
+    filter_rel_hum_flag: bool, default False
         Whether to filter data with Relative Humidity Flag.
-    include_snow_flag: bool, default False
+    filter_snow_flag: bool, default False
         Whether to filter data with Snow Flag.
 
     Returns
@@ -139,6 +139,8 @@ def weather_flags(
     
     column = core._column_to_index(df, column)
     column_name = df.columns[column]
+
+    df = df.copy()
 
     flags = {
         'Wind_Spd_Flag': filter_wind_flag,

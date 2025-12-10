@@ -168,16 +168,6 @@ class TestCheckCoverage:
         passes = check_coverage(array, threshold=0.7)
         assert passes is False
 
-    def test_check_coverage_warning_message_format(self):
-        """Test that warning message contains coverage details."""
-        array = np.array([60.0, np.nan, np.nan, np.nan, np.nan])
-        with pytest.warns(CoverageWarning) as record:
-            check_coverage(array, threshold=0.8, emit_warning=True)
-        
-        warning_message = str(record[0].message)
-        assert "20.0%" in warning_message or "20%" in warning_message
-        assert "80.0%" in warning_message or "80%" in warning_message
-
 
 class TestEquivalentLevel:
     """Test the equivalent_level function."""

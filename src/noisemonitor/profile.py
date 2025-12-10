@@ -73,7 +73,7 @@ def periodic(
         warnings.warn(f"Computing the L10, L50, L90, traffic, or "
             "roughness noise indicators should be done with "
             "an integration time equal to or below 1s. Results"
-            " might not be valid for these descriptors.\n")
+            " might not be valid for these indicators.\n")
     
     if step == 0:
         step = win
@@ -414,7 +414,7 @@ def nne(
         hour for the ending time of the daily average. If hour1 > hour2 
         the average will be computed outside of these hours.
     background_type: str
-        Type of background level descriptor for computing the threshold to 
+        Type of background level indicator for computing the threshold to 
         use for defining a noise event. Can be 'leq', 'l50', 'l90' or int 
         for a constant value.
     exceedance: int, default 5
@@ -451,7 +451,7 @@ def nne(
         warnings.warn(f"Computing the average Number of "
             "Noise Events should be done with "
             "an integration time equal to or below 1s. Results"
-            " might not be valid for these descriptors.\n")
+            " might not be valid for these indicators.\n")
 
     if column is None:
         column = 0
@@ -577,7 +577,7 @@ def series(
     if interval > 1:
         warnings.warn(f"Computing the L10, L50, and L90 should be done with "
             "an integration time equal to or below 1s. Results"
-            " might not be valid for these descriptors.\n")
+            " might not be valid for these indicators.\n")
 
     step = step // interval
     win = win // interval

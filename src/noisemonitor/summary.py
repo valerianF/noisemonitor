@@ -210,7 +210,7 @@ def lden(
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
-    """Return the Lden, a descriptor of noise level based on Leq over
+    """Return the Lden, an indicator of noise level based on Leq over
     a whole day with a penalty for evening (19h-23h) and night (23h-7h)
     time noise. By default, an average Lden encompassing
     all the dataset is computed. Can return a Lden value
@@ -329,7 +329,7 @@ def leq(
             warnings.warn(
                 "Computing the L10, L50, and L90 should be done with "
                 "an integration time equal to or below 1s. Results"
-                " might not be valid for this descriptor.\n"
+                " might not be valid for this indicator.\n"
             )
         return pd.DataFrame({
             'leq': [np.round(core.equivalent_level(array),2)],
@@ -341,7 +341,7 @@ def leq(
         'leq': [np.round(core.equivalent_level(array), 2)]
     })
 
-def freq_descriptors(
+def freq_indicators(
     df: pd.DataFrame,
     hour1: Optional[int] = 0,
     hour2: Optional[int] = 24,
