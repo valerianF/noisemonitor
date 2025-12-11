@@ -20,6 +20,7 @@ def periodic(
     step: int = 0,
     traffic_noise_indicators: bool = False,
     roughness_indicators: bool = False,
+    stat: Optional[Union[int, list]] = None,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
@@ -55,6 +56,11 @@ def periodic(
         if set to True, the function will compute roughness indicators 
         based on difference between consecutive LAeq,1s values according 
         to (DeFrance et al., 2010).
+    stat: int, list of ints, or None, default None
+        statistical level(s) to compute (between 1 and 99). If an int is provided,
+        computes the corresponding percentile (e.g., stat=10 computes L10). If a list
+        is provided, computes all specified percentiles. Results are added to the output
+        DataFrame with column names like 'L10', 'L5', etc.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
@@ -70,10 +76,10 @@ def periodic(
     column = core._column_to_index(df, column)
 
     if core.get_interval(df) > 1:
-        warnings.warn(f"Computing the L10, L50, L90, traffic, or "
-            "roughness noise indicators should be done with "
-            "an integration time equal to or below 1s. Results"
-            " might not be valid for these indicators.\n")
+        warnings.warn(f"Computing the L10, L50, L90, traffic, "
+            "roughness noise indicators or other statistical levels " \
+            "should be done with an integration time equal to or below 1s. " \
+            "Results might not be valid for these indicators.\n")
     
     if step == 0:
         step = win
@@ -82,12 +88,30 @@ def periodic(
 
     NLim = ((hour2-hour1)%24*3600)//step + 1
 
+    # Validate and process stat argument
+    stat_levels = []
+    if stat is not None:
+        if isinstance(stat, int):
+            stat_levels = [stat]
+        elif isinstance(stat, list):
+            stat_levels = stat
+        else:
+            raise ValueError("stat must be an int, a list of ints, or None")
+        
+        # Validate that all values are between 1 and 99
+        for s in stat_levels:
+            if not isinstance(s, int) or s < 1 or s > 99:
+                raise ValueError(f"stat values must be integers between 1 and 99, got {s}")
+
     averages = {
         'Leq': np.full(NLim, np.nan),
         'L10': np.full(NLim, np.nan),
         'L50': np.full(NLim, np.nan),
         'L90': np.full(NLim, np.nan)
     }
+
+    for s in stat_levels:
+        averages[f'L{s}'] = np.full(NLim, np.nan)
 
     if traffic_noise_indicators:
         averages.update({
@@ -142,6 +166,9 @@ def periodic(
         averages['L10'][i] = np.nanpercentile(arr, 90)
         averages['L50'][i] = np.nanpercentile(arr, 50)
         averages['L90'][i] = np.nanpercentile(arr, 10)
+        
+        for s in stat_levels:
+            averages[f'L{s}'][i] = np.nanpercentile(arr, 100 - s)
 
         if traffic_noise_indicators:
             L10 = averages['L10'][i]

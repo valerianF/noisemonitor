@@ -347,7 +347,70 @@ class TestPeriodic:
         # Check for L10/L50/L90 warning
         warning_messages = [str(w.message) for w in record]
         assert any("Computing the L10, L50, L90" in msg for msg in warning_messages)
-
+    
+    def test_periodic_stat_single_value(self, laeq1m_data):
+        """Test periodic with single stat parameter value."""
+        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+            result = periodic(
+                laeq1m_data,
+                hour1=7,
+                hour2=19,
+                column=0,
+                win=3600,
+                stat=25
+            )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert 'L25' in result.columns
+        
+        # Check that default columns are still present
+        expected_columns = ['Leq', 'L10', 'L50', 'L90', 'L25']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        # Test exact value for first hour (07:30:00)
+        assert abs(result.iloc[0]['L25'] - 53.961804) < 1e-5
+        
+        # Verify ordering relationships
+        assert (result['L10'] >= result['L25']).all()
+        assert (result['L25'] >= result['L50']).all()
+    
+    def test_periodic_stat_multiple_values(self, laeq1m_data):
+        """Test periodic with multiple stat parameter values."""
+        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+            result = periodic(
+                laeq1m_data,
+                hour1=7,
+                hour2=19,
+                column=0,
+                win=3600,
+                stat=[1, 5, 95, 99]
+            )
+        
+        assert isinstance(result, pd.DataFrame)
+        
+        # Check that custom stat columns are present
+        custom_columns = ['L1', 'L5', 'L95', 'L99']
+        for col in custom_columns:
+            assert col in result.columns
+        
+        # Check that default columns are still present
+        default_columns = ['Leq', 'L10', 'L50', 'L90']
+        for col in default_columns:
+            assert col in result.columns
+        
+        # Test exact values for first hour (07:30:00)
+        assert abs(result.iloc[0]['L1'] - 61.067000) < 1e-5
+        assert abs(result.iloc[0]['L5'] - 57.027961) < 1e-5
+        assert abs(result.iloc[0]['L95'] - 44.373262) < 1e-5
+        assert abs(result.iloc[0]['L99'] - 41.830812) < 1e-5
+        
+        # Verify ordering relationships
+        assert (result['L1'] >= result['L5']).all()
+        assert (result['L5'] >= result['L10']).all()
+        assert (result['L50'] >= result['L90']).all()
+        assert (result['L90'] >= result['L95']).all()
+        assert (result['L95'] >= result['L99']).all()
 
 class TestSeries:
     """Test cases for the series function."""

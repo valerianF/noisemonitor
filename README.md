@@ -363,7 +363,7 @@ nm.display.line(
 
 ### Daily/Weekly Profiles
 
-Compute average profiles representing daily or weekly patterns with the `noisemonitor.profile.periodic()` function.
+Compute average profiles representing daily or weekly patterns of Leq, L10, L50, and L90 with the `noisemonitor.profile.periodic()` function.
 
 ```python
 # Weekday profile (Mon-Fri)
@@ -409,35 +409,47 @@ nm.display.compare(
 
 ![Comparing Weekday vs. Weekend Profiles](docs/images/weekend_vs_weekday_profile.png)
 
-### Number of Noise Events (NNE)
+### Custom statistical levels
 
-The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day.
+Alternatively, the `noisemonitor.profile.periodic()` function can compute custom statistical sound levels (Lx) profiles by specifying the desired exceedance levels.
 
 ```python
-# Average daily noise event profile
-nne_profile = nm.profile.nne(
+custom_stat_profile = nm.profile.periodic(
     df_1s,
-    hour1=23,
-    hour2=22,
-    background_type='L50',     # Use L50 as background reference
-    exceedance=5,              # Events must exceed background by 10 dB
-    min_gap=5,                 # Minimum 5 seconds between events
+    hour1=7,
+    hour2=19,
     win=3600,
-    step=1200
+    step=1200,
+    stat=[1, 5, 99]  # int or list of int for Lx levels
 )
 
-# Visualize event frequency
+custom_stat_profile.head()
+```
+
+|          | Leq       | L10       | L50       | L90       | L1        | L5        | L99       |
+|----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| 07:30:00 | 47.742583 | 48.785907 | 47.385907 | 46.485907 | 51.185907 | 49.385907 | 45.985907 |
+| 07:50:00 | 47.886331 | 48.885907 | 47.285907 | 46.385907 | 53.685907 | 49.685907 | 45.885907 |
+| 08:10:00 | 47.721299 | 48.885907 | 47.085907 | 46.185907 | 52.885907 | 49.785907 | 45.685907 |
+| 08:30:00 | 47.435316 | 48.385907 | 46.785907 | 45.985907 | 53.085907 | 49.485907 | 45.585907 |
+| 08:50:00 | 46.955109 | 47.985907 | 46.585907 | 45.785907 | 50.785907 | 48.785907 | 45.285907 |
+
+This can be useful to compute specific statistical levels and custom indicators
+
+```python
+custom_stat_profile['L5-L99'] = custom_stat_profile['L5'] - custom_stat_profile['L99']
+custom_stat_profile['L1-Leq'] = custom_stat_profile['L1'] - custom_stat_profile['Leq']
+
 nm.display.line(
-    nne_profile, 
-    'Average NNEs',
-    title='Noise Events Profile',
-    ylabel='Noise Events (L50 + 5dBA)',
-    fill_background=True
+    custom_stat_profile,
+    'L5-L99', 'L1-Leq',
+    title="Daily Profile for Custom Statistical Levels"
 )
 ```
-![Number of Noise Events Profile](docs/images/nne_profile.png)
 
-**Note:** As emergence indicators, NNEs shouldn't be computed with refresh times above one second.
+![Daily Profile for Custom Statistical Levels](docs/images/daily_custom_stats.png)
+
+**Note:** As with L10, L90, or L50, statistical levels shouldn't be computed with refresh rates above one second.
 
 ### Advanced indicators
 
@@ -477,6 +489,36 @@ nm.display.line(
 ![Traffic Noise Index and Noise Pollution Level Profile](docs/images/TNI_NPL_profile.png)
 
 **Note:** Because they are based on statistical indicators, these indicators shouldn't be computed with refresh rates above one second.
+
+### Number of Noise Events (NNE)
+
+The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day.
+
+```python
+# Average daily noise event profile
+nne_profile = nm.profile.nne(
+    df_1s,
+    hour1=23,
+    hour2=22,
+    background_type='L50',     # Use L50 as background reference
+    exceedance=5,              # Events must exceed background by 10 dB
+    min_gap=5,                 # Minimum 5 seconds between events
+    win=3600,
+    step=1200
+)
+
+# Visualize event frequency
+nm.display.line(
+    nne_profile, 
+    'Average NNEs',
+    title='Noise Events Profile',
+    ylabel='Noise Events (L50 + 5dBA)',
+    fill_background=True
+)
+```
+![Number of Noise Events Profile](docs/images/nne_profile.png)
+
+**Note:** As emergence indicators, NNEs shouldn't be computed with refresh times above one second.
 
 ### Frequency Band Profiles
 
