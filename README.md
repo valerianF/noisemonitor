@@ -46,8 +46,8 @@ pip install git+https://github.com/valerianF/noisemonitor
 import noisemonitor as nm
 
 # Load data
-df = nm.load(
-    'data.csv',
+df_1m = nm.load(
+    'tests/data/test_data_laeq1m.csv',
     datetimeindex=0, # Column index for datetime
     valueindexes=1,  # Column index(es) for sound levels
     header=0,        # Header row index
@@ -55,7 +55,7 @@ df = nm.load(
 )
 
 # Compute Lden
-lden = nm.summary.lden(df)
+lden = nm.summary.lden(df_1m)
 print(lden)
 ```
 
@@ -65,20 +65,38 @@ print(lden)
 | 56.1 | 51.75 | 50.08    | 49.23  |
 
 ```python
-# Compute daily profile
-daily_profile = nm.profile.periodic(
-    df,
-    hour1=0,
-    hour2=23,
+# Compute weekly profiles
+weekday_profile = nm.profile.periodic(
+    df_1m,
+    hour1=23,
+    hour2=22,
+    day1='monday',
+    day2='friday',
     win=3600,    # 1-hour window
     step=1200    # 20-minute step
 )
 
+weekend_profile = nm.profile.periodic(
+    df_1m,
+    hour1=23,
+    hour2=22,
+    day1='saturday',
+    day2='sunday',
+    win=3600,
+    step=1200
+)
+
 # Visualize
-nm.display.line(daily_profile, 'Leq', title='Daily Noise Profile')
+nm.display.compare(
+    [weekday_profile, weekend_profile],
+    ['Weekdays', 'Weekend'],
+    'Leq',
+    fill_background=True,
+    title='Weekly Noise Profiles'
+)
 ```
 
-![Daily Noise Profile](docs/images/daily_noise_profile.png)
+![Weekly Noise Profiles](docs/images/weekly_noise_profiles.png)
 
 **noisemonitor** is designed for flexibility and ease of use. All analysis functions accept a `column` parameter, allowing you to specify which data column to analyze (e.g., to work with datasets containing multiple sound level measurements or frequency bands). Most functions return results as pandas DataFrames for easy manipulation.
 
