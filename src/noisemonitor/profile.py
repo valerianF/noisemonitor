@@ -146,14 +146,14 @@ def periodic(
         if traffic_noise_indicators:
             L10 = averages['L10'][i]
             L90 = averages['L90'][i]
-            Leq = averages['Leq'][i]
-            sigma_Leq = arr.std()
+            Leq= averages['Leq'][i]
+            sigma_Leq= arr.std()
 
             # Traffic Noise Index (TNI)
             averages['TNI'][i] = 4 * (L10 - L90) + L90 - 30
 
             # Noise Pollution Level (NPL)
-            averages['NPL'][i] = Leq + 2.56 * sigma_Leq
+            averages['NPL'][i] = Leq+ 2.56 * sigma_Leq
 
         if roughness_indicators:
             dL = np.abs(np.diff(arr.dropna()))
@@ -388,7 +388,7 @@ def nne(
     df: pd.DataFrame,
     hour1: int,
     hour2: int,
-    background_type: str = 'leq',
+    background_type: str = 'Leq',
     exceedance: int = 5,
     min_gap: int = 3,
     win: int = 3600,
@@ -415,7 +415,7 @@ def nne(
         the average will be computed outside of these hours.
     background_type: str
         Type of background level indicator for computing the threshold to 
-        use for defining a noise event. Can be 'leq', 'l50', 'l90' or int 
+        use for defining a noise event. Can be 'Leq', 'L50', 'L90' or int 
         for a constant value.
     exceedance: int, default 5
         Exceedance value in dB to add to the background level to define the
@@ -501,17 +501,17 @@ def nne(
                     coverage_warning_issued = True
                     continue
 
-            if background_type == 'leq':
+            if background_type == 'Leq':
                 threshold = (core.equivalent_level(arr) + exceedance)
-            elif background_type == 'l50':
+            elif background_type == 'L50':
                 threshold = np.nanpercentile(arr, 50) + exceedance
-            elif background_type == 'l90':
+            elif background_type == 'L90':
                 threshold = np.nanpercentile(arr, 10) + exceedance
             elif isinstance(background_type, (int)):
                 threshold = background_type
             else:
-                raise ValueError("Invalid background type. Use 'leq', "
-                                "'l50', 'l90', or an int value.")
+                raise ValueError("Invalid background type. Use 'Leq', "
+                                "'L50', 'L90', or an int value.")
             day_event_counts[i] = core.noise_events(
                 temp, column, threshold, min_gap)
         daily_event_counts.append(day_event_counts)

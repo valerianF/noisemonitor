@@ -2,7 +2,7 @@
 
 Python package for sound level data analysis.
 
-**⚠️ Version 1.0.0 - Breaking Changes:** This major update introduces a new functional API and is not backward-compatible with previous versions. See the [Migration Guide](#migration-from-version-0.0.3) section for details.
+**⚠️ Version 1.0.0 - Breaking Changes:** This major update introduces a new functional API and is not backward-compatible with previous versions. See the [Migration Guide](#migration-from-version-003) section for details.
 
 **Key Features:**
 - **Acoustic indicators** - Implements standard (Leq, Lden, L90, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, etc.)
@@ -162,7 +162,7 @@ The `noisemonitor.summary` module computes **discrete sound level indicators** t
 The `noisemonitor.summary.leq()` function computes the overall or time-filtered (by the time of the day and optionaly day of the week) equivalent level together with statistical sound levels. 
 
 ```python
-# Overall Leq,24h for entire dataset
+# Overall Leq for entire dataset
 overall_leq = nm.summary.leq(df_1s, hour1=0, hour2=24)
 overall_leq.head()
 ```
@@ -217,25 +217,26 @@ weekday_lden.head()
 
 ### Periodic indicators (Daily/Weekly/Monthly)
 
-The `noisemonitor.summary.periodic()` function computes Leq and at a periodic rate (daily, weekly, or monthly).
+The `noisemonitor.summary.periodic()` function computes Leq and Lden (with the option to compute day, evening, and night levels) and at a periodic rate (daily, weekly, or monthly).
 
 ```python
-# Daily Lden and Leq,24h for each day in the dataset
+# Daily Lden and Leq for each day in the dataset
 daily_summary = nm.summary.periodic(
     df_1m,
-    freq='D',     # frequency ('D', 'W', or 'MS')
-    column=0
+    freq='D'    # frequency ('D', 'W', or 'MS')
 )
 
 # Visualization
 nm.display.line(
     daily_summary,
     'Lden', 'Leq',
+    show_points=True, # Option to show data points
     title="Daily Lden and Leq Levels"
 )
+
 ```
 
-![Daily Lden and Leq Levels](docs/images/daily_lden_and_leq.png)
+![Daily Lden and Leq Levels](docs/images/daily_leq_and_lden.png)
 
 ### HARMONICA indicator
 
@@ -291,7 +292,7 @@ freq_per = nm.summary.freq_periodic(
 
 # Visualize results on a heatmap
 nm.display.freq_map(
-    freq_per["Leq,24h"] # Show daily Leq,24h levels
+    freq_per["Leq"] # Show daily Leq levels
 )
 ```
 ![LAeq,24h Frequency Heatmap](docs/images/freq_heatmap.png)
@@ -304,7 +305,7 @@ Count days/weeks by sound level ranges using the `noisemonitor.summary.nday()` f
 # Histogram of days by Lden ranges
 histogram, bins = nm.summary.nday(
     df_1m,
-    indicator='Lden', # Other options:  'Leq,24h', 'Lday', 'Levening', and 'Lnight'
+    indicator='Lden', # Other options:  'Leq', 'Lday', 'Levening', and 'Lnight'
     bins=[50, 55, 60, 65, 70],  # Bin boundaries
     freq='D',                    # Daily ('D') or weekly ('W')
     column=0
@@ -418,7 +419,7 @@ nne_profile = nm.profile.nne(
     df_1s,
     hour1=23,
     hour2=22,
-    background_type='l50',     # Use L50 as background reference
+    background_type='L50',     # Use L50 as background reference
     exceedance=5,              # Events must exceed background by 10 dB
     min_gap=5,                 # Minimum 5 seconds between events
     win=3600,

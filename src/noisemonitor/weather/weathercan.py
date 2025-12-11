@@ -444,8 +444,8 @@ def contingency_weather_flags(
                 )
             ov_lden = lden(df=datafr, column=column)
             results[key] = {
-                'Leq': ov_leq['leq'][0],
-                'Lden': ov_lden['lden'][0]
+                'Leq': ov_leq['Leq'][0],
+                'Lden': ov_lden['Lden'][0]
             }
     
     contingency_table = pd.DataFrame(results).T

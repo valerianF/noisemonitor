@@ -457,7 +457,7 @@ class TestNne:
     @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
     def test_nne_basic(self, laeq1s_data):
         """Test NNE with different background level types."""
-        background_types = ['leq', 'l50', 'l90']
+        background_types = ['Leq', 'L50', 'L90']
                 
         for bg_type in background_types:
             result = nne(
@@ -484,7 +484,7 @@ class TestNne:
             subset_data,
             hour1=0,
             hour2=23,
-            background_type='leq',
+            background_type='Leq',
             exceedance=5,
             min_gap=3,
             win=1800,

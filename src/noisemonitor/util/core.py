@@ -304,12 +304,12 @@ def lden(
 
     if values:
         return pd.DataFrame({
-            'lden': [lden],
-            'lday': [lday],
-            'levening': [levening],
-            'lnight': [lnight]
+            'Lden': [lden],
+            'Lday': [lday],
+            'Levening': [levening],
+            'Lnight': [lnight]
         }, dtype='float64')
-    return pd.DataFrame({'lden': [lden]}, dtype='float64')
+    return pd.DataFrame({'Lden': [lden]}, dtype='float64')
 
 def noise_events(
     df: pd.DataFrame,

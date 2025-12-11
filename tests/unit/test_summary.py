@@ -172,13 +172,13 @@ class TestPeriodic:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) >= 1  # At least one day of data
-        expected_columns = ['Leq,24h', 'Lden', 'Lday', 'Levening', 'Lnight']
+        expected_columns = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
         for col in expected_columns:
             assert col in result.columns
         
         # Test exact values from dataset (first day)
         first_day = result.iloc[0] 
-        assert abs(first_day['Leq,24h'] - 49.736828) < 1e-5
+        assert abs(first_day['Leq'] - 49.736828) < 1e-5
         assert abs(first_day['Lden'] - 54.72) < 0.01
         assert abs(first_day['Lday'] - 49.66) < 0.01
         assert abs(first_day['Levening'] - 53.02) < 0.01
@@ -190,13 +190,13 @@ class TestPeriodic:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
-        expected_columns = ['Leq,24h', 'Lden', 'Lday', 'Levening', 'Lnight']
+        expected_columns = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
         for col in expected_columns:
             assert col in result.columns
         
-        valid_mask = result['Leq,24h'].notna() & result['Lden'].notna()
+        valid_mask = result['Leq'].notna() & result['Lden'].notna()
         if valid_mask.any():
-            assert (result.loc[valid_mask, 'Leq,24h'] <= \
+            assert (result.loc[valid_mask, 'Leq'] <= \
                     result.loc[valid_mask, 'Lden']).all()
     
     def test_periodic_weekly(self, laeq1m_data):
@@ -207,7 +207,7 @@ class TestPeriodic:
         assert len(result) > 0
         assert isinstance(result.index, pd.DatetimeIndex)
         
-        expected_columns = ['Leq,24h', 'Lden']
+        expected_columns = ['Leq', 'Lden']
         for col in expected_columns:
             assert col in result.columns
     
@@ -236,7 +236,7 @@ class TestFreq:
         assert isinstance(result.columns, pd.MultiIndex)
         
         indicators = result.columns.get_level_values(0)
-        expected_indicators = ['Leq,24h', 'Lden', 'Lday', 'Levening', 'Lnight']
+        expected_indicators = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
         for indicator in expected_indicators:
             assert indicator in indicators
             
@@ -245,17 +245,17 @@ class TestFreq:
         for band in octave_bands:
             assert band in frequency_bands
             
-        # Check that Lden >= Leq,24h for each band (due to evening/night penalties)
+        # Check that Lden >= Leq for each band (due to evening/night penalties)
         for band in octave_bands:
             valid_mask = (
-                result[('Leq,24h', band)].notna() &
+                result[('Leq', band)].notna() &
                 result[('Lden', band)].notna()
             )
             if valid_mask.any():
                 # Allow small numerical differences
                 assert (result.loc[valid_mask, ('Lden', band)] >= 
-                    result.loc[valid_mask, ('Leq,24h', band)] - 0.1).all(), \
-                    f"Lden should be >= Leq,24h for band {band}"
+                    result.loc[valid_mask, ('Leq', band)] - 0.1).all(), \
+                    f"Lden should be >= Leq for band {band}"
         
     def test_freq_indicators(self, sample_octave_data):
         """Test basic frequency indicators computation."""
@@ -291,16 +291,16 @@ class TestLevels:
         result = lden(laeq1s_data, column=0)
         
         assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result
-        assert 'lday' in result
-        assert 'levening' in result
-        assert 'lnight' in result
+        assert 'Lden' in result
+        assert 'Lday' in result
+        assert 'Levening' in result
+        assert 'Lnight' in result
         
         # Test exact values from dataset
-        assert abs(result['lden'][0] - 54.72) < 0.01
-        assert abs(result['lday'][0] - 49.66) < 0.01  
-        assert abs(result['levening'][0] - 53.02) < 0.01
-        assert abs(result['lnight'][0] - 46.38) < 0.01
+        assert abs(result['Lden'][0] - 54.72) < 0.01
+        assert abs(result['Lday'][0] - 49.66) < 0.01  
+        assert abs(result['Levening'][0] - 53.02) < 0.01
+        assert abs(result['Lnight'][0] - 46.38) < 0.01
     
     def test_lden_1m_data(self, laeq1m_data):
         """Test Lden computation with 1m data (original generic test).""" 
@@ -310,12 +310,12 @@ class TestLevels:
         )
         
         assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result
-        assert 'lday' in result
-        assert 'levening' in result
-        assert 'lnight' in result
+        assert 'Lden' in result
+        assert 'Lday' in result
+        assert 'Levening' in result
+        assert 'Lnight' in result
         
-        lden_value = result['lden'][0]
+        lden_value = result['Lden'][0]
         assert 30 <= lden_value <= 90
     
     def test_leq(self, laeq1s_data):
@@ -325,28 +325,28 @@ class TestLevels:
             
         assert isinstance(result_day, pd.DataFrame)
         
-        expected_columns = ['leq', 'l10', 'l50', 'l90']
+        expected_columns = ['Leq', 'L10', 'L50', 'L90']
         for col in expected_columns:
             assert col in result_day.columns
         
         # Test exact values for day period from dataset
-        assert abs(result_day['leq'][0] - 50.65) < 0.01
-        assert abs(result_day['l10'][0] - 52.89) < 0.01
-        assert abs(result_day['l50'][0] - 48.59) < 0.01 
-        assert abs(result_day['l90'][0] - 44.89) < 0.01
+        assert abs(result_day['Leq'][0] - 50.65) < 0.01
+        assert abs(result_day['L10'][0] - 52.89) < 0.01
+        assert abs(result_day['L50'][0] - 48.59) < 0.01 
+        assert abs(result_day['L90'][0] - 44.89) < 0.01
         
         # Test night period (22-7h) 
         result_night = leq(laeq1s_data, hour1=22, hour2=7, column=0)
             
         # Test exact values for night period from dataset
-        assert abs(result_night['leq'][0] - 47.6) < 0.01
-        assert abs(result_night['l10'][0] - 49.29) < 0.01
-        assert abs(result_night['l50'][0] - 44.89) < 0.01
-        assert abs(result_night['l90'][0] - 41.79) < 0.01
+        assert abs(result_night['Leq'][0] - 47.6) < 0.01
+        assert abs(result_night['L10'][0] - 49.29) < 0.01
+        assert abs(result_night['L50'][0] - 44.89) < 0.01
+        assert abs(result_night['L90'][0] - 41.79) < 0.01
         
         # Verify ordering relationships
-        assert (result_day['l10'] >= result_day['l50']).all()
-        assert (result_day['l50'] >= result_day['l90']).all()
+        assert (result_day['L10'] >= result_day['L50']).all()
+        assert (result_day['L50'] >= result_day['L90']).all()
 
 class TestNday:
     """Test cases for the nday function."""
@@ -427,11 +427,11 @@ class TestCoverageCheck:
         
         assert len(result) == 3
         # Day 2 (index 1) should be NaN due to insufficient coverage
-        assert pd.isna(result.iloc[1]['Leq,24h'])
+        assert pd.isna(result.iloc[1]['Leq'])
         assert pd.isna(result.iloc[1]['Lden'])
         # Days 1 and 3 should have values
-        assert not pd.isna(result.iloc[0]['Leq,24h'])
-        assert not pd.isna(result.iloc[2]['Leq,24h'])
+        assert not pd.isna(result.iloc[0]['Leq'])
+        assert not pd.isna(result.iloc[2]['Leq'])
     
     def test_lden_coverage_check(self, data_with_time_gaps):
         """Test lden function with coverage_check enabled."""
@@ -448,11 +448,11 @@ class TestCoverageCheck:
         assert len(result) == 1
         
         # Evening value should be NaN (70% removed > 50% threshold)
-        assert pd.isna(result['levening'].iloc[0])
+        assert pd.isna(result['Levening'].iloc[0])
         
         # Day and night should still have values (sufficient coverage)
-        assert not pd.isna(result['lday'].iloc[0])
-        assert not pd.isna(result['lnight'].iloc[0])
+        assert not pd.isna(result['Lday'].iloc[0])
+        assert not pd.isna(result['Lnight'].iloc[0])
     
     def test_leq_coverage_check(self, laeq1m_data):
         """Test leq function with coverage_check enabled."""
@@ -535,7 +535,7 @@ class TestCoverageCheck:
                 coverage_check=True
             )
         
-        # Should have warnings emitted (periodic checks both Leq,24h and Lden)
+        # Should have warnings emitted (periodic checks both Leq and Lden)
         assert len(warning_list) >= 1
         # Verify the warning message
         assert any("Insufficient data coverage detected" in str(w.message)

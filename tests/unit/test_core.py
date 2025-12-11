@@ -354,9 +354,9 @@ class TestLden:
         result = lden(df, 0)
         
         assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result.columns
+        assert 'Lden' in result.columns
         assert len(result) == 1
-        assert not np.isnan(result['lden'].iloc[0])
+        assert not np.isnan(result['Lden'].iloc[0])
 
     def test_lden_with_values(self):
         """Test lden calculation with individual period values."""
@@ -375,15 +375,15 @@ class TestLden:
         result = lden(df, 0, values=True)
         
         assert isinstance(result, pd.DataFrame)
-        assert 'lden' in result.columns
-        assert 'lday' in result.columns
-        assert 'levening' in result.columns
-        assert 'lnight' in result.columns
+        assert 'Lden' in result.columns
+        assert 'Lday' in result.columns
+        assert 'Levening' in result.columns
+        assert 'Lnight' in result.columns
         assert len(result) == 1
         
-        assert np.isclose(result['lday'].iloc[0], 65.0, rtol=0.01)
-        assert np.isclose(result['levening'].iloc[0], 60.0, rtol=0.01)
-        assert np.isclose(result['lnight'].iloc[0], 55.0, rtol=0.01)
+        assert np.isclose(result['Lday'].iloc[0], 65.0, rtol=0.01)
+        assert np.isclose(result['Levening'].iloc[0], 60.0, rtol=0.01)
+        assert np.isclose(result['Lnight'].iloc[0], 55.0, rtol=0.01)
 
 class TestNoiseEvents:
     """Test the noise_events function."""
@@ -545,10 +545,10 @@ class TestLdenCalculations:
             8 * np.power(10, 65/10)
         ) / 24)
         
-        assert np.isclose(result['lday'].iloc[0], 65.0, atol=0.1)
-        assert np.isclose(result['levening'].iloc[0], 60.0, atol=0.1)
-        assert np.isclose(result['lnight'].iloc[0], 55.0, atol=0.1)
-        assert np.isclose(result['lden'].iloc[0], expected_lden, atol=0.1)
+        assert np.isclose(result['Lday'].iloc[0], 65.0, atol=0.1)
+        assert np.isclose(result['Levening'].iloc[0], 60.0, atol=0.1)
+        assert np.isclose(result['Lnight'].iloc[0], 55.0, atol=0.1)
+        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=0.1)
 
 
 if __name__ == '__main__':

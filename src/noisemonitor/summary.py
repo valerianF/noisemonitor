@@ -69,7 +69,7 @@ def periodic(
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
-    """Compute Leq,24h and Lden on a periodic basis.
+    """Compute Leq and Lden on a periodic basis.
 
     Parameters
     ----------
@@ -92,7 +92,7 @@ def periodic(
 
     Returns
     ----------
-    pd.DataFrame: DataFrame with Leq,24h and Lden values for each day or week.
+    pd.DataFrame: DataFrame with Leq and Lden values for each day or week.
     """
     column = core._column_to_index(df, column)
 
@@ -138,14 +138,14 @@ def periodic(
             )
             result = {
                 'Period': period,
-                'Leq,24h': leq_value,
-                'Lden': lden_values['lden'][0]
+                'Leq': leq_value,
+                'Lden': lden_values['Lden'][0]
             }
             if values:
                 result.update({
-                    'Lday': lden_values['lday'][0],
-                    'Levening': lden_values['levening'][0],
-                    'Lnight': lden_values['lnight'][0]
+                    'Lday': lden_values['Lday'][0],
+                    'Levening': lden_values['Levening'][0],
+                    'Lnight': lden_values['Lnight'][0]
                 })
             results.append(result)
 
@@ -316,12 +316,12 @@ def leq(
         if not passes_threshold:
             if stats:
                 return pd.DataFrame({
-                    'leq': [np.nan],
-                    'l10': [np.nan],
-                    'l50': [np.nan],
-                    'l90': [np.nan]
+                    'Leq': [np.nan],
+                    'L10': [np.nan],
+                    'L50': [np.nan],
+                    'L90': [np.nan]
                 })
-            return pd.DataFrame({'leq': [np.nan]})
+            return pd.DataFrame({'Leq': [np.nan]})
 
     if stats:
         interval = core.get_interval(df)
@@ -332,13 +332,13 @@ def leq(
                 " might not be valid for this indicator.\n"
             )
         return pd.DataFrame({
-            'leq': [np.round(core.equivalent_level(array),2)],
-            'l10': [np.round(np.nanpercentile(array, 90), 2)],
-            'l50': [np.round(np.nanpercentile(array, 50), 2)],
-            'l90': [np.round(np.nanpercentile(array, 10), 2)]
+            'Leq': [np.round(core.equivalent_level(array),2)],
+            'L10': [np.round(np.nanpercentile(array, 90), 2)],
+            'L50': [np.round(np.nanpercentile(array, 50), 2)],
+            'L90': [np.round(np.nanpercentile(array, 10), 2)]
         })
     return pd.DataFrame({
-        'leq': [np.round(core.equivalent_level(array), 2)]
+        'Leq': [np.round(core.equivalent_level(array), 2)]
     })
 
 def freq_indicators(
@@ -416,22 +416,22 @@ def freq_indicators(
 
         # Combine results for this frequency band
         combined_result = {
-            'Leq': leq_result['leq'][0],
-            'Lden': lden_result['lden'][0]
+            'Leq': leq_result['Leq'][0],
+            'Lden': lden_result['Lden'][0]
         }
 
         if stats:
             combined_result.update({
-                'L10': leq_result['l10'][0],
-                'L50': leq_result['l50'][0],
-                'L90': leq_result['l90'][0]
+                'L10': leq_result['L10'][0],
+                'L50': leq_result['L50'][0],
+                'L90': leq_result['L90'][0]
             })
 
         if values:
             combined_result.update({
-                'Lday': lden_result['lday'][0],
-                'Levening': lden_result['levening'][0],
-                'Lnight': lden_result['lnight'][0]
+                'Lday': lden_result['Lday'][0],
+                'Levening': lden_result['Levening'][0],
+                'Lnight': lden_result['Lnight'][0]
             })
 
         # Store the combined result for this frequency band
@@ -444,7 +444,7 @@ def freq_indicators(
 
 def nday(
     df: pd.DataFrame,
-    indicator: str = 'Leq,24h',
+    indicator: str = 'Leq',
     bins: Optional[List[int]] = None,
     freq: str = 'D',
     column: Optional[Union[int, str]] = 0,
@@ -456,8 +456,8 @@ def nday(
 
     Parameters
     ----------
-    indicator: str, default 'Leq,24h'
-        Indicator to use for the computation. Options are 'Leq,24h', 'Lden', 
+    indicator: str, default 'Leq'
+        Indicator to use for the computation. Options are 'Leq', 'Lden', 
         'Lday', 'Levening', and 'Lnight'.
     bins: list of int, optional
         List of decibel values to define the bins. By default: <40 dBA 
