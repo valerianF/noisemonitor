@@ -264,20 +264,23 @@ def freq_periodic(
                 ): col
                 for col in df.columns
             }
+            has_nans = False
             for future in as_completed(futures):
                 col = futures[future]
-                results[col] = future.result()
+                result_df = future.result()
+                results[col] = result_df
+                # Check for NaNs during collection if coverage_check is enabled
+                if coverage_check and not has_nans:
+                    has_nans = result_df.isna().any().any()
         
         # Emit a single warning at parent level if coverage_check found issues
-        if coverage_check:
-            has_nans = any(df.isna().any().any() for df in results.values())
-            if has_nans:
-                warnings.warn(
-                    "Insufficient data coverage detected. "
-                    "Some periods will be filtered and return NaN.",
-                    core.CoverageWarning,
-                    stacklevel=2
-                )
+        if coverage_check and has_nans:
+            warnings.warn(
+                "Insufficient data coverage detected. "
+                "Some periods will be filtered and return NaN.",
+                core.CoverageWarning,
+                stacklevel=2
+            )
     else:
         results = {
             col: periodic(
@@ -375,19 +378,22 @@ def freq_series(
                 ): col
                 for col in df.columns
             }
+            has_nans = False
             for future in as_completed(futures):
                 col = futures[future]
-                results[col] = future.result()
+                result_df = future.result()
+                results[col] = result_df
+                # Check for NaNs during collection if coverage_check is enabled
+                if coverage_check and not has_nans:
+                    has_nans = result_df.isna().any().any()
         
-        if coverage_check:
-            has_nans = any(df.isna().any().any() for df in results.values())
-            if has_nans:
-                warnings.warn(
-                    "Insufficient data coverage detected. "
-                    "Some periods will be filtered and return NaN.",
-                    core.CoverageWarning,
-                    stacklevel=2
-                )
+        if coverage_check and has_nans:
+            warnings.warn(
+                "Insufficient data coverage detected. "
+                "Some periods will be filtered and return NaN.",
+                core.CoverageWarning,
+                stacklevel=2
+            )
     else:
         results = {
             col: series(

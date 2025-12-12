@@ -229,7 +229,7 @@ def lden(
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
-    values: bool, default False
+    values: bool, default True
         If set to True, the function will return individual day, evening
         and night values in addition to the lden.
     coverage_check: bool, default False
