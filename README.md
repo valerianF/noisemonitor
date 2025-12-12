@@ -101,7 +101,7 @@ nm.display.compare(
 
 ```python
 # Computa HARMONICA indexes
-harmonica = nm.summary.harmonica_periodic(df_1s) # requifres 1s resolution data
+harmonica = nm.summary.harmonica_periodic(df_1s) # requires 1s resolution data
 nm.display.harmonica(harmonica) # Visualize
 ```
 
@@ -110,7 +110,7 @@ nm.display.harmonica(harmonica) # Visualize
 ## Core Modules
 
 ### `nm.load()`
-Load data from CSV, Excel, or TXT files with automatic datetime parsing.
+Load data from CSV, Excel, or TXT files (or list of files) with automatic datetime parsing.
 
 ```python
 df = nm.load('data.csv', datetimeindex=0, valueindexes=1, header=0, sep=',')
@@ -124,12 +124,13 @@ df_filtered = nm.filter.extreme_values(df, min_value=30, max_value=100)
 ```
 
 ### `nm.summary`
-Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, histograms.
+Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, histograms, etc.
 
 ```python
 overall_lden = nm.summary.lden(df)
 daily_lden = nm.summary.periodic(df, freq='D')
 harmonica = nm.summary.harmonica_periodic(df)
+freq_summary = nm.summary.freq_periodic(df_freq, freq='D')
 ```
 
 ### `nm.profile`
@@ -142,10 +143,10 @@ nne_profile = nm.profile.nne(df, hour1=0, hour2=23, background_type='L50', excee
 ```
 
 ### `nm.display`
-Visualize results with line plots, comparisons, heatmaps, and more.
+Visualize results with line plots, heatmaps, and more.
 
 ```python
-nm.display.line(df, 'Leq', 'L10', 'L90', title='Noise Levels')
+nm.display.line(time_series, 'Leq', 'L10', 'L90', title='Noise Levels')
 nm.display.compare([weekday_profile, weekend_profile], ['Weekdays', 'Weekend'], 'Leq')
 nm.display.freq_map(freq_data['Leq'], title='Frequency Heatmap')
 ```
