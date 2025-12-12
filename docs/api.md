@@ -41,7 +41,7 @@ Take one or several datasheets with date and time indicators in combined in one 
   values, either weighted or unweighted and integrated over a period
   corresponding to the refresh rate of the sound level meter (typically
   between 1 second and several minutes, though the module will work with
-  smaller or higher refresh rates). Example of relevant indices: LAeq, \
+- `smaller or higher refresh rates). Example of relevant indices`: LAeq, \
   LCeq, LZeq, LAmax, LAmin, LCpeak, etc.
 - `header`: int, None, default 0 \
   row index for datasheet header. If None, the datasheet has
@@ -221,7 +221,7 @@ Return the Lden, an indicator of noise level based on Leq over a whole day with 
 - `column`: int or str, default 0 \
   column index (int) or column name (str) to use for calculations.
   If None, the first column of the DataFrame will be used.
-- `values`: bool, default False \
+- `values`: bool, default True \
   If set to True, the function will return individual day, evening
   and night values in addition to the lden.
 - `coverage_check`: bool, default False \
@@ -289,7 +289,7 @@ Compute the number of days in a dataset for which the indicators are between giv
   minimum data coverage ratio required (0.0 to 1.0).
 
 **Returns:**
-- DataFrame : DataFrame with the number of days for each decibel range.
+- tuple[pd.DataFrame, List[int]] : Tuple containing a DataFrame with the number of days for each decibel range and the list of bins used.
 
 ### `noisemonitor.summary.periodic()`
 
@@ -342,6 +342,9 @@ Compute weekly levels for each frequency band in the DataFrame.
 - `chunks`: bool, default True \
   If set to True, the function will use parallel processing to compute
   weekly levels for each frequency band.
+- `stat`: Optional[Union[int, list]], default None \
+  statistical level(s) to compute (between 1 and 99). If provided,
+  computes the corresponding percentile(s) (e.g., stat=5 computes L5).
 - `coverage_check`: bool, default False \
   if set to True, assess data coverage and automatically filter periods
   with insufficient data coverage and emit warnings.
