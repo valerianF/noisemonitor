@@ -24,7 +24,8 @@ def compare(
     weighting: str = "A", 
     step: bool = False, 
     show_points: bool = False, 
-    figsize: tuple = (10,8), 
+    figsize: tuple = (10,8),
+    show: bool = True,
     **kwargs
 ) -> matplotlib.axes.Axes:
     """Compare multiple DataFrames by plotting their columns in the same plot.
@@ -35,18 +36,22 @@ def compare(
         list of compatible DataFrames (typically generated with functions 
         load_data(), NoiseMonitor.daily() or NoiseMonitor.weekly() ),
         with a datetime, time or pandas.Timestamp index.
-    *args: str
-        column name(s) to be plotted.
     labels: list of str
         list of labels for each DataFrame.
+    *args: str
+        column name(s) to be plotted.
+    ylabel: str, default "Sound Level (dBA)"
+        label for the y-axis.
+    weighting: str, default "A"
+        type of sound level data, typically A, C or Z. 
     step: bool, default False
         if set to True, will plot the data as a step function.
     show_points: bool, default False
         if True, scatter points will be added on top of the line plots.
     figsize: tuple, default (10,8)
         figure size in inches.
-    weighting: str, default "A"
-        type of sound level data, typically A, C or Z. 
+    show: bool, default True
+        if True, display the plot using plt.show().
     **kwargs: any
         ylim and title arguments can be passed to matplotlib. 
 
@@ -69,7 +74,8 @@ def compare(
     ax.legend()
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
     return ax
 
 def freq_line(
@@ -77,6 +83,7 @@ def freq_line(
     weighting: str = "A",
     title: str = "Overall Frequency Bands",
     figsize: tuple = (12, 8),
+    show: bool = True,
     **kwargs
 ) -> None:
     """
@@ -93,6 +100,8 @@ def freq_line(
         Title for the plot.
     figsize: tuple, default (10, 8)
         Figure size in inches.
+    show: bool, default True
+        if True, display the plot using plt.show().
     ax: matplotlib.axes.Axes, optional
         Axes object to plot on. If None, a new figure and axes are created.
     **kwargs: any
@@ -127,14 +136,16 @@ def freq_line(
 
     plt.xticks( rotation=45)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
 def freq_map(
     df: pd.DataFrame,
     title: str = "Frequency Bands Heatmap",
     ylabel: str = "Frequency Band",
     figsize: tuple = (12, 8),
-    weighting: str = "A"
+    weighting: str = "A",
+    show: bool = True
 ) -> None:
     """
     Plot a heatmap of sound levels across frequency bands over time.
@@ -150,6 +161,8 @@ def freq_map(
         Label for the y-axis.
     figsize: tuple, default (12, 8)
         Figure size in inches.
+    show: bool, default True
+        if True, display the plot using plt.show().
 
     Returns
     ----------
@@ -182,11 +195,13 @@ def freq_map(
     ax.set_title(title)
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
 def harmonica(
-        df: pd.DataFrame,
-        title: str = "HARMONICA Index Plot"
+    df: pd.DataFrame,
+    title: str = "HARMONICA Index Plot",
+    show: bool = True
 ) -> None:
     """Plot the HARMONICA index.
 
@@ -196,6 +211,8 @@ def harmonica(
         DataFrame containing the HARMONICA indicators.
     title: str, default "HARMONICA Index Plot"
         Title for the plot.
+    show: bool, default True
+        if True, display the plot using plt.show().
     """
     # Raise an error if the DataFrame length is not 24
     if len(df) != 24:
@@ -259,18 +276,19 @@ def harmonica(
     plt.title(title)
     plt.grid(linestyle='--', zorder=3)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
 def line(
-        df: pd.DataFrame, 
-        *args: str, 
-        ylabel: str = "Sound Level (dBA)", 
-        step: bool = False, 
-        show_points: bool = False, 
-        fill_background: bool = False, 
-        figsize: tuple = (10,8), 
-        ax: matplotlib.axes.Axes = None,
-        **kwargs
+    df: pd.DataFrame, 
+    *args: str, 
+    ylabel: str = "Sound Level (dBA)", 
+    step: bool = False, 
+    show_points: bool = False, 
+    fill_background: bool = False, 
+    figsize: tuple = (10,8), 
+    ax: matplotlib.axes.Axes = None,
+    **kwargs
 ) -> matplotlib.axes.Axes:
     """Plot columns of a dataframe according to the index, using matplotlib.
 
@@ -388,7 +406,8 @@ def nday(
     freq: str = 'D',
     thresholds: List[int] = [55, 60, 65],
     title: str = None,
-    figsize: tuple = (10,8)
+    figsize: tuple = (10,8),
+    show: bool = True
 ) -> None:
     """Plots a histogram from the output of noisemonitor.indicators.nday() 
     function with the number of days under a certain decibel range 
@@ -409,6 +428,8 @@ def nday(
         Title for the plot.
     figsize: tuple, default (10,8)
         Figure size in inches.
+    show: bool, default True
+        if True, display the plot using plt.show().
 
     Returns
     ----------
@@ -456,7 +477,8 @@ def nday(
 
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
     return
 
@@ -470,7 +492,8 @@ def line_weather(
     include_rel_hum_flag: bool = False,
     include_snow_flag: bool = False,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    show: bool = True
 ):
     """
     Plot sound levels with weather flags.
@@ -498,6 +521,8 @@ def line_weather(
         Whether to check data coverage when computing levels.
     coverage_threshold: float, default 0.5
         Minimum coverage ratio required (0.0-1.0).
+    show: bool, default True
+        if True, display the plot using plt.show().
 
     Returns
     ----------
@@ -554,12 +579,13 @@ def line_weather(
     plt.legend()
 
     # Show plot
-    plt.show()
+    if show:
+        plt.show()
 
 def compare_weather_daily(
     df: pd.DataFrame,
     column: Union[int, str] = 0,
-    show: str = 'Leq', 
+    show_col: str = 'Leq', 
     include_wind_flag: bool = True,
     include_rain_flag: bool = True,
     include_temp_flag: bool = False,
@@ -570,7 +596,8 @@ def compare_weather_daily(
     coverage_check: bool = False,
     coverage_threshold: float = 0.5,
     title: str = "Daily Leq Profiles for Different Weather Conditions",
-    figsize: tuple = (12, 8)
+    figsize: tuple = (12, 8),
+    show: bool = True
 ):
     """
     Compare daily level profiles with or without flags.
@@ -582,7 +609,7 @@ def compare_weather_daily(
     column: Union[int, str], default 0
         The column name or index for sound levels. If None, the first column
         will be used.
-    show: str, default 'Leq'
+    show_col: str, default 'Leq'
         Column names to be plotted.
     include_wind_flag: bool, default True
         Whether to include the Wind Speed Flag.
@@ -606,6 +633,8 @@ def compare_weather_daily(
         The title of the plot.
     figsize: tuple, default (12, 8)
         The size of the plot.
+    show: bool, default True
+        if True, display the plot using plt.show().
 
     Returns
     ----------
@@ -654,9 +683,10 @@ def compare_weather_daily(
     compare(
         list(weekly_levels_dict.values()),
         list(weekly_levels_dict.keys()),
-        show,
+        show_col,
         title=title,
-        figsize=figsize
+        figsize=figsize,
+        show=show
     )
 
 def _convert_datetime_index(df: pd.DataFrame) -> np.ndarray:

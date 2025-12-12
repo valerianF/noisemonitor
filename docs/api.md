@@ -294,12 +294,14 @@ Compare multiple DataFrames by plotting their columns in the same plot.
 
 **Parameters:**
 - `dfs`: list of DataFrames list of compatible DataFrames (typically generated with functions load_data(), NoiseMonitor.daily() or NoiseMonitor.weekly() ), with a datetime, time or pandas.Timestamp index.
-- `*args`: str column name(s) to be plotted.
 - `labels`: list of str list of labels for each DataFrame.
+- `*args`: str column name(s) to be plotted.
+- `ylabel`: str, default "Sound Level (dBA)" label for the y-axis.
+- `weighting`: str, default "A" type of sound level data, typically A, C or Z.
 - `step`: bool, default False if set to True, will plot the data as a step function.
 - `show_points`: bool, default False if True, scatter points will be added on top of the line plots.
 - `figsize`: tuple, default (10,8) figure size in inches.
-- `weighting`: str, default "A" type of sound level data, typically A, C or Z.
+- `show`: bool, default True if True, display the plot using plt.show().
 - `**kwargs`: any ylim and title arguments can be passed to matplotlib.
 
 **Returns:**
@@ -312,7 +314,7 @@ Compare daily level profiles with or without flags.
 **Parameters:**
 - `df`: pd.DataFrame DataFrame containing the data.
 - `column`: Union[int, str], default 0 The column name or index for sound levels. If None, the first column will be used.
-- `show`: str, default 'Leq' Column names to be plotted.
+- `show_col`: str, default 'Leq' Column names to be plotted.
 - `include_wind_flag`: bool, default True Whether to include the Wind Speed Flag.
 - `include_rain_flag`: bool, default True Whether to include the Rain Flag.
 - `include_temp_flag`: bool, default False Whether to include the Temperature Flag.
@@ -324,6 +326,7 @@ Compare daily level profiles with or without flags.
 - `coverage_threshold`: float, default 0.5 Minimum coverage ratio required (0.0-1.0).
 - `title`: str, default "Daily Leq Profiles for Different Conditions" The title of the plot.
 - `figsize`: tuple, default (12, 8) The size of the plot.
+- `show`: bool, default True if True, display the plot using plt.show().
 
 **Returns:**
 - None
@@ -337,6 +340,7 @@ Plot the overall levels for each frequency band.
 - `weighting`: str, default "A" Type of sound level data, typically A, C or Z.
 - `title`: str, default "Overall Frequency Bands" Title for the plot.
 - `figsize`: tuple, default (10, 8) Figure size in inches.
+- `show`: bool, default True if True, display the plot using plt.show().
 - `ax`: matplotlib.axes.Axes, optional Axes object to plot on. If None, a new figure and axes are created.
 - `**kwargs`: any Additional keyword arguments passed to the plot function.
 
@@ -352,6 +356,7 @@ Plot a heatmap of sound levels across frequency bands over time.
 - `title`: str, default "Frequency Bands Heatmap" Title for the heatmap.
 - `ylabel`: str, default "Frequency Band" Label for the y-axis.
 - `figsize`: tuple, default (12, 8) Figure size in inches.
+- `show`: bool, default True if True, display the plot using plt.show().
 
 **Returns:**
 - None
@@ -363,6 +368,7 @@ Plot the HARMONICA index.
 **Parameters:**
 - `df`: pd.DataFrame DataFrame containing the HARMONICA indicators.
 - `title`: str, default "HARMONICA Index Plot" Title for the plot.
+- `show`: bool, default True if True, display the plot using plt.show().
 
 ### `noisemonitor.display.line()`
 
@@ -402,6 +408,7 @@ Plot sound levels with weather flags.
 - `show_snow_flag`: bool, default True Whether to show the Snow Flag.
 - `coverage_check`: bool, default False Whether to check data coverage when computing levels.
 - `coverage_threshold`: float, default 0.5 Minimum coverage ratio required (0.0-1.0).
+- `show`: bool, default True if True, display the plot using plt.show().
 
 **Returns:**
 - None
@@ -417,6 +424,7 @@ Plots a histogram from the output of noisemonitor.indicators.nday() function wit
 - `thresholds`: list of int, default [55, 60, 65] Thresholds for color coding.
 - `title`: str, optional Title for the plot.
 - `figsize`: tuple, default (10,8) Figure size in inches.
+- `show`: bool, default True if True, display the plot using plt.show().
 
 **Returns:**
 - None
