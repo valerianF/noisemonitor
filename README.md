@@ -42,6 +42,8 @@ pip install git+https://github.com/valerianF/noisemonitor
 
 ## Quick Start
 
+**noisemonitor** is designed for flexibility and ease of use. All analysis functions accept an optional `column` parameter, allowing you to specify which data column to analyze (e.g., to work with datasets containing multiple sound level measurements or frequency bands). Most functions return results as pandas DataFrames for easy manipulation.
+
 ```python
 import noisemonitor as nm
 
@@ -56,10 +58,9 @@ df_1m = nm.load(
 
 # Compute Lden
 lden = nm.summary.lden(df_1m)
-print(lden)
+lden.head()
 ```
 
-**Output:**
 | lden | lday  | levening | lnight |
 |------|-------|----------|--------|
 | 56.1 | 51.75 | 50.08    | 49.23  |
@@ -89,7 +90,7 @@ weekend_profile = nm.profile.periodic(
 # Visualize
 nm.display.compare(
     [weekday_profile, weekend_profile],
-    ['Weekdays', 'Weekend'],
+    ['Weekday', 'Weekend'],
     'Leq',
     fill_background=True,
     title='Weekly Noise Profiles'
@@ -98,7 +99,13 @@ nm.display.compare(
 
 ![Weekly Noise Profiles](docs/images/weekly_noise_profiles.png)
 
-**noisemonitor** is designed for flexibility and ease of use. All analysis functions accept a `column` parameter, allowing you to specify which data column to analyze (e.g., to work with datasets containing multiple sound level measurements or frequency bands). Most functions return results as pandas DataFrames for easy manipulation.
+```python
+# Computa HARMONICA indexes
+harmonica = nm.summary.harmonica_periodic(df_1s) # requifres 1s resolution data
+nm.display.harmonica(harmonica) # Visualize
+```
+
+![HARMONICA Indexes](docs/images/harmonica_index_plot.png)
 
 ## Core Modules
 
@@ -117,7 +124,7 @@ df_filtered = nm.filter.extreme_values(df, min_value=30, max_value=100)
 ```
 
 ### `nm.summary`
-Compute discrete indicators: Leq, Lden, HARMONICA, frequency analysis, histograms.
+Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, histograms.
 
 ```python
 overall_lden = nm.summary.lden(df)
@@ -126,7 +133,7 @@ harmonica = nm.summary.harmonica_periodic(df)
 ```
 
 ### `nm.profile`
-Compute time-varying profiles: time series, daily/weekly patterns, noise events.
+Compute time-varying sound level profiles: time series, daily/weekly patterns, number of noise events, etc.
 
 ```python
 time_series = nm.profile.series(df, win=3600, step=1200)
