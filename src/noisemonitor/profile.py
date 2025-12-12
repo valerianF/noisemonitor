@@ -199,6 +199,7 @@ def freq_periodic(
     win: int = 3600,
     step: int = 0,
     chunks: bool = True,
+    stat: Optional[Union[int, list]] = None,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
@@ -226,6 +227,9 @@ def freq_periodic(
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         weekly levels for each frequency band.
+    stat: Optional[Union[int, list]], default None
+        statistical level(s) to compute (between 1 and 99). If provided,
+        computes the corresponding percentile(s) (e.g., stat=5 computes L5).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
@@ -254,6 +258,7 @@ def freq_periodic(
                     step,
                     False,
                     False,
+                    stat,
                     coverage_check,
                     coverage_threshold
                 ): col
@@ -286,15 +291,20 @@ def freq_periodic(
                 step,
                 False,
                 False,
+                stat,
                 coverage_check,
                 coverage_threshold
             )
             for col in df.columns
         }
 
-    warnings.resetwarnings()
-
-    float_columns = {col: float(col) for col in results.keys()}
+    # Convert column names to float if possible, otherwise keep original
+    float_columns = {}
+    for col in results.keys():
+        try:
+            float_columns[col] = float(col)
+        except (ValueError, TypeError):
+            float_columns[col] = col
     results = {float_columns[col]: df for col, df in results.items()}
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
@@ -392,9 +402,13 @@ def freq_series(
             for col in df.columns
         }
 
-    warnings.resetwarnings()
-
-    float_columns = {col: float(col) for col in results.keys()}
+    # Convert column names to float if possible, otherwise keep original
+    float_columns = {}
+    for col in results.keys():
+        try:
+            float_columns[col] = float(col)
+        except (ValueError, TypeError):
+            float_columns[col] = col
     results = {float_columns[col]: df for col, df in results.items()}
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
@@ -479,9 +493,6 @@ def nne(
             "Noise Events should be done with "
             "an integration time equal to or below 1s. Results"
             " might not be valid for these indicators.\n")
-
-    if column is None:
-        column = 0
 
     temp_df = filter._days(df, day1, day2)
     temp_df = filter._hours(temp_df, hour1, hour2)

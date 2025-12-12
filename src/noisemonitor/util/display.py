@@ -575,8 +575,8 @@ def line_weather(
 
     linestyles = cycle(['--', ':', '-.', '-'])
 
-    for flag, show in flags.items():
-        if show:
+    for flag, include_flag in flags.items():
+        if include_flag:
             normalized_flag = df[flag].astype(int) * (
                 sound_max - sound_min) + sound_min
             plt.step(

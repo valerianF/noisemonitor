@@ -631,6 +631,51 @@ class TestFreqPeriodic:
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         assert isinstance(result.columns, pd.MultiIndex)
+    
+    def test_freq_periodic_non_numeric_columns(self):
+        """Test freq_periodic with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
+        # Create test data with non-numeric frequency band column names
+        start_time = datetime(2023, 1, 1, 0, 0, 0)
+        index = pd.date_range(start=start_time, periods=360, freq='1min')  # 6 hours
+        
+        np.random.seed(42)
+        # Mix of numeric strings, frequency labels, and generic band labels
+        columns = ['63', '125 Hz', 'Band_250', '500', '1000 Hz', 'Band_2000', '4000', '8000 Hz']
+        
+        data = {}
+        for i, col in enumerate(columns):
+            base_level = 45 + i * 2
+            variation = np.random.normal(0, 3, len(index))
+            data[col] = base_level + variation
+        
+        test_df = pd.DataFrame(data, index=index)
+        
+        # Should not raise an error due to non-numeric column names
+        with pytest.warns(UserWarning, match="Computing the L10, L50, L90"):
+            with pytest.warns(RuntimeWarning, match="Mean of empty slice"):
+                result = freq_periodic(
+                    test_df,
+                    hour1=0,
+                    hour2=23,
+                    win=1800,
+                    chunks=False
+                )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert isinstance(result.columns, pd.MultiIndex)
+        
+        # Check that numeric columns were converted to float
+        freq_bands = result.columns.get_level_values(1).unique()
+        assert 63.0 in freq_bands  # '63' should be converted to float
+        assert 500.0 in freq_bands  # '500' should be converted to float
+        assert 4000.0 in freq_bands  # '4000' should be converted to float
+        
+        # Check that non-numeric columns were kept as strings
+        assert '125 Hz' in freq_bands
+        assert 'Band_250' in freq_bands
+        assert '1000 Hz' in freq_bands
+        assert 'Band_2000' in freq_bands
+        assert '8000 Hz' in freq_bands
 
 
 class TestFreqSeries:
@@ -681,6 +726,49 @@ class TestFreqSeries:
             )
         
         assert len(result) >= len(result_no_overlap)
+    
+    def test_freq_series_non_numeric_columns(self):
+        """Test freq_series with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
+        # Create test data with non-numeric frequency band column names
+        start_time = datetime(2023, 1, 1, 0, 0, 0)
+        index = pd.date_range(start=start_time, periods=360, freq='1min')  # 6 hours
+        
+        np.random.seed(42)
+        # Mix of numeric strings, frequency labels, and generic band labels
+        columns = ['63', '125 Hz', 'Band_250', '500', '1000 Hz', 'Band_2000', '4000', '8000 Hz']
+        
+        data = {}
+        for i, col in enumerate(columns):
+            base_level = 45 + i * 2
+            variation = np.random.normal(0, 3, len(index))
+            data[col] = base_level + variation
+        
+        test_df = pd.DataFrame(data, index=index)
+        
+        # Should not raise an error due to non-numeric column names
+        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+            result = freq_series(
+                test_df,
+                win=1800,
+                step=900,
+                chunks=False
+            )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert isinstance(result.columns, pd.MultiIndex)
+        
+        # Check that numeric columns were converted to float
+        freq_bands = result.columns.get_level_values(1).unique()
+        assert 63.0 in freq_bands  # '63' should be converted to float
+        assert 500.0 in freq_bands  # '500' should be converted to float
+        assert 4000.0 in freq_bands  # '4000' should be converted to float
+        
+        # Check that non-numeric columns were kept as strings
+        assert '125 Hz' in freq_bands
+        assert 'Band_250' in freq_bands
+        assert '1000 Hz' in freq_bands
+        assert 'Band_2000' in freq_bands
+        assert '8000 Hz' in freq_bands
 
 class TestProfileEdgeCases:
     """Test edge cases and error conditions."""

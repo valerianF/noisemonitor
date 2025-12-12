@@ -450,7 +450,7 @@ def nday(
     column: Optional[Union[int, str]] = 0,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, List[int]]:
     """Compute the number of days in a dataset for which the indicators 
     are between given values of decibels.
 
@@ -475,7 +475,8 @@ def nday(
 
     Returns
     ----------
-    DataFrame : DataFrame with the number of days for each decibel range.
+    tuple[pd.DataFrame, List[int]] : Tuple containing a DataFrame with the 
+        number of days for each decibel range and the list of bins used.
     """
     column = core._column_to_index(df, column)
 
