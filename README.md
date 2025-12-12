@@ -1,12 +1,25 @@
 # noisemonitor
 
-Python package for sound level data analysis. See the [Usage Guide](docs/usage.md) for detailed examples and the [API Reference](docs/api.md) for function documentation.
+A python package for sound level data analysis. 
+
+[![PyPI](https://img.shields.io/pypi/v/noisemonitor.svg)](https://pypi.python.org/pypi/noisemonitor)
+[![License](https://img.shields.io/pypi/l/noisemonitor.svg)](https://github.com/noisemonitor/noisemonitor/blob/main/LICENSE.md)
+
+See the [Usage Guide](docs/usage.md) for detailed examples and the [API Reference](docs/api.md) for function documentation.
 
 **⚠️ Version 1.0.0 - Breaking Changes:** This major update introduces a new functional API and is not backward-compatible with previous versions. See the [Migration Guide](docs/migration.md) for details.
 
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Core Modules](#core-modules)
+- [Citation](#citation)
+- [License](#license)
+
 ## Key Features
 
-**Key Features:**
 - **Acoustic indicators** - Implements standard (Leq, Lden, L90, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, etc.)
 - **Flexible data loading** - Support for CSV, Excel, and TXT formats with automatic datetime parsing
 - **Two analysis modes** - Summary indicators (discrete values) and profile indicators (time series)
@@ -14,14 +27,6 @@ Python package for sound level data analysis. See the [Usage Guide](docs/usage.m
 - **Easy visualization** - Built-in plotting functions with customizable styles
 - **Data coverage validation** - Automated quality checks with configurable thresholds
 - **Weather integration** - [Canada only] Merge and analyze data with Canadian weather station data
-
-## Table of Contents
-
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Core Modules](#core-modules)
-- [Citation](#citation)
-- [License](#license)
 
 ## Installation
 
