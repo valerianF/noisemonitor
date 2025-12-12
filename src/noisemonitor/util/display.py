@@ -21,11 +21,11 @@ def compare(
     labels: List[str], 
     *args: str, 
     ylabel: str = "Sound Level (dBA)",
-    weighting: str = "A", 
     step: bool = False, 
     show_points: bool = False, 
     figsize: tuple = (10,8),
     show: bool = True,
+    threshold: float = None,
     **kwargs
 ) -> matplotlib.axes.Axes:
     """Compare multiple DataFrames by plotting their columns in the same plot.
@@ -42,8 +42,6 @@ def compare(
         column name(s) to be plotted.
     ylabel: str, default "Sound Level (dBA)"
         label for the y-axis.
-    weighting: str, default "A"
-        type of sound level data, typically A, C or Z. 
     step: bool, default False
         if set to True, will plot the data as a step function.
     show_points: bool, default False
@@ -52,6 +50,8 @@ def compare(
         figure size in inches.
     show: bool, default True
         if True, display the plot using plt.show().
+    threshold: float, optional
+        if provided, plots a horizontal line at this sound level value.
     **kwargs: any
         ylim and title arguments can be passed to matplotlib. 
 
@@ -65,10 +65,10 @@ def compare(
 
     for df, label in zip(dfs, labels):
         for arg in args:
-            ax = line(df, arg, ylabel=ylabel, weighting=weighting, 
-                            step=step, show_points=show_points,
-                            figsize=figsize, ax=ax,
-                            **kwargs)
+            ax = line(df, arg, ylabel=ylabel,
+                step=step, show_points=show_points,
+                figsize=figsize, ax=ax, threshold=threshold,
+                **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
 
     ax.legend()
@@ -80,7 +80,7 @@ def compare(
 
 def freq_line(
     df: pd.DataFrame,
-    weighting: str = "A",
+    ylabel: str = "Sound Level (dBA)",
     title: str = "Overall Frequency Bands",
     figsize: tuple = (12, 8),
     show: bool = True,
@@ -94,8 +94,8 @@ def freq_line(
     df: pd.DataFrame
         DataFrame containing overall levels for each frequency band, with
         rows as indicators (e.g., Leq, Lden) and columns as frequency bands.
-    weighting: str, default "A"
-        Type of sound level data, typically A, C or Z.
+    ylabel: str, default "Sound Level (dBA)"
+        Label for the y-axis.
     title: str, default "Overall Frequency Bands"
         Title for the plot.
     figsize: tuple, default (10, 8)
@@ -129,7 +129,7 @@ def freq_line(
 
     # Add labels, title, and legend
     ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel(f"Sound Level (dB{weighting})")
+    ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.legend()
     ax.grid(True, zorder=0, linestyle=(0, (2.5, 5)))
@@ -143,8 +143,8 @@ def freq_map(
     df: pd.DataFrame,
     title: str = "Frequency Bands Heatmap",
     ylabel: str = "Frequency Band",
+    cblabel: str = "Sound Level (dBA)",
     figsize: tuple = (12, 8),
-    weighting: str = "A",
     show: bool = True
 ) -> None:
     """
@@ -159,6 +159,8 @@ def freq_map(
         Title for the heatmap.
     ylabel: str, default "Frequency Band"
         Label for the y-axis.
+    cblabel: str, default "Sound Level (dBA)"
+        Label for the color bar.
     figsize: tuple, default (12, 8)
         Figure size in inches.
     show: bool, default True
@@ -183,7 +185,7 @@ def freq_map(
     )
 
     cbar = plt.colorbar(pcm, ax=ax)
-    cbar.set_label(f"Sound Level (dB{weighting})")
+    cbar.set_label(cblabel)
 
     _format_time_axis(ax, x, df)
 
@@ -288,6 +290,7 @@ def line(
     fill_background: bool = False, 
     figsize: tuple = (10,8), 
     ax: matplotlib.axes.Axes = None,
+    threshold: float = None,
     **kwargs
 ) -> matplotlib.axes.Axes:
     """Plot columns of a dataframe according to the index, using matplotlib.
@@ -316,8 +319,8 @@ def line(
         figure size in inches.
     ax: matplotlib.axes.Axes, default None
         Axes object to plot on. If None, a new figure and axes are created.
-    weighting: str, default "A"
-        type of sound level data, typically A, C or Z. 
+    threshold: float, optional
+        if provided, plots a horizontal line at this sound level value.
     **kwargs: any
         ylim and title arguments can be passed to matplotlib. 
 
@@ -376,6 +379,11 @@ def line(
         ax.set_title(kwargs["title"])
 
     ax.grid(linestyle='--', zorder=1)
+
+    # Add threshold line if specified
+    if threshold is not None:
+        ax.axhline(y=threshold, color='red', linestyle='--', 
+                   linewidth=2, zorder=2)
 
     handles, labels = ax.get_legend_handles_labels()
 
@@ -493,7 +501,8 @@ def line_weather(
     include_snow_flag: bool = False,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5,
-    show: bool = True
+    show: bool = True,
+    threshold: float = None
 ):
     """
     Plot sound levels with weather flags.
@@ -523,6 +532,8 @@ def line_weather(
         Minimum coverage ratio required (0.0-1.0).
     show: bool, default True
         if True, display the plot using plt.show().
+    threshold: float, optional
+        if provided, plots a horizontal line at this sound level value.
 
     Returns
     ----------
@@ -547,7 +558,8 @@ def line_weather(
         levels_df.columns[_column_p],
         step=True,
         title="Sound Levels with Weather Flags",
-        figsize=(12, 8)
+        figsize=(12, 8),
+        threshold=threshold
     )
 
     sound_min = levels_df.iloc[:, _column_p].min()
@@ -597,7 +609,8 @@ def compare_weather_daily(
     coverage_threshold: float = 0.5,
     title: str = "Daily Leq Profiles for Different Weather Conditions",
     figsize: tuple = (12, 8),
-    show: bool = True
+    show: bool = True,
+    threshold: float = None
 ):
     """
     Compare daily level profiles with or without flags.
@@ -635,6 +648,8 @@ def compare_weather_daily(
         The size of the plot.
     show: bool, default True
         if True, display the plot using plt.show().
+    threshold: float, optional
+        if provided, plots a horizontal line at this sound level value.
 
     Returns
     ----------
@@ -686,7 +701,8 @@ def compare_weather_daily(
         show_col,
         title=title,
         figsize=figsize,
-        show=show
+        show=show,
+        threshold=threshold
     )
 
 def _convert_datetime_index(df: pd.DataFrame) -> np.ndarray:

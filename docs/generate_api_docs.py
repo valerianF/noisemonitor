@@ -136,24 +136,41 @@ def format_function_doc(module_path, func_info):
         for line in params:
             if line and not line.startswith(' ') and ':' in line:
                 if current_param:
-                    # Extract parameter name and wrap in backticks
-                    param_text = ' '.join(current_param)
+                    # Format the accumulated parameter
+                    param_text = '\n'.join(current_param)
                     if ':' in param_text:
-                        param_name = param_text.split(':')[0].strip()
-                        param_rest = ':'.join(param_text.split(':')[1:])
-                        md += f"- `{param_name}`:{param_rest}\n"
+                        # Split on first colon to get name and rest
+                        first_colon = param_text.index(':')
+                        param_name = param_text[:first_colon].strip()
+                        param_rest = param_text[first_colon+1:].strip()
+                        # Preserve line breaks and indent continuation lines
+                        param_lines = param_rest.split('\n')
+                        if len(param_lines) > 1:
+                            # Add markdown line break (backslash space) only at end of first line
+                            formatted_rest = param_lines[0] + ' \\\n' + '\n'.join('  ' + l.strip() for l in param_lines[1:])
+                            md += f"- `{param_name}`: {formatted_rest}\n"
+                        else:
+                            md += f"- `{param_name}`: {param_rest}\n"
                     else:
                         md += "- " + param_text + "\n"
                 current_param = [line]
             else:
                 current_param.append(line)
         if current_param:
-            # Extract parameter name and wrap in backticks
-            param_text = ' '.join(current_param)
+            # Format the last parameter
+            param_text = '\n'.join(current_param)
             if ':' in param_text:
-                param_name = param_text.split(':')[0].strip()
-                param_rest = ':'.join(param_text.split(':')[1:])
-                md += f"- `{param_name}`:{param_rest}\n"
+                first_colon = param_text.index(':')
+                param_name = param_text[:first_colon].strip()
+                param_rest = param_text[first_colon+1:].strip()
+                # Preserve line breaks and indent continuation lines
+                param_lines = param_rest.split('\n')
+                if len(param_lines) > 1:
+                    # Add markdown line break (backslash space) only at end of first line
+                    formatted_rest = param_lines[0] + ' \\\n' + '\n'.join('  ' + l.strip() for l in param_lines[1:])
+                    md += f"- `{param_name}`: {formatted_rest}\n"
+                else:
+                    md += f"- `{param_name}`: {param_rest}\n"
             else:
                 md += "- " + param_text + "\n"
         md += "\n"

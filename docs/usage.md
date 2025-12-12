@@ -151,7 +151,8 @@ nm.display.line(
     daily_summary,
     'Lden', 'Leq',
     show_points=True,
-    title="Daily Lden and Leq Levels"
+    title="Daily Lden and Leq Levels",
+    threshold=55 # Option to plot threshold
 )
 ```
 
