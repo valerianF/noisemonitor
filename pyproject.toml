@@ -6,7 +6,7 @@ authors = [
 ]
 description = "Long-term sound level measurements analysis in Python"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 dependencies = [
     "matplotlib >= 3.5.3",
