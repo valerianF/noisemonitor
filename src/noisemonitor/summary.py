@@ -4,7 +4,7 @@ import warnings
 import matplotlib.pyplot as plt
 
 from datetime import time
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple
 
 from .util import filter
 from .util import core
@@ -450,7 +450,7 @@ def nday(
     column: Optional[Union[int, str]] = 0,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5
-) -> tuple[pd.DataFrame, List[int]]:
+) -> Tuple[pd.DataFrame, List[int]]:
     """Compute the number of days in a dataset for which the indicators 
     are between given values of decibels.
 
