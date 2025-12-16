@@ -17,3 +17,6 @@ env/
 .pytest_cache
 *.ipynb
 .ipynb_checkpoint
+
+# conda
+conda-recipe/

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+__version__ = "1.0.1"
+
 from . import (profile, summary)
 from .util import (core, display, filter)
 from .util.load import load
