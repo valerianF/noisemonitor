@@ -93,14 +93,19 @@ def load(
     as index and corresponding equivalent sound level as first column.
     """
 
-    conflicting_params = {'usecols', 'index_col'}
-    conflicts = conflicting_params.intersection(kwargs.keys())
-    if conflicts:
+    # Check for conflicting parameters
+    if 'usecols' in kwargs:
         raise ValueError(
-            f"The following parameters conflict with load() arguments and "
-            f"cannot be passed in kwargs: {', '.join(conflicts)}. "
-            f"Use 'valueindexes' instead of 'usecols' and "
-            f"'datetimeindex'/'timeindex'/'dateindex' instead of 'index_col'."
+            "The parameter 'usecols' conflicts with load() arguments and "
+            "cannot be passed in kwargs. Use 'valueindexes' instead."
+        )
+    
+    # Allow index_col=False to prevent pandas auto-detection, but not other values
+    if 'index_col' in kwargs and kwargs['index_col'] is not False:
+        raise ValueError(
+            "The parameter 'index_col' conflicts with load() arguments and "
+            "cannot be passed in kwargs (except index_col=False). "
+            "Use 'datetimeindex'/'timeindex'/'dateindex' to specify the index column."
         )
 
     df = pd.DataFrame()
