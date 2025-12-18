@@ -28,7 +28,6 @@ class TestParseData:
             datetimeindex=0,
             timeindex=None,
             dateindex=None,
-            valueindexes=[1],  # Column 1 is 'sound_level' (1-based from original columns)
             slm_type=None,
             timezone=None
         )
@@ -52,9 +51,8 @@ class TestParseData:
             datetimeindex=None,
             timeindex=1,
             dateindex=0,
-            valueindexes=[2],  # Column 2 is 'sound_level' (0-based indexing)
             slm_type=None,
-            timezone=None
+            timezone=None 
         )
         
         assert isinstance(result.index, pd.DatetimeIndex)
@@ -76,7 +74,6 @@ class TestParseData:
             datetimeindex=0,
             timeindex=None,
             dateindex=None,
-            valueindexes=[1, 2, 3],  # Columns 1, 2, 3 are LAeq, LCeq, LAmax (0-based indexing)
             slm_type=None,
             timezone=None
         )
@@ -97,7 +94,6 @@ class TestParseData:
             datetimeindex=0,
             timeindex=None,
             dateindex=None,
-            valueindexes=[1],
             slm_type='NoiseSentry',
             timezone=None
         )
@@ -119,7 +115,6 @@ class TestParseData:
             datetimeindex=0,
             timeindex=None,
             dateindex=None,
-            valueindexes=[1],
             slm_type=None,
             timezone='America/New_York'
         )
@@ -141,7 +136,6 @@ class TestParseData:
             datetimeindex=0,
             timeindex=None,
             dateindex=None,
-            valueindexes=[1],
             slm_type=None,
             timezone=None
         )
@@ -162,7 +156,6 @@ class TestParseData:
                 datetimeindex=None,
                 timeindex=None,
                 dateindex=None,
-                valueindexes=[1],
                 slm_type=None,
                 timezone=None
             )
@@ -182,7 +175,6 @@ class TestParseData:
                 datetimeindex=None,
                 timeindex=1,
                 dateindex=None,
-                valueindexes=[2],
                 slm_type=None,
                 timezone=None
             )
@@ -519,6 +511,180 @@ class TestLoad:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) >= 100
+
+
+class TestLoadColumnReference:
+    """Test the new column reference functionality (string vs integer indices)."""
+
+    def setup_method(self):
+        """Set up test files for each test."""
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create test CSV file with named columns
+        self.csv_file = os.path.join(self.temp_dir, 'test_named.csv')
+        csv_content = """datetime,LAeq,LCeq,LAmax
+2023-01-01 10:00:00,65.5,68.1,72.3
+2023-01-01 10:01:00,67.2,69.5,74.1
+2023-01-01 10:02:00,64.8,67.9,71.8
+"""
+        with open(self.csv_file, 'w') as f:
+            f.write(csv_content)
+        
+        # Create file with separate date/time columns
+        self.datetime_sep_file = os.path.join(self.temp_dir, 'test_sep.csv')
+        sep_content = """date,time,LAeq,LCeq
+2023-01-01,10:00:00,65.5,68.1
+2023-01-01,10:01:00,67.2,69.5
+2023-01-01,10:02:00,64.8,67.9
+"""
+        with open(self.datetime_sep_file, 'w') as f:
+            f.write(sep_content)
+
+    def teardown_method(self):
+        """Clean up test files after each test."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_load_with_string_column_names(self):
+        """Test loading with string column names instead of integer indices."""
+        result = load(
+            path=self.csv_file,
+            datetimeindex='datetime',
+            valueindexes=['LAeq', 'LCeq'],
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 2
+        assert 'LAeq' in result.columns
+        assert 'LCeq' in result.columns
+        assert len(result) == 3
+
+    def test_load_with_string_single_value(self):
+        """Test loading with single string column name (not as list)."""
+        result = load(
+            path=self.csv_file,
+            datetimeindex='datetime',
+            valueindexes='LAeq',
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 1
+        assert 'LAeq' in result.columns
+
+    def test_load_with_string_datetime_separate(self):
+        """Test loading with string names for separate date and time columns."""
+        result = load(
+            path=self.datetime_sep_file,
+            dateindex='date',
+            timeindex='time',
+            valueindexes=['LAeq', 'LCeq'],
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 2
+        assert 'LAeq' in result.columns
+        assert 'LCeq' in result.columns
+        assert isinstance(result.index, pd.DatetimeIndex)
+
+    def test_load_mixed_string_int_raises_error(self):
+        """Test that mixing string and integer column references raises error."""
+        with pytest.raises(ValueError, match="Cannot mix column names"):
+            load(
+                path=self.csv_file,
+                datetimeindex='datetime',
+                valueindexes=[1, 2],  # Integer indices with string datetime
+                sep=',',
+                use_chunks=False
+            )
+
+    def test_load_valueindexes_none_loads_all(self):
+        """Test that valueindexes=None loads all columns."""
+        result = load(
+            path=self.csv_file,
+            datetimeindex='datetime',
+            valueindexes=None,
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 3  # LAeq, LCeq, LAmax
+        assert all(col in result.columns for col in ['LAeq', 'LCeq', 'LAmax'])
+
+    def test_load_usecols_in_kwargs_raises_error(self):
+        """Test that passing usecols in kwargs raises error."""
+        with pytest.raises(ValueError, match="'usecols' conflicts with load"):
+            load(
+                path=self.csv_file,
+                datetimeindex='datetime',
+                valueindexes=['LAeq'],
+                sep=',',
+                use_chunks=False,
+                usecols=['datetime', 'LAeq']
+            )
+
+    def test_load_index_col_in_kwargs_raises_error(self):
+        """Test that passing index_col (except False) in kwargs raises error."""
+        with pytest.raises(ValueError, match="'index_col' conflicts with load"):
+            load(
+                path=self.csv_file,
+                datetimeindex='datetime',
+                valueindexes=['LAeq'],
+                sep=',',
+                use_chunks=False,
+                index_col=0
+            )
+
+    def test_load_index_col_false_allowed(self):
+        """Test that index_col=False is allowed in kwargs."""
+        result = load(
+            path=self.csv_file,
+            datetimeindex='datetime',
+            valueindexes=['LAeq'],
+            sep=',',
+            use_chunks=False,
+            index_col=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 1
+
+    def test_load_with_string_names_uses_usecols(self):
+        """Test that using string names properly filters columns via usecols."""
+        # This test ensures only specified columns are loaded, not all
+        result = load(
+            path=self.csv_file,
+            datetimeindex='datetime',
+            valueindexes=['LAeq'],
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 1
+        assert 'LAeq' in result.columns
+        assert 'LCeq' not in result.columns
+        assert 'LAmax' not in result.columns
+
+    def test_load_integer_indices_still_work(self):
+        """Test that traditional integer indices still work correctly."""
+        result = load(
+            path=self.csv_file,
+            datetimeindex=0,
+            valueindexes=[1, 2],
+            sep=',',
+            use_chunks=False
+        )
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result.columns) == 2
+        assert isinstance(result.index, pd.DatetimeIndex)
 
 
 class TestLoadIntegration:

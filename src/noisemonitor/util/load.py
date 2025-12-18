@@ -112,12 +112,12 @@ def load(
 
     if type(path) is not list:
         path = [path]
-    if type(valueindexes) is not list:
+    if valueindexes is not None and type(valueindexes) is not list:
         valueindexes = [valueindexes]
 
-    # Determine if using column names (strings) or indices (integers)
-    # Check all index parameters to ensure consistency
-    all_indices = [datetimeindex, timeindex, dateindex] + valueindexes
+    all_indices = [datetimeindex, timeindex, dateindex]
+    if valueindexes is not None:
+        all_indices += valueindexes
     all_indices = [idx for idx in all_indices if idx is not None]
     
     uses_strings = any(isinstance(idx, str) for idx in all_indices)
@@ -278,6 +278,7 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
             lambda a: datetime.combine(
                 a.iloc[dateindex], a.iloc[timeindex]), axis=1)
         datetimeindex = dateindex
+        chunk = chunk.drop(columns=chunk.columns[timeindex])
     else:
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
