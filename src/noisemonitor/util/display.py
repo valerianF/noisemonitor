@@ -53,13 +53,18 @@ def compare(
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
     **kwargs: any
-        ylim and title arguments can be passed to matplotlib. 
+        Additional keyword arguments passed to matplotlib functions.
+        Common examples: ylim, xlim, title, color, linewidth, alpha, etc.
 
     Returns
     ----------
     ax: matplotlib.axes.Axes
         Axes object containing the plot.
     """
+    # Extract special kwargs that affect figure/axes setup
+    ylim = kwargs.pop('ylim', None)
+    title = kwargs.pop('title', None)
+    
     plt.rcParams.update({'font.size': 16})
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -68,7 +73,7 @@ def compare(
             ax = line(df, arg, ylabel=ylabel,
                 step=step, show_points=show_points,
                 figsize=figsize, ax=ax, threshold=threshold,
-                **kwargs)
+                ylim=ylim, title=title, **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
 
     ax.legend()
@@ -145,7 +150,8 @@ def freq_map(
     ylabel: str = "Frequency Band",
     cblabel: str = "Sound Level (dBA)",
     figsize: tuple = (12, 8),
-    show: bool = True
+    show: bool = True,
+    **kwargs
 ) -> None:
     """
     Plot a heatmap of sound levels across frequency bands over time.
@@ -165,6 +171,9 @@ def freq_map(
         Figure size in inches.
     show: bool, default True
         if True, display the plot using plt.show().
+    **kwargs: any
+        Additional keyword arguments passed to pcolormesh.
+        Common examples: cmap, vmin, vmax, shading, etc.
 
     Returns
     ----------
@@ -172,6 +181,9 @@ def freq_map(
     """
     x = _get_datetime_index(df)
 
+    cmap = kwargs.pop('cmap', 'magma')
+    shading = kwargs.pop('shading', 'auto')
+    
     plt.rcParams.update({'font.size': 16})
     plt.figure(figsize=figsize)
     ax = plt.gca()
@@ -180,8 +192,9 @@ def freq_map(
         x,
         df.columns.astype(str),  # Convert frequency bands to strings
         df.T,  # Transpose to align frequency bands on the y-axis
-        shading='auto',
-        cmap='magma'
+        shading=shading,
+        cmap=cmap,
+        **kwargs
     )
 
     cbar = plt.colorbar(pcm, ax=ax)
@@ -203,7 +216,8 @@ def freq_map(
 def harmonica(
     df: pd.DataFrame,
     title: str = "HARMONICA Index Plot",
-    show: bool = True
+    show: bool = True,
+    **kwargs
 ) -> None:
     """Plot the HARMONICA index.
 
@@ -215,6 +229,9 @@ def harmonica(
         Title for the plot.
     show: bool, default True
         if True, display the plot using plt.show().
+    **kwargs: any
+        Additional keyword arguments passed to matplotlib functions.
+        Common examples: ylim, figsize, etc.
     """
     # Raise an error if the DataFrame length is not 24
     if len(df) != 24:
@@ -223,8 +240,11 @@ def harmonica(
                         "function.")
 
 
+    figsize = kwargs.pop('figsize', (10, 5))
+    ylim = kwargs.pop('ylim', None)
+    
     # Plot the HARMONICA index
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=figsize)
     plt.rcParams.update({'font.size': 16})
 
     ax = plt.gca()
@@ -269,7 +289,9 @@ def harmonica(
 
     ax.axvspan(-0.5, 7.5, color="lightskyblue", alpha=1, zorder=0)
 
-    if df['HARMONICA'].max() <= 10:
+    if ylim is not None:
+        plt.ylim(ylim)
+    elif df['HARMONICA'].max() <= 10:
         plt.ylim(0, 10)
 
     plt.xlim(-0.5, 23.5)
@@ -322,13 +344,20 @@ def line(
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
     **kwargs: any
-        ylim and title arguments can be passed to matplotlib. 
+        Additional keyword arguments passed to matplotlib plot/step functions.
+        Common examples: ylim, xlim, title, color, linewidth, alpha, 
+        linestyle, marker, etc.
 
     Returns
     ----------
     ax: matplotlib.axes.Axes
         Axes object containing the plot.
     """
+
+    ylim = kwargs.pop('ylim', None)
+    xlim = kwargs.pop('xlim', None)
+    title = kwargs.pop('title', None)
+    
     x = _get_datetime_index(df)
     
     if ax is None:
@@ -360,9 +389,9 @@ def line(
 
     for i in range(0, len(args)):
         if step:
-            line, = ax.step(x, df.loc[:, args[i]], label=args[i])
+            line, = ax.step(x, df.loc[:, args[i]], label=args[i], **kwargs)
         else:
-            line, = ax.plot(x, df.loc[:, args[i]], label=args[i])
+            line, = ax.plot(x, df.loc[:, args[i]], label=args[i], **kwargs)
 
         if show_points:
             ax.scatter(x, df.loc[:, args[i]], color=line.get_color(), s=15,
@@ -372,11 +401,13 @@ def line(
 
     ax.set_ylabel(ylabel)
 
-
-    if "ylim" in kwargs:
-        ax.set_ylim(kwargs["ylim"])
-    if "title" in kwargs:
-        ax.set_title(kwargs["title"])
+    # Apply axes configuration
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if title is not None:
+        ax.set_title(title)
 
     ax.grid(linestyle='--', zorder=1)
 
@@ -415,7 +446,8 @@ def nday(
     thresholds: List[int] = [55, 60, 65],
     title: str = None,
     figsize: tuple = (10,8),
-    show: bool = True
+    show: bool = True,
+    **kwargs
 ) -> None:
     """Plots a histogram from the output of noisemonitor.indicators.nday() 
     function with the number of days under a certain decibel range 
@@ -438,11 +470,20 @@ def nday(
         Figure size in inches.
     show: bool, default True
         if True, display the plot using plt.show().
+    **kwargs: any
+        Additional keyword arguments passed to matplotlib bar plot.
+        Common examples: ylim, xlim, xlabel, ylabel, etc.
 
     Returns
     ----------
     None
     """
+    # Extract special kwargs
+    ylim = kwargs.pop('ylim', None)
+    xlim = kwargs.pop('xlim', None)
+    xlabel = kwargs.pop('xlabel', 'Decibel Range (dBA)')
+    ylabel_custom = kwargs.pop('ylabel', None)
+    
     plt.rcParams.update({'font.size': 16})
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -452,7 +493,8 @@ def nday(
         width=0.8, 
         zorder=3,
         ax=ax,
-        legend=False
+        legend=False,
+        **kwargs
     )
 
     # Manually set the colors for each bar
@@ -467,9 +509,11 @@ def nday(
             bar.set_color('#dc3535')
 
     ax.grid(True, linestyle='--', zorder=0)
-    plt.xlabel('Decibel Range (dBA)')
+    plt.xlabel(xlabel)
 
-    if freq == 'D':
+    if ylabel_custom is not None:
+        plt.ylabel(ylabel_custom)
+    elif freq == 'D':
         plt.ylabel('Number of Days')
     elif freq == 'W':
             plt.ylabel('Number of Weeks')   
@@ -482,6 +526,11 @@ def nday(
 
     if title is not None:
         plt.title(title)
+    
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    if xlim is not None:
+        ax.set_xlim(xlim)
 
     plt.xticks(rotation=45)
     plt.tight_layout()
@@ -502,7 +551,8 @@ def line_weather(
     coverage_check: bool = False,
     coverage_threshold: float = 0.5,
     show: bool = True,
-    threshold: float = None
+    threshold: float = None,
+    **kwargs
 ):
     """
     Plot sound levels with weather flags.
@@ -534,6 +584,9 @@ def line_weather(
         if True, display the plot using plt.show().
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
+    **kwargs: any
+        Additional keyword arguments passed to line() and plt.step().   
+        Common examples: title, figsize, ylim, color, linewidth, etc.
 
     Returns
     ----------
@@ -553,13 +606,22 @@ def line_weather(
         levels_df = df
         _column_p = column
 
+    # Extract kwargs for line function
+    title = kwargs.pop('title', 'Sound Levels with Weather Flags')
+    figsize = kwargs.pop('figsize', (12, 8))
+    line_kwargs = {k: v for k, v in kwargs.items() 
+                if k in ['ylim', 'xlim', 'color', 'linewidth', 'alpha']}
+    step_kwargs = {k: v for k, v in kwargs.items() 
+                if k not in line_kwargs}
+    
     line(
         levels_df,
         levels_df.columns[_column_p],
         step=True,
-        title="Sound Levels with Weather Flags",
-        figsize=(12, 8),
-        threshold=threshold
+        title=title,
+        figsize=figsize,
+        threshold=threshold,
+        **line_kwargs
     )
 
     sound_min = levels_df.iloc[:, _column_p].min()
@@ -584,7 +646,8 @@ def line_weather(
                 normalized_flag,
                 label=flag,
                 linestyle=next(linestyles),
-                alpha=0.7
+                alpha=0.7,
+                **step_kwargs
             )
 
     # Add legend
@@ -610,7 +673,8 @@ def compare_weather_daily(
     title: str = "Daily Leq Profiles for Different Weather Conditions",
     figsize: tuple = (12, 8),
     show: bool = True,
-    threshold: float = None
+    threshold: float = None,
+    **kwargs
 ):
     """
     Compare daily level profiles with or without flags.
@@ -650,6 +714,9 @@ def compare_weather_daily(
         if True, display the plot using plt.show().
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
+    **kwargs: any
+        Additional keyword arguments passed to compare function.
+        Common examples: ylim, color, linewidth, alpha, etc.
 
     Returns
     ----------
@@ -702,7 +769,8 @@ def compare_weather_daily(
         title=title,
         figsize=figsize,
         show=show,
-        threshold=threshold
+        threshold=threshold,
+        **kwargs
     )
 
 def _convert_datetime_index(df: pd.DataFrame) -> np.ndarray:
