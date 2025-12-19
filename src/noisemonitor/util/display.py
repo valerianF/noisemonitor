@@ -364,13 +364,15 @@ def line(
         plt.rcParams.update({'font.size': 16})
         fig, ax = plt.subplots(figsize=figsize)
 
-    # Check temporal resolution and raise a warning if > 4 hours
-    resolution = (x[1] - x[0]).total_seconds() / 3600
-    if fill_background and resolution >= 4:
-        warnings.warn("Background filling is only applied for temporal "
-                    "resolutions > 6/day.")
-        fill_background = False
-
+    if fill_background:
+        if len(x) > 1:
+            interval_hours = (x[1] - x[0]).total_seconds() / 3600
+            if interval_hours >= 4:
+                warnings.warn("Background filling is only applied for data with "
+                            "refresh rates < 4 hours (more than 6 points per day).")
+                fill_background = False
+        else:
+            fill_background = False
     if fill_background:
         day_patch = None
         evening_patch = None
