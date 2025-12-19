@@ -186,7 +186,8 @@ def load(
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
         
-        df = pd.concat([df, temp])
+        if not temp.empty:
+            df = pd.concat([df, temp])
 
     if use_chunks:
         try:
