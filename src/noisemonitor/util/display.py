@@ -836,8 +836,20 @@ def _format_time_axis(ax, x, df) -> None:
         if (x[1] - x[0]).days < 30:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         else:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+            # Calculate total span in months to determine appropriate interval
+            total_days = (x[-1] - x[0]).days
+            total_months = total_days / 30.44  # Average days per month
+            
+            # Set interval based on total span
+            if total_months <= 24:  # Up to 2 years: show every 3 months
+                interval = 3
+            elif total_months <= 60:  # 2-5 years: show every 6 months
+                interval = 6
+            else:  # More than 5 years: show every 9 months
+                interval = 9
+            
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=interval))
         ax.set_xlabel('Date')
     elif isinstance(df.index[0], time):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
