@@ -3,6 +3,7 @@
 A python package for sound level data analysis. 
 
 [![PyPI](https://img.shields.io/pypi/v/noisemonitor.svg)](https://pypi.python.org/pypi/noisemonitor)
+[![Conda Version](https://img.shields.io/conda/vn/conda-forge/noisemonitor.svg)](https://anaconda.org/conda-forge/noisemonitor)
 [![License](https://img.shields.io/pypi/l/noisemonitor.svg)](https://github.com/noisemonitor/noisemonitor/blob/main/LICENSE.md)
 
 See the [Usage Guide](docs/usage.md) for detailed examples and the [API Reference](docs/api.md) for function documentation.
@@ -30,20 +31,28 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 
 ## Installation
 
-Install from PyPI:
+### Using PyPI
 ```bash
 pip install noisemonitor
 ```
 
-For weather integration (Canada only):
+For weather integration (Canada only)
 ```bash
 pip install noisemonitor[weather]
 ```
 
-Install the latest development version:
+If you want to install the latest development version:
 ```bash
 pip install git+https://github.com/valerianF/noisemonitor
 ```
+
+### Using Anaconda
+
+Anaconda users can install using `conda-forge`:
+```bash
+conda install -c conda-forge noisemonitor
+```
+
 
 ## Quick Start
 
