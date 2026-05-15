@@ -186,7 +186,8 @@ def load(
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
         
-        df = pd.concat([df, temp])
+        if not temp.empty:
+            df = pd.concat([df, temp])
 
     if use_chunks:
         try:
@@ -278,6 +279,7 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
             lambda a: datetime.combine(
                 a.iloc[dateindex], a.iloc[timeindex]), axis=1)
         datetimeindex = dateindex
+        chunk = chunk.drop(chunk.columns[timeindex], axis=1)
     else:
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
