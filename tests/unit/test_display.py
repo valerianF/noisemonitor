@@ -228,6 +228,218 @@ class TestWeatherPlotFunctions:
         assert mock_show.call_count >= 1
         plt.close('all')
 
+class TestKwargsSupport:
+    """Test kwargs support for all display functions."""
+    
+    @patch('matplotlib.pyplot.show')
+    def test_line_with_kwargs(self, mock_show, laeq1m_data):
+        """Test line function with various matplotlib kwargs."""
+        column_name = laeq1m_data.columns[0]
+        
+        # Test with color, linewidth, and alpha
+        ax = line(
+            laeq1m_data.iloc[:100],
+            column_name,
+            color='red',
+            linewidth=3,
+            alpha=0.7,
+            linestyle='--'
+        )
+        assert ax is not None
+        assert len(ax.lines) == 1
+        line_obj = ax.lines[0]
+        assert line_obj.get_color() == 'red'
+        assert line_obj.get_linewidth() == 3
+        assert line_obj.get_alpha() == 0.7
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_line_with_ylim_xlim(self, mock_show, laeq1m_data):
+        """Test line function with ylim and xlim kwargs."""
+        column_name = laeq1m_data.columns[0]
+        
+        ax = line(
+            laeq1m_data.iloc[:100],
+            column_name,
+            ylim=(40, 80),
+            title='Custom Title'
+        )
+        assert ax is not None
+        assert ax.get_ylim() == (40, 80)
+        assert ax.get_title() == 'Custom Title'
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_line_step_with_kwargs(self, mock_show, laeq1m_data):
+        """Test line function with step=True and kwargs."""
+        column_name = laeq1m_data.columns[0]
+        
+        ax = line(
+            laeq1m_data.iloc[:100],
+            column_name,
+            step=True,
+            color='blue',
+            linewidth=2,
+            marker='o'
+        )
+        assert ax is not None
+        assert len(ax.lines) == 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_compare_with_kwargs(self, mock_show, laeq1m_data):
+        """Test compare function with kwargs."""
+        df1 = laeq1m_data.iloc[:100].copy()
+        df2 = laeq1m_data.iloc[100:200].copy()
+        column_name = df1.columns[0]
+        
+        ax = compare(
+            [df1, df2],
+            ['Dataset 1', 'Dataset 2'],
+            column_name,
+            linewidth=2.5,
+            alpha=0.8,
+            ylim=(30, 90)
+        )
+        assert ax is not None
+        assert ax.get_ylim() == (30, 90)
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_freq_line_with_kwargs(self, mock_show, sample_octave_data):
+        """Test freq_line function with kwargs."""
+        # Create overall levels DataFrame
+        overall_df = pd.DataFrame({
+            'Leq': sample_octave_data.mean(axis=0)
+        }).T
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = freq_line(
+                overall_df,
+                color='green',
+                linewidth=2,
+                marker='s',
+                markersize=8
+            )
+        assert mock_show.call_count >= 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_freq_map_with_kwargs(self, mock_show, sample_octave_data):
+        """Test freq_map function with kwargs."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = freq_map(
+                sample_octave_data.iloc[:100],
+                cmap='viridis',
+                vmin=40,
+                vmax=80
+            )
+        assert mock_show.call_count >= 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_harmonica_with_kwargs(self, mock_show):
+        """Test harmonica function with kwargs."""
+        times = pd.date_range('2023-01-01', periods=24, freq='h').time
+        np.random.seed(42)
+        harmonica_data = pd.DataFrame(
+            {
+                'HARMONICA': np.random.randint(1, 10, 24),
+                'BGN': np.random.uniform(2, 8, 24)
+            },
+            index=times
+        )
+        
+        result = harmonica(
+            harmonica_data,
+            figsize=(15, 6),
+            ylim=(0, 12)
+        )
+        assert mock_show.call_count >= 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_line_weather_with_kwargs(self, mock_show, sample_weather_data):
+        """Test line_weather function with kwargs."""
+        column_name = sample_weather_data.columns[0]
+        
+        result = line_weather(
+            sample_weather_data.iloc[:200],
+            column=column_name,
+            title='Custom Weather Plot',
+            figsize=(14, 8),
+            color='purple',
+            linewidth=2
+        )
+        assert mock_show.call_count >= 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_compare_weather_daily_with_kwargs(self, mock_show, sample_weather_data):
+        """Test compare_weather_daily function with kwargs."""
+        column_name = sample_weather_data.columns[0]
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = compare_weather_daily(
+                sample_weather_data,
+                column=column_name,
+                include_wind_flag=True,
+                include_rain_flag=True,
+                linewidth=1.5,
+                alpha=0.9
+            )
+        assert mock_show.call_count >= 1
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_line_with_marker_kwargs(self, mock_show, laeq1m_data):
+        """Test line function with marker-related kwargs."""
+        column_name = laeq1m_data.columns[0]
+        
+        ax = line(
+            laeq1m_data.iloc[:50],
+            column_name,
+            marker='D',
+            markersize=6,
+            markerfacecolor='red',
+            markeredgecolor='black',
+            markeredgewidth=1.5
+        )
+        assert ax is not None
+        plt.close('all')
+    
+    @patch('matplotlib.pyplot.show')
+    def test_multiple_functions_with_consistent_kwargs(self, mock_show, laeq1m_data):
+        """Test that kwargs work consistently across different functions."""
+        column_name = laeq1m_data.columns[0]
+        df_subset = laeq1m_data.iloc[:100]
+        
+        # Define consistent styling kwargs
+        style_kwargs = {
+            'color': 'steelblue',
+            'linewidth': 2,
+            'alpha': 0.75
+        }
+        
+        # Test line function
+        ax1 = line(df_subset, column_name, **style_kwargs)
+        assert ax1 is not None
+        
+        # Test compare function
+        ax2 = compare(
+            [df_subset, df_subset],
+            ['Data 1', 'Data 2'],
+            column_name,
+            **style_kwargs
+        )
+        assert ax2 is not None
+        
+        plt.close('all')
+
+
 class TestErrorHandling:
     """Test error handling and edge cases."""
     
