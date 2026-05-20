@@ -1,5 +1,5 @@
 """
-This chunk of code is derived from the pip package env_canada version 0.8.0.
+This chunk of code is derived from the pip package env_canada version 0.15.0.
 It allows to retrieve historical weather data from environment canada's 
 publicly available weather stations 
 (see https://climate.weather.gc.ca/historical_data/). 
@@ -24,7 +24,7 @@ from typing import List, Optional
 
 from noisemonitor.summary import leq, lden
 
-USER_AGENT = "env_canada/0.8.0"
+USER_AGENT = "noisemonitor/1.0.2"
 
 STATIONS_URL = (
     "https://climate.weather.gc.ca/historical_data/"
@@ -116,19 +116,14 @@ def get_historical_stations(
     stations = {}
     for station_req_form in station_req_forms:
         station = {}
-        station_name = station_req_form.xpath(
+        station_table = station_req_form.xpath(
             './/div[@class="col-md-10 col-sm-8 col-xs-8"]'
-        )[0].text
-        station["prov"] = station_req_form.xpath(
-            './/div[@class="col-md-10 col-sm-8 col-xs-8"]'
-        )[1].text
-        station["proximity"] = float(
-            station_req_form.xpath(
-                './/div[@class="col-md-10 col-sm-8 col-xs-8"]'
-            )[2].text
         )
+        station_name = station_table[0].text
+        station["prov"] = station_table[1].text
+        station["proximity"] = float(station_table[2].text)
         station["id"] = station_req_form.find(
-            "input[@name='StationID']"
+            "input[@name='climate_id']"
         ).attrib.get("value")
         station["hlyRange"] = station_req_form.find(
             "input[@name='hlyRange']"
@@ -184,15 +179,16 @@ async def get_historical_data(
     df = pd.DataFrame()
 
     startdate, stopdate = pd.to_datetime(daterange)
-    months = monthlist(daterange=daterange)
+    days = daylist(daterange=daterange)
     _tf = {"hourly": 1, "daily": 2}
     timeframe = _tf[timeframe]
 
-    async def _fetch_data(year, month):
+    async def _fetch_data(year, month, day):
         params = {
-            "stationID": station_id,
+            "climate_id": station_id,
             "Year": year,
             "Month": month,
+            "Day": day,
             "format": "csv",
             "timeframe": timeframe,
             "submit": "Download+Data",
@@ -210,7 +206,7 @@ async def get_historical_data(
                 nonlocal df
                 df = pd.concat((df, pd.read_csv(f)))
 
-    tasks = [_fetch_data(year, month) for year, month in months]
+    tasks = [_fetch_data(year, month, day) for year, month, day in days]
     await asyncio.gather(*tasks)
 
     df = df.set_index(
@@ -356,17 +352,18 @@ async def merge_weather(
     return merged_df
 
 @flip_daterange
-def monthlist(daterange):
-    startdate, stopdate = daterange
+def daylist(daterange):
+    startdate, stopdate = pd.to_datetime(daterange)
+    startdate = startdate.normalize()
+    stopdate = stopdate.normalize()
 
-    def total_months(dt):
-        return dt.month + 12 * dt.year
+    dlist = []
+    current = startdate
+    while current <= stopdate:
+        dlist.append((current.year, current.month, current.day))
+        current += pd.Timedelta(days=1)
 
-    mlist = []
-    for tot_m in range(total_months(startdate) - 1, total_months(stopdate)):
-        y, m = divmod(tot_m, 12)
-        mlist.append((y, m + 1))
-    return mlist
+    return dlist
 
 def contingency_weather_flags(
     df: pd.DataFrame,
