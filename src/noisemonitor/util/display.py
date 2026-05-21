@@ -752,6 +752,9 @@ def compare_weather_daily(
 
     weekly_levels_dict = {}
     for key, subset_df in subsets.items():
+        # Skip subsets with fewer than 3 rows
+        if len(subset_df) < 3:
+            continue
         weekly_levels_dict[key] = periodic(
             subset_df,
             1,

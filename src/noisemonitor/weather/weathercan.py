@@ -433,6 +433,14 @@ def contingency_weather_flags(
         warnings.filterwarnings("ignore", category=UserWarning)
         
         for key, datafr in subsets.items():
+            # Skip subsets with fewer than 3 rows
+            if len(datafr) < 3:
+                results[key] = {
+                    'Leq': np.nan,
+                    'Lden': np.nan
+                }
+                continue
+            
             ov_leq = leq(
                 df=datafr,
                 column=column, 
