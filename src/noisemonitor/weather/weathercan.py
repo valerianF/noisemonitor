@@ -160,14 +160,14 @@ async def get_historical_data(
     timeframe="hourly"
 ) -> pd.DataFrame:
     """
-    Get historical weather data from Environment Canada in 
+    Get historical weather data from Environment Canada in
     the given range for the given station.
 
     Parameters
     ----------
     station_id: int
         the ID of the station found with get_historical_stations
-    daterange: tuple of datetime    
+    daterange: tuple of datetime
         the dates between which the data are retrieved
     timeframe: str
         selection of granularity : 'hourly' or 'daily'
@@ -176,38 +176,40 @@ async def get_historical_data(
     ----------
     DataFrame: All data in the range
     """
-    df = pd.DataFrame()
-
     startdate, stopdate = pd.to_datetime(daterange)
-    days = daylist(daterange=daterange)
+    months = monthlist(daterange=daterange)
     _tf = {"hourly": 1, "daily": 2}
     timeframe = _tf[timeframe]
 
-    async def _fetch_data(year, month, day):
-        params = {
-            "climate_id": station_id,
-            "Year": year,
-            "Month": month,
-            "Day": day,
-            "format": "csv",
-            "timeframe": timeframe,
-            "submit": "Download+Data",
-        }
+    rows = []
+    semaphore = asyncio.Semaphore(10)
 
-        async with aiohttp.ClientSession() as session:
+    async def _fetch_data(session, year, month, day):
+        async with semaphore:
+            params = {
+                "climate_id": station_id,
+                "Year": year,
+                "Month": month,
+                "Day": day,
+                "format": "csv",
+                "timeframe": timeframe,
+                "submit": "Download+Data",
+            }
+
             async with session.get(
-                WEATHER_URL.format("e"), 
-                params=params, 
+                WEATHER_URL.format("e"),
+                params=params,
                 headers={"User-Agent": USER_AGENT}
                 ) as response:
                 response.raise_for_status()
                 result = await response.text()
-                f = StringIO(result)
-                nonlocal df
-                df = pd.concat((df, pd.read_csv(f)))
+                rows.append(pd.read_csv(StringIO(result)))
 
-    tasks = [_fetch_data(year, month, day) for year, month, day in days]
-    await asyncio.gather(*tasks)
+    async with aiohttp.ClientSession() as session:
+        tasks = [_fetch_data(session, year, month, day) for year, month, day in months]
+        await asyncio.gather(*tasks)
+
+    df = pd.concat(rows, ignore_index=False) if rows else pd.DataFrame()
 
     df = df.set_index(
         df.filter(regex="Date/*", axis=1).columns.to_numpy()[0]
@@ -217,7 +219,6 @@ async def get_historical_data(
     df = df[startdate <= df.index]
     df = df[stopdate >= df.index]
 
-    # Ensure the index is unique and sorted
     if not df.index.is_unique:
         df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index()
@@ -352,18 +353,17 @@ async def merge_weather(
     return merged_df
 
 @flip_daterange
-def daylist(daterange):
+def monthlist(daterange):
     startdate, stopdate = pd.to_datetime(daterange)
-    startdate = startdate.normalize()
-    stopdate = stopdate.normalize()
 
-    dlist = []
-    current = startdate
-    while current <= stopdate:
-        dlist.append((current.year, current.month, current.day))
-        current += pd.Timedelta(days=1)
+    def total_months(dt):
+        return dt.month + 12 * dt.year
 
-    return dlist
+    mlist = []
+    for tot_m in range(total_months(startdate) - 1, total_months(stopdate)):
+        y, m = divmod(tot_m, 12)
+        mlist.append((y, m + 1, 1))
+    return mlist
 
 def contingency_weather_flags(
     df: pd.DataFrame,
