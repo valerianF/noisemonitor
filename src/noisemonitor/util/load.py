@@ -268,14 +268,14 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
 
     if datetimeindex is not None:
         if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
-            chunk.iloc[:, datetimeindex] = chunk.iloc[:, datetimeindex].map(
+            chunk[chunk.columns[datetimeindex]] = chunk[chunk.columns[datetimeindex]].map(
                 lambda a: parser.parse(a))
     elif all(ind is not None for ind in [dateindex, timeindex]): 
-        chunk.iloc[:, dateindex] = chunk.iloc[:, dateindex].map(
+        chunk[chunk.columns[dateindex]] = chunk[chunk.columns[dateindex]].map(
             lambda a: parser.parse(a).date())
-        chunk.iloc[:, timeindex] = chunk.iloc[:, timeindex].map(
+        chunk[chunk.columns[timeindex]] = chunk[chunk.columns[timeindex]].map(
             lambda a: parser.parse(a).time())
-        chunk.iloc[:, dateindex] = chunk.apply(
+        chunk[chunk.columns[dateindex]] = chunk.apply(
             lambda a: datetime.combine(
                 a.iloc[dateindex], a.iloc[timeindex]), axis=1)
         datetimeindex = dateindex
