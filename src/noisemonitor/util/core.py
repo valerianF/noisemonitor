@@ -182,6 +182,14 @@ def harmonica(
 
 def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
+    if group.empty:
+        return {
+            'hour': hour,
+            'EVT': np.nan,
+            'BGN': np.nan,
+            'HARMONICA': np.nan
+        }
+
     # Filter previous_data to include only the last 10 minutes
     if not previous_data.empty:
         start_time = group.index[0] - pd.Timedelta(minutes=10)

@@ -53,8 +53,9 @@ def harmonica_periodic(
 
     if harmonica_df['HARMONICA'].isna().any():
         warnings.warn(
-            "Insufficient data coverage detected when computing HARMONICA "
-            "indices. Some hours were filtered out before averaging.",
+            "Insufficient data coverage or gaps detected when computing "
+            "HARMONICA indices. Some hours were filtered out before "
+            "averaging.",
             core.CoverageWarning,
             stacklevel=2
         )
