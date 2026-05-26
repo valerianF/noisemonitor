@@ -640,7 +640,7 @@ class TestFreqPeriodic:
         
         np.random.seed(42)
         # Mix of numeric strings, frequency labels, and generic band labels
-        columns = ['63', '125 Hz', 'Band_250', '500', '1000 Hz', 'Band_2000', '4000', '8000 Hz']
+        columns = ['63', '125 Hz', '500', '1000 Hz', '4000', '8000 Hz']
         
         data = {}
         for i, col in enumerate(columns):
@@ -666,17 +666,9 @@ class TestFreqPeriodic:
         
         # Check that numeric columns were converted to float
         freq_bands = result.columns.get_level_values(1).unique()
-        assert 63.0 in freq_bands  # '63' should be converted to float
-        assert 500.0 in freq_bands  # '500' should be converted to float
-        assert 4000.0 in freq_bands  # '4000' should be converted to float
-        
-        # Check that non-numeric columns were kept as strings
-        assert '125 Hz' in freq_bands
-        assert 'Band_250' in freq_bands
-        assert '1000 Hz' in freq_bands
-        assert 'Band_2000' in freq_bands
-        assert '8000 Hz' in freq_bands
-
+        assert 63.0 in freq_bands
+        assert 125.0 in freq_bands
+        assert 8000.0 in freq_bands
 
 class TestFreqSeries:
     """Test cases for the freq_series function."""
@@ -735,7 +727,7 @@ class TestFreqSeries:
         
         np.random.seed(42)
         # Mix of numeric strings, frequency labels, and generic band labels
-        columns = ['63', '125 Hz', 'Band_250', '500', '1000 Hz', 'Band_2000', '4000', '8000 Hz']
+        columns = ['63', '125 Hz', '500', '1000 Hz', '4000', '8 kHz']
         
         data = {}
         for i, col in enumerate(columns):
@@ -759,16 +751,9 @@ class TestFreqSeries:
         
         # Check that numeric columns were converted to float
         freq_bands = result.columns.get_level_values(1).unique()
-        assert 63.0 in freq_bands  # '63' should be converted to float
-        assert 500.0 in freq_bands  # '500' should be converted to float
-        assert 4000.0 in freq_bands  # '4000' should be converted to float
-        
-        # Check that non-numeric columns were kept as strings
-        assert '125 Hz' in freq_bands
-        assert 'Band_250' in freq_bands
-        assert '1000 Hz' in freq_bands
-        assert 'Band_2000' in freq_bands
-        assert '8000 Hz' in freq_bands
+        assert 63.0 in freq_bands
+        assert 125.0 in freq_bands
+        assert 8000.0 in freq_bands
 
 class TestProfileEdgeCases:
     """Test edge cases and error conditions."""

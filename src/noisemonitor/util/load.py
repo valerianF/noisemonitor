@@ -254,7 +254,7 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
     try:
         # Only try to remove Unnamed columns if columns are string type
         if hasattr(chunk.columns, 'str'):
-            chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')]
+            chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')].copy()
     except (TypeError, AttributeError):
         pass
 

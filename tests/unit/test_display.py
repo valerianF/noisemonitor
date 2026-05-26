@@ -162,12 +162,13 @@ class TestAdvancedPlotFunctions:
     @patch('matplotlib.pyplot.show')
     def test_freq_line(self, mock_show, sample_octave_data):
         """Test frequency line plotting with options."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            result = freq_line(
-                sample_octave_data,
-                figsize=(14, 8)
-            )
+        with pytest.warns(RuntimeWarning, match="Frequency bands are not nu"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                result = freq_line(
+                    sample_octave_data,
+                    figsize=(14, 8)
+                )
         assert mock_show.call_count >= 1
         plt.close('all')
     
@@ -313,15 +314,16 @@ class TestKwargsSupport:
             'Leq': sample_octave_data.mean(axis=0)
         }).T
         
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            result = freq_line(
-                overall_df,
-                color='green',
-                linewidth=2,
-                marker='s',
-                markersize=8
-            )
+        with pytest.warns(RuntimeWarning, match="Frequency bands are not nu"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                result = freq_line(
+                    overall_df,
+                    color='green',
+                    linewidth=2,
+                    marker='s',
+                    markersize=8
+                )
         assert mock_show.call_count >= 1
         plt.close('all')
     

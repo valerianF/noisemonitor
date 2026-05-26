@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 from matplotlib.patches import Polygon
+from matplotlib.ticker import ScalarFormatter
 from datetime import datetime, time
 from typing import List, Optional, Union
 from itertools import cycle
@@ -139,7 +140,17 @@ def freq_line(
     ax.legend()
     ax.grid(True, zorder=0, linestyle=(0, (2.5, 5)))
 
-    plt.xticks( rotation=45)
+    # Set x-axis to logarithmic scale
+    if pd.api.types.is_numeric_dtype(df.columns):
+        ax.set_xscale('log')
+        ax.xaxis.set_major_formatter(ScalarFormatter())
+    else:
+        warnings.warn(
+            "Frequency bands are not numeric; using linear scale for x-axis.",
+            RuntimeWarning
+        )
+
+    plt.xticks(rotation=45)
     plt.tight_layout()
     if show:
         plt.show()
@@ -416,7 +427,7 @@ def line(
     # Add threshold line if specified
     if threshold is not None:
         ax.axhline(y=threshold, color='red', linestyle='--', 
-                   linewidth=2, zorder=2)
+                linewidth=2, zorder=2)
 
     handles, labels = ax.get_legend_handles_labels()
 
