@@ -239,11 +239,13 @@ def load(
         df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index()
 
-    # Resample the data to fill gaps based on the interval between rows
+    # Resample the data to fill gaps based on the interval between rows.
+    # The interval is taken between index[1] and index[2] because some
+    # devices report a wrong interval for the first two data points.
     if len(df) > 2:
         interval = df.index[2] - df.index[1]
         resample_freq = f'{int(interval.total_seconds())}s'
-        df = df.resample(resample_freq).asfreq()
+        df = df.resample(resample_freq, origin=df.index[2]).asfreq()
         
     return df
 

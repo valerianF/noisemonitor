@@ -262,7 +262,7 @@ class TestHarmonicaValidation:
 
     def test_harmonica_valid_interval_subsecond(self):
         """Test that harmonica accepts sub-second intervals."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='0.1s')
+        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')
         df = pd.DataFrame({'sound_level': np.random.uniform(40, 80, 36000)}, index=dates)
         
         result = harmonica(df, 0)
@@ -507,7 +507,7 @@ class TestHarmonicaIntegration:
     def test_harmonica_subsecond_interval(self):
         """Test harmonica with sub-second intervals."""
         # Create data with 0.1 second intervals
-        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='0.1s')  # 1 hour at 0.1s
+        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')  # 1 hour at 0.1s
         data = np.random.uniform(50, 70, 36000)
         df = pd.DataFrame({'sound_level': data}, index=dates)
         

@@ -647,7 +647,15 @@ def series(
         arr = df.iloc[
             int(start_index + i * step):int(start_index + i * step + win)
         ].iloc[:, column]
-        overalltime.append(df.index[int(start_index + i*step + win/2)])
+        if start_at_midnight:
+            overalltime.append(
+                start_time
+                + pd.Timedelta(seconds=(i * step + win / 2) * interval)
+            )
+        else:
+            overalltime.append(
+                df.index[int(start_index + i * step + win / 2)]
+            )
 
         if coverage_check:
             passes_threshold = core.check_coverage(
