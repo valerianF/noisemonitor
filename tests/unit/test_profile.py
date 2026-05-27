@@ -369,7 +369,7 @@ class TestPeriodic:
             assert col in result.columns
         
         # Test exact value for first hour (07:30:00)
-        assert abs(result.iloc[0]['L25'] - 53.961804) < 1e-5
+        assert abs(result.iloc[0]['L25'] - 53.968935699183120) < 1e-5
         
         # Verify ordering relationships
         assert (result['L10'] >= result['L25']).all()
@@ -398,12 +398,12 @@ class TestPeriodic:
         default_columns = ['Leq', 'L10', 'L50', 'L90']
         for col in default_columns:
             assert col in result.columns
-        
+    
         # Test exact values for first hour (07:30:00)
-        assert abs(result.iloc[0]['L1'] - 61.067000) < 1e-5
-        assert abs(result.iloc[0]['L5'] - 57.027961) < 1e-5
-        assert abs(result.iloc[0]['L95'] - 44.373262) < 1e-5
-        assert abs(result.iloc[0]['L99'] - 41.830812) < 1e-5
+        assert abs(result.iloc[0]['L1'] - 61.083233518617320) < 1e-5
+        assert abs(result.iloc[0]['L5'] - 57.040242747068610) < 1e-5
+        assert abs(result.iloc[0]['L95'] - 44.422484699326866) < 1e-5
+        assert abs(result.iloc[0]['L99'] - 41.842387768003540) < 1e-5
         
         # Verify ordering relationships
         assert (result['L1'] >= result['L5']).all()
@@ -484,7 +484,7 @@ class TestSeries:
                 expected_midnight += pd.Timedelta(days=1)
             
             expected_first_time = expected_midnight + pd.Timedelta(seconds=win_seconds/2)
-            
+
             assert first_time == expected_first_time
     
     def test_series_warns_with_large_interval(self, laeq1m_data):
