@@ -115,7 +115,7 @@ class TestHarmonicaPeriodic:
     def test_harmonica_periodic(self, laeq1s_data):
         """Test basic harmonica periodic computation with exact expected values."""
         with pytest.warns(CoverageWarning, 
-                          match="Insufficient data coverage detected"):
+                        match="Insufficient data coverage or gaps detected"):
             result = harmonica_periodic(
                 laeq1s_data, 
                 column=0,
@@ -157,7 +157,7 @@ class TestHarmonicaPeriodic:
     def test_harmonica_periodic_no_chunks(self, laeq1s_data):
         """Test harmonica periodic without chunks."""
         with pytest.warns(CoverageWarning, 
-                        match="Insufficient data coverage detected"):
+                        match="Insufficient data coverage or gaps detected"):
             result = harmonica_periodic(laeq1s_data, column=0, use_chunks=False)
         
         assert isinstance(result, pd.DataFrame)
@@ -241,7 +241,7 @@ class TestFreq:
             assert indicator in indicators
             
         frequency_bands = result.columns.get_level_values(1)
-        octave_bands = ['63', '125', '250', '500', '1000', '2000', '4000', '8000']
+        octave_bands = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
         for band in octave_bands:
             assert band in frequency_bands
             
@@ -272,8 +272,8 @@ class TestFreq:
         
         assert isinstance(result, pd.DataFrame)
 
-        expected_bands = ['63', '125', '250', '500', '1000', '2000', 
-                        '4000', '8000']
+        expected_bands = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 
+                        4000.0, 8000.0]
         for band in expected_bands:
             assert band in result.columns
 
@@ -498,13 +498,14 @@ class TestCoverageCheck:
         )
         test_data.loc[nan_indices] = np.nan
         
-        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
-            result = freq_indicators(
-                test_data,
-                hour1=23,
-                hour2=7,
-                coverage_check=True
-            )
+        with pytest.warns(UserWarning, match="Could not parse column name"):
+            with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+                result = freq_indicators(
+                    test_data,
+                    hour1=23,
+                    hour2=7,
+                    coverage_check=True
+                )
         
         # Should not have result with NaN values for insufficient coverage
         # Check that at least one frequency band has NaN
@@ -539,7 +540,7 @@ class TestCoverageCheck:
         assert len(warning_list) >= 1
         # Verify the warning message
         assert any("Insufficient data coverage detected" in str(w.message)
-                   for w in warning_list)
+                for w in warning_list)
     
     def test_harmonica_periodic_coverage_check(self, laeq1s_data):
         """Test harmonica_periodic function emits warning when coverage is below 80%."""
@@ -555,7 +556,7 @@ class TestCoverageCheck:
         )
         test_data.loc[nan_indices] = np.nan
         
-        with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
+        with pytest.warns(CoverageWarning, match="Insufficient data coverage or gaps detected"):
             result = harmonica_periodic(
                 test_data,
                 column=0,

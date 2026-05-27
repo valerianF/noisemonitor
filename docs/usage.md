@@ -8,7 +8,7 @@ This guide provides detailed examples for using noisemonitor's key features.
 - [Summary Indicators](#summary-indicators)
 - [Profile Indicators](#profile-indicators)
 - [Coverage Checking](#coverage-checking)
-- [Weather Integration (Canada only)](#weather-integration-canada-only)
+- [Weather Integration (Canada only)](#weather-integration)
 - [References](#references)
 
 ## Data Loading
@@ -509,6 +509,7 @@ df_with_weather = await nm.weather.weathercan.merge_weather(
     temp_range_flag=(-10, 30),
     hum_flag=90,
     rolling_window_hours=48
+)
 df_with_weather.head()
 ```
 

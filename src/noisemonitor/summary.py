@@ -53,8 +53,9 @@ def harmonica_periodic(
 
     if harmonica_df['HARMONICA'].isna().any():
         warnings.warn(
-            "Insufficient data coverage detected when computing HARMONICA "
-            "indices. Some hours were filtered out before averaging.",
+            "Insufficient data coverage or gaps detected when computing "
+            "HARMONICA indices. Some hours were filtered out before "
+            "averaging.",
             core.CoverageWarning,
             stacklevel=2
         )
@@ -185,8 +186,11 @@ def freq_periodic(
     pd.DataFrame: DataFrame with weekly or daily levels for each 
         frequency band.
     """
+
+    df = core._parse_freq_columns(df).sort_index(axis=1)
+
     results = {
-        col: periodic(df, column=col, freq=freq, values=values,
+        col: periodic(df, column=df.columns.get_loc(col), freq=freq, values=values,
                     coverage_check=coverage_check, coverage_threshold=coverage_threshold)
         for col in df.columns
     }
@@ -357,6 +361,9 @@ def freq_indicators(
 
     Parameters
     ----------
+    df: pd.DataFrame
+        DataFrame containing octave or third-octave frequency bands as 
+        columns.
     hour1 (optional): int, default 0
         Starting hour for the daily Leq average (0-24).
     hour2 (optional): int, default 24
@@ -386,6 +393,9 @@ def freq_indicators(
         (e.g., Leq, Lden, etc.) and columns corresponding to
         frequency bands.
     """
+
+    df = core._parse_freq_columns(df).sort_index(axis=1)
+
     # Initialize a dictionary to store results for each frequency band
     results = {}
 

@@ -241,6 +241,8 @@ def freq_periodic(
     pd.DataFrame
         DataFrame with weekly levels for each frequency band.
     """
+
+    df = core._parse_freq_columns(df).sort_index(axis=1)
     
     if chunks:
         results = {}
@@ -301,15 +303,6 @@ def freq_periodic(
             for col in df.columns
         }
 
-    # Convert column names to float if possible, otherwise keep original
-    float_columns = {}
-    for col in results.keys():
-        try:
-            float_columns[col] = float(col)
-        except (ValueError, TypeError):
-            float_columns[col] = col
-    results = {float_columns[col]: df for col, df in results.items()}
-
     combined_results = pd.concat(results, axis=1, keys=results.keys())
     combined_results.columns = pd.MultiIndex.from_tuples(
         [(indicator, band) for band in combined_results.columns.levels[0]
@@ -362,6 +355,8 @@ def freq_series(
         DataFrame with time series for each frequency band.
     """
 
+    df = core._parse_freq_columns(df).sort_index(axis=1)
+
     if chunks:
         results = {}
         with ProcessPoolExecutor() as executor:
@@ -407,15 +402,6 @@ def freq_series(
             )
             for col in df.columns
         }
-
-    # Convert column names to float if possible, otherwise keep original
-    float_columns = {}
-    for col in results.keys():
-        try:
-            float_columns[col] = float(col)
-        except (ValueError, TypeError):
-            float_columns[col] = col
-    results = {float_columns[col]: df for col, df in results.items()}
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
     combined_results.columns = pd.MultiIndex.from_tuples(

@@ -5,6 +5,7 @@ import numpy as np
 import warnings
 import sys
 import multiprocessing
+import re
 
 from datetime import time
 from typing import Union, Callable, Tuple, Optional, Dict
@@ -23,6 +24,43 @@ def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
     if isinstance(column, str):
         return df.columns.get_loc(column)
     return column
+
+def _parse_freq_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert frequency column names to float values.
+
+    If any string column cannot be parsed, the original dataframe
+    is returned unchanged and a warning is issued.
+    """
+
+    def parse_band(col):
+        if isinstance(col, (int, float)):
+            return float(col)
+
+        if isinstance(col, str):
+            s = col.strip().lower().replace(" ", "")
+
+            # Match number + optional 'k' + optional 'hz'
+            match = re.fullmatch(r"(\d*\.?\d+)(k)?hz?", s)
+            if not match:
+                match = re.fullmatch(r"(\d*\.?\d+)(k)?", s)
+
+            if match:
+                value = float(match.group(1))
+                if match.group(2):  # 'k' present
+                    value *= 1000
+                return value
+
+        raise ValueError(f"Could not parse column name: {col}. "
+                        "Frequency columns headers are left unchanged.")
+
+    try:
+        new_columns = pd.Index(df.columns).map(parse_band)
+        return df.rename(columns=dict(zip(df.columns, new_columns)))
+
+    except ValueError as e:
+        warnings.warn(str(e))
+        return df
 
 def get_interval(df):
     """Compute the interval in seconds between rows 2 and 3.
@@ -182,6 +220,14 @@ def harmonica(
 
 def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
+    if group.empty:
+        return {
+            'hour': hour,
+            'EVT': np.nan,
+            'BGN': np.nan,
+            'HARMONICA': np.nan
+        }
+
     # Filter previous_data to include only the last 10 minutes
     if not previous_data.empty:
         start_time = group.index[0] - pd.Timedelta(minutes=10)
