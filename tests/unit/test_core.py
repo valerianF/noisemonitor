@@ -332,6 +332,18 @@ class TestHourlyHarmonica:
         assert not np.isnan(result['BGN'])
         assert not np.isnan(result['HARMONICA'])
 
+    def test_hourly_harmonica_missing_rows_under_threshold(self):
+        """Hour with a few missing rows but >=80% coverage should NOT return NaN."""
+        # 3600 expected samples at 1s; drop 100 rows (97.2% coverage)
+        dates = pd.date_range('2023-01-01 00:00:00', periods=3600, freq='1s')
+        data = np.random.uniform(40, 70, 3600)
+        df = pd.DataFrame({'LAeq': data}, index=dates).iloc[:-100]  # 3500 rows
+        result = hourly_harmonica(
+            hour=dates[0], group=df, column=0,
+            interval=1, previous_data=pd.DataFrame()
+        )
+        assert not np.isnan(result['HARMONICA'])
+
 
 class TestLden:
     """Test the lden function."""
