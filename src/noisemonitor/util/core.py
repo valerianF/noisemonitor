@@ -222,7 +222,7 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
     # Return NaN only when fewer than 80% of the expected data points
     # (both missing rows and NaN values) are present for the hour.
-    expected_count = 3600 // interval
+    expected_count = int(round(3600 / interval))
     nan_count = group.iloc[:, column].isna().sum()
     missing_count = max(0, expected_count - len(group))
     valid_ratio = (expected_count - missing_count - nan_count) / expected_count
@@ -248,7 +248,7 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
 
     # Compute LA95eq for the hour using a rolling window
     la95 = combined_data.iloc[:, column].rolling(
-        window=int(600 // interval),
+        window=int(round(600 / interval)),
         step=max(1, int(round(1.0 / interval)))
     ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
 
