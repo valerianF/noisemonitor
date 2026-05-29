@@ -259,7 +259,6 @@ def harmonica(
     plt.rcParams.update({'font.size': 16})
 
     ax = plt.gca()
-    ax.grid(linestyle='--', zorder=0) 
 
     df = pd.concat([
         df[(df.index >= time(22, 0)) & (df.index <= time(23, 59))],
@@ -283,10 +282,10 @@ def harmonica(
             else:
                 color = 'red'
 
-        plt.bar(position, row['BGN'], color=color, width=0.81, zorder=2)
+        plt.bar(position, row['BGN'] - 0.03, color=color, width=0.81, zorder=2)
         triangle = Polygon(
-            [[position - 0.4, row['BGN'] + 0.1],
-            [position + 0.4, row['BGN'] + 0.1],
+            [[position - 0.39, row['BGN'] + 0.03],
+            [position + 0.39, row['BGN'] + 0.03],
             [position, row['HARMONICA']]],
             closed=True, 
             color=color,
@@ -309,7 +308,7 @@ def harmonica(
     plt.xlabel('Hour')
     plt.ylabel('HARMONICA Index')
     plt.title(title)
-    plt.grid(linestyle='--', zorder=3)
+    plt.grid(linestyle='--', axis='y', zorder=3)
     plt.tight_layout()
     if show:
         plt.show()
