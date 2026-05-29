@@ -74,7 +74,7 @@ def extreme_values(
         will be used.
     min_value: int, default 30
         The minimum value threshold.
-    max_value: int, default 95
+    max_value: int, default 100
         The maximum value threshold.
 
     Returns

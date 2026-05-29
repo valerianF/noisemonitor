@@ -220,13 +220,20 @@ def harmonica(
 
 def hourly_harmonica(hour, group, column, interval, previous_data):
     """Compute a single hour of data to compute HARMONICA indicators."""
-    if group.empty:
+    # Return NaN only when fewer than 80% of the expected data points
+    # (both missing rows and NaN values) are present for the hour.
+    expected_count = 3600 // interval
+    nan_count = group.iloc[:, column].isna().sum()
+    missing_count = max(0, expected_count - len(group))
+    valid_ratio = (expected_count - missing_count - nan_count) / expected_count
+
+    if valid_ratio < 0.8:
         return {
-            'hour': hour,
-            'EVT': np.nan,
-            'BGN': np.nan,
+            'hour': hour, 
+            'EVT': np.nan, 
+            'BGN': np.nan, 
             'HARMONICA': np.nan
-        }
+            }
 
     # Filter previous_data to include only the last 10 minutes
     if not previous_data.empty:
@@ -236,30 +243,21 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
     # Combine the current hour's data with the filtered previous data
     combined_data = pd.concat([previous_data, group])
 
-    if (len(group) != 3600 // interval) or \
-    (group.iloc[:, column].isna().sum().sum() / len(group) > 0.2):
-        return {
-            'hour': hour, 
-            'EVT': np.nan, 
-            'BGN': np.nan, 
-            'HARMONICA': np.nan
-            }
-
     # Compute LAeq for the hour
     laeq = equivalent_level(group.iloc[:, column])
 
     # Compute LA95eq for the hour using a rolling window
     la95 = combined_data.iloc[:, column].rolling(
         window=int(600 // interval),
-        step=int(max(1, 1//interval))
+        step=max(1, int(round(1.0 / interval)))
     ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
 
-    la95 = la95.loc[group.index]
+    la95 = la95.loc[group.index[0]:group.index[-1]]
     la95eq = equivalent_level(la95.dropna())
 
     # Compute EVT, BGN, and HARMONICA
-    evt = 0.2 * (la95eq - 30)
-    bgn = 0.25 * (laeq - la95eq)
+    bgn = 0.2 * (la95eq - 30)
+    evt = 0.25 * (laeq - la95eq)
     harmonica = bgn + evt
 
     return {

@@ -130,16 +130,16 @@ class TestHarmonicaPeriodic:
         for col in expected_columns:
             assert col in result.columns
         
-        assert abs(result.iloc[0]['BGN'] - 0.496360) < 1e-5
-        assert abs(result.iloc[0]['EVT'] - 2.635803) < 1e-5  
+        assert abs(result.iloc[0]['BGN'] - 2.635803) < 1e-5
+        assert abs(result.iloc[0]['EVT'] - 0.496360) < 1e-5  
         assert abs(result.iloc[0]['HARMONICA'] - 3.132164) < 1e-5
         
-        assert abs(result.iloc[1]['BGN'] - 0.339076) < 1e-5
-        assert abs(result.iloc[1]['EVT'] - 2.375998) < 1e-5
+        assert abs(result.iloc[1]['BGN'] - 2.375998) < 1e-5
+        assert abs(result.iloc[1]['EVT'] - 0.339076) < 1e-5
         assert abs(result.iloc[1]['HARMONICA'] - 2.715074) < 1e-5
         
-        assert abs(result.iloc[2]['BGN'] - 0.326900) < 1e-5
-        assert abs(result.iloc[2]['EVT'] - 2.265118) < 1e-5
+        assert abs(result.iloc[2]['BGN'] - 2.26511) < 1e-5
+        assert abs(result.iloc[2]['EVT'] - 0.326900) < 1e-5
         assert abs(result.iloc[2]['HARMONICA'] - 2.592018) < 1e-5
     
     def test_harmonica_1m(self, laeq1m_data):
