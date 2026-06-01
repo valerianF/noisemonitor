@@ -54,8 +54,9 @@ def compare(
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
     **kwargs: any
-        Additional keyword arguments passed to matplotlib functions.
-        Common examples: ylim, xlim, title, color, linewidth, alpha, etc.
+        Additional keyword arguments passed to display.line() and 
+        matplotlib functions. Common examples: fill_background,
+        ylim, xlim, title, color, linewidth, alpha, etc.
 
     Returns
     ----------
