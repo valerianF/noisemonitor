@@ -421,7 +421,7 @@ def nne(
     df: pd.DataFrame,
     hour1: int,
     hour2: int,
-    background_type: str = 'Leq',
+    background_type: Union[int, str] = 'Leq',
     exceedance: int = 5,
     min_gap: int = 3,
     win: int = 3600,
@@ -429,8 +429,8 @@ def nne(
     column: Optional[Union[int, str]] = 0,
     day1: Optional[str] = None,
     day2: Optional[str] = None,
-    coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_check: bool = True,
+    coverage_threshold: float = 0.8
 ) -> pd.DataFrame:
     """Compute the Number of Noise Events (NNE) following the algorithm 
     proposed in (Brown and De Coensel, 2018). The function computes the 
@@ -446,7 +446,7 @@ def nne(
     hour2: int, between 0 and 23
         hour for the ending time of the daily average. If hour1 > hour2 
         the average will be computed outside of these hours.
-    background_type: str
+    background_type: int or str, default 'Leq'
         Type of background level indicator for computing the threshold to 
         use for defining a noise event. Can be 'Leq', 'L50', 'L90' or int 
         for a constant value.
@@ -467,10 +467,12 @@ def nne(
         First day of the week to include in the calculation.
     day2: Optional[str], default None
         Last day of the week to include in the calculation.
-    coverage_check: bool, default False
+    coverage_check: bool, default True
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
-    coverage_threshold: float, default 0.5
+        with insufficient data coverage and emit warnings. We recommand to use
+        coverage checks for NNEs computation, as gaps in data significantly affect
+        the counts of noise events.
+    coverage_threshold: float, default 0.8
         minimum data coverage ratio required (0.0 to 1.0).
 
     Returns

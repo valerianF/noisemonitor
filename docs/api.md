@@ -17,49 +17,31 @@ Complete reference for all noisemonitor functions and modules.
 
 ### `noisemonitor.load()`
 
-Take one or several datasheets with date and time indicators in combined in one column or across two columns, and sound level measured with a sound level monitor as input and return a DataFrame suitable for sound level averaging and descriptors computation provided in the LevelMonitor class. Date and time are automatically parsed with dateutil package.
+Take one or several datasheets with date and time indicators in combined in one column or across two columns, and sound level measured with a sound level monitor as input and return a DataFrame suitable for sound level averaging and descriptors computation provided in the LevelMonitor class. Date and time are automatically parsed with dateutil package. Example of relevant indices: LAeq, LCeq, LZeq, LAmax, LAmin, LCpeak, etc. header: int, None, default 0 row index for datasheet header. If None, the datasheet has no header. sep: str, default ',' separator if reading .csv file(s). slm_type: str, default None performs specific parsing operation for known sound level monitor manufacturers. For now will only respond to 'NoiseSentry' as input, replacing the commas by dots in the sound level data to convert sound levels to floats. timezone: str, default None when indicated, will convert the datetime index from the specified timezone to a timezone unaware format. use_chunks: bool, default True whether to process the data in chunks for large datasets. chunksize: int, default 10000 number of rows to read at a time for large datasets. **kwargs: dict additional keyword arguments to pass to pandas read functions (read_csv, read_excel). Note: 'usecols' and 'index_col' parameters are not allowed as they conflict with 'valueindexes' and 'datetimeindex'/'timeindex'/'dateindex' respectively.
 
 **Parameters:**
 - `path`: str or list of str \
   absolute or relative pathname (or list of pathnames) to convert as a
   sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx,
   or .txt
-- `datetimeindex`: int \
-  column index for date and time if combined in a single column. Not to
-  be indicated if date and time are in different columns.
-- `timeindex`: int \
-  column index for time. Not to be indicated if date and time are
-  combined in a single column. Must be entered conjointly
+- `datetimeindex`: int or str \
+  column index or column name for date and time if combined in a single
+  column. Not to be indicated if date and time are in different columns.
+- `timeindex`: int or str \
+  column index or column name for time. Not to be indicated if date and
+  time are combined in a single column. Must be entered conjointly
   with dateindex.
-- `dateindex`: int \
-  column index for date. Not to be indicated if date and time are
-  combined in a single column. Must be entered conjointly
+- `dateindex`: int or str \
+  column index or column name for date. Not to be indicated if date and
+  time are combined in a single column. Must be entered conjointly
   with timeindex.
-- `valueindexes`: int or list of int, default 1. \
-  column index or list of column indices for sound level values to which
-  averages are to be computed. The columns should contain sound levels
-  values, either weighted or unweighted and integrated over a period
-  corresponding to the refresh rate of the sound level meter (typically
-  between 1 second and several minutes, though the module will work with
-- `smaller or higher refresh rates). Example of relevant indices`: LAeq, \
-  LCeq, LZeq, LAmax, LAmin, LCpeak, etc.
-- `header`: int, None, default 0 \
-  row index for datasheet header. If None, the datasheet has
-  no header.
-- `sep`: str, default ',' \
-  separator if reading .csv file(s).
-- `slm_type`: str, default None \
-  performs specific parsing operation for known sound level monitor
-  manufacturers. For now will only respond to 'NoiseSentry' as input,
-  replacing the commas by dots in the sound level data to convert sound
-  levels to floats.
-- `timezone`: str, default None \
-  when indicated, will convert the datetime index from the specified
-  timezone to a timezone unaware format.
-- `use_chunks`: bool, default True \
-  whether to process the data in chunks for large datasets.
-- `chunksize`: int, default 10000 \
-  number of rows to read at a time for large datasets.
+- `valueindexes`: int, str, list of int/str, or None, default 1. \
+  column index/name or list of column indices/names for sound level
+  values to which averages are to be computed. The columns should contain
+  sound levels values, either weighted or unweighted and integrated over
+  a period corresponding to the refresh rate of the sound level meter
+  (typically between 1 second and several minutes, though the module will
+  work with smaller or higher refresh rates). If None, all columns are loaded.
 
 **Returns:**
 - DataFrame: dataframe formatted for sound level analysis when associated with a LevelMonitor class. Contains a datetime (or pandas Timestamp) array as index and corresponding equivalent sound level as first column.
@@ -100,7 +82,7 @@ Replace values in the specified column that are below min_value or above max_val
   will be used.
 - `min_value`: int, default 30 \
   The minimum value threshold.
-- `max_value`: int, default 95 \
+- `max_value`: int, default 100 \
   The maximum value threshold.
 
 **Returns:**
@@ -137,6 +119,9 @@ Replace values in the specified column with NaN based on weather flags.
 Compute overall Leq and Lden for each frequency band.
 
 **Parameters:**
+- `df`: pd.DataFrame \
+  DataFrame containing octave or third-octave frequency bands as
+  columns.
 - `hour1 (optional)`: int, default 0 \
   Starting hour for the daily Leq average (0-24).
 - `hour2 (optional)`: int, default 24 \
@@ -390,7 +375,7 @@ Compute the Number of Noise Events (NNE) following the algorithm proposed in (Br
 - `hour2`: int, between 0 and 23 \
   hour for the ending time of the daily average. If hour1 > hour2
   the average will be computed outside of these hours.
-- `background_type`: str \
+- `background_type`: int or str, default 'Leq' \
   Type of background level indicator for computing the threshold to
   use for defining a noise event. Can be 'Leq', 'L50', 'L90' or int
   for a constant value.
@@ -411,10 +396,12 @@ Compute the Number of Noise Events (NNE) following the algorithm proposed in (Br
   First day of the week to include in the calculation.
 - `day2`: Optional[str], default None \
   Last day of the week to include in the calculation.
-- `coverage_check`: bool, default False \
+- `coverage_check`: bool, default True \
   if set to True, assess data coverage and automatically filter periods
-  with insufficient data coverage and emit warnings.
-- `coverage_threshold`: float, default 0.5 \
+  with insufficient data coverage and emit warnings. We recommand to use
+  coverage checks for NNEs computation, as gaps in data significantly affect
+  the counts of noise events.
+- `coverage_threshold`: float, default 0.8 \
   minimum data coverage ratio required (0.0 to 1.0).
 
 **Returns:**
@@ -520,7 +507,9 @@ Compare multiple DataFrames by plotting their columns in the same plot.
 - `threshold`: float, optional \
   if provided, plots a horizontal line at this sound level value.
 - `**kwargs`: any \
-  ylim and title arguments can be passed to matplotlib.
+  Additional keyword arguments passed to display.line() and
+- `matplotlib functions. Common examples`: fill_background, \
+  ylim, xlim, title, color, linewidth, alpha, etc.
 
 **Returns:**
 - ax: matplotlib.axes.Axes Axes object containing the plot.
@@ -563,6 +552,9 @@ Compare daily level profiles with or without flags.
   if True, display the plot using plt.show().
 - `threshold`: float, optional \
   if provided, plots a horizontal line at this sound level value.
+- `**kwargs`: any \
+  Additional keyword arguments passed to compare function.
+- `Common examples`: ylim, color, linewidth, alpha, etc.
 
 **Returns:**
 - None
@@ -609,6 +601,9 @@ Plot a heatmap of sound levels across frequency bands over time.
   Figure size in inches.
 - `show`: bool, default True \
   if True, display the plot using plt.show().
+- `**kwargs`: any \
+  Additional keyword arguments passed to pcolormesh.
+- `Common examples`: cmap, vmin, vmax, shading, etc.
 
 **Returns:**
 - None
@@ -624,6 +619,9 @@ Plot the HARMONICA index.
   Title for the plot.
 - `show`: bool, default True \
   if True, display the plot using plt.show().
+- `**kwargs`: any \
+  Additional keyword arguments passed to matplotlib functions.
+- `Common examples`: ylim, figsize, etc.
 
 ### `noisemonitor.display.line()`
 
@@ -655,7 +653,9 @@ Plot columns of a dataframe according to the index, using matplotlib.
 - `threshold`: float, optional \
   if provided, plots a horizontal line at this sound level value.
 - `**kwargs`: any \
-  ylim and title arguments can be passed to matplotlib.
+  Additional keyword arguments passed to matplotlib plot/step functions.
+- `Common examples`: ylim, xlim, title, color, linewidth, alpha, \
+  linestyle, marker, etc.
 
 **Returns:**
 - ax: matplotlib.axes.Axes Axes object containing the plot.
@@ -690,6 +690,9 @@ Plot sound levels with weather flags.
   if True, display the plot using plt.show().
 - `threshold`: float, optional \
   if provided, plots a horizontal line at this sound level value.
+- `**kwargs`: any \
+  Additional keyword arguments passed to line() and plt.step().
+- `Common examples`: title, figsize, ylim, color, linewidth, etc.
 
 **Returns:**
 - None
@@ -714,6 +717,9 @@ Plots a histogram from the output of noisemonitor.indicators.nday() function wit
   Figure size in inches.
 - `show`: bool, default True \
   if True, display the plot using plt.show().
+- `**kwargs`: any \
+  Additional keyword arguments passed to matplotlib bar plot.
+- `Common examples`: ylim, xlim, xlabel, ylabel, etc.
 
 **Returns:**
 - None
