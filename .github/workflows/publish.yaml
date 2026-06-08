@@ -40,6 +40,41 @@ jobs:
       - name: Run tests
         run: pytest
 
+  generate-docs:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate API documentation
+        run: python docs/generate_api_docs.py
+
+      - name: Commit and push API docs if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --exit-code docs/api.md > /dev/null; then
+            echo "No changes to API documentation"
+          else
+            git add docs/api.md
+            git commit -m "docs: auto-generate API documentation"
+            git push origin HEAD
+          fi
+
   build:
     needs: test
     runs-on: ubuntu-latest
