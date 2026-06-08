@@ -42,6 +42,8 @@ jobs:
 
   generate-docs:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -72,7 +74,7 @@ jobs:
           else
             git add docs/api.md
             git commit -m "docs: auto-generate API documentation"
-            git push origin HEAD
+            git push origin HEAD:refs/heads/${{ github.head_ref }}
           fi
 
   build:
