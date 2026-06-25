@@ -142,7 +142,7 @@ def harmonica(
         column: int,
         use_chunks: bool = True
         ) -> pd.DataFrame:
-    """Compute the HARMONICA indicator and return a DataFrame with EVT, BGN, 
+    """Compute the HARMONICA index and return a DataFrame with EVT, BGN, 
     and HARMONICA indicators as proposed in (Mietlicki et al., 2015).
 
     Parameters
