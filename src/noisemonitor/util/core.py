@@ -110,7 +110,7 @@ def check_coverage(
     
     if emit_warning and not passes_threshold:
         warnings.warn(
-            f"Insufficient data coverage detected < "
+            f"Insufficient data coverage detected: "
             f"Some periods will be filtered and return NaN.",
             CoverageWarning,
             stacklevel=3

@@ -81,106 +81,111 @@ def format_function_doc(module_path, func_info):
     async_prefix = "async " if func_info['is_async'] else ""
     md = f"### `{module_path}.{func_info['name']}()`\n\n"
     
-    # Add docstring
-    docstring = func_info['docstring']
-    
     # Parse docstring sections
+    docstring = func_info['docstring']
     lines = docstring.split('\n')
-    description = []
-    in_params = False
-    in_returns = False
-    params = []
-    returns = []
     
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        if line.startswith('Parameters') or line == 'Parameters':
-            in_params = True
-            in_returns = False
-            i += 1
-            if i < len(lines) and lines[i].strip().startswith('---'):
-                i += 1
-            continue
-        elif line.startswith('Returns') or line == 'Returns':
-            in_params = False
-            in_returns = True
-            i += 1
-            if i < len(lines) and lines[i].strip().startswith('---'):
-                i += 1
-            continue
-        elif line.startswith('Note') or line.startswith('Example'):
-            in_params = False
-            in_returns = False
-        
-        if in_params:
-            if line:
-                params.append(line)
-        elif in_returns:
-            if line:
-                returns.append(line)
-        elif not in_params and not in_returns and line:
-            description.append(line)
-        
-        i += 1
+    # Find section boundaries
+    params_idx = None
+    returns_idx = None
+    notes_idx = None
     
-    # Add description
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == 'Parameters':
+            params_idx = i
+        elif stripped == 'Returns':
+            returns_idx = i
+        elif stripped == 'Notes':
+            notes_idx = i
+    
+    # Extract description (everything before Parameters)
+    description_end = params_idx if params_idx else len(lines)
+    description_lines = lines[:description_end]
+    
+    # Remove trailing empty lines from description
+    while description_lines and not description_lines[-1].strip():
+        description_lines.pop()
+    
+    # Join description, removing leading/trailing whitespace
+    description = '\n'.join(description_lines).strip()
     if description:
-        md += ' '.join(description) + "\n\n"
+        md += description + "\n\n"
     
-    # Add parameters
-    if params:
-        md += "**Parameters:**\n"
-        current_param = []
-        for line in params:
-            if line and not line.startswith(' ') and ':' in line:
-                if current_param:
-                    # Format the accumulated parameter
-                    param_text = '\n'.join(current_param)
-                    if ':' in param_text:
-                        # Split on first colon to get name and rest
-                        first_colon = param_text.index(':')
-                        param_name = param_text[:first_colon].strip()
-                        param_rest = param_text[first_colon+1:].strip()
-                        # Preserve line breaks and indent continuation lines
-                        param_lines = param_rest.split('\n')
-                        if len(param_lines) > 1:
-                            # Add markdown line break (backslash space) only at end of first line
-                            formatted_rest = param_lines[0] + ' \\\n' + '\n'.join('  ' + l.strip() for l in param_lines[1:])
-                            md += f"- `{param_name}`: {formatted_rest}\n"
-                        else:
-                            md += f"- `{param_name}`: {param_rest}\n"
-                    else:
-                        md += "- " + param_text + "\n"
-                current_param = [line]
-            else:
-                current_param.append(line)
-        if current_param:
-            # Format the last parameter
-            param_text = '\n'.join(current_param)
-            if ':' in param_text:
-                first_colon = param_text.index(':')
-                param_name = param_text[:first_colon].strip()
-                param_rest = param_text[first_colon+1:].strip()
-                # Preserve line breaks and indent continuation lines
-                param_lines = param_rest.split('\n')
-                if len(param_lines) > 1:
-                    # Add markdown line break (backslash space) only at end of first line
-                    formatted_rest = param_lines[0] + ' \\\n' + '\n'.join('  ' + l.strip() for l in param_lines[1:])
-                    md += f"- `{param_name}`: {formatted_rest}\n"
-                else:
-                    md += f"- `{param_name}`: {param_rest}\n"
-            else:
-                md += "- " + param_text + "\n"
-        md += "\n"
+    # Extract and format parameters
+    if params_idx:
+        params_end = returns_idx if returns_idx else (notes_idx if notes_idx else len(lines))
+        params_section = lines[params_idx + 2:params_end]  # Skip "Parameters" and "---"
+        
+        if params_section:
+            md += "**Parameters:**\n"
+            current_param = None
+            
+            for line in params_section:
+                stripped = line.strip()
+                
+                # Skip empty lines and dashes
+                if not stripped or stripped.startswith('---'):
+                    continue
+                
+                # Check if this is a new parameter (doesn't start with whitespace in original)
+                if line and line[0] not in (' ', '\t'):
+                    # Save previous parameter if exists
+                    if current_param:
+                        md += format_parameter(current_param) + "\n"
+                    current_param = [line]
+                elif current_param:
+                    # Continuation of parameter description
+                    current_param.append(line)
+            
+            # Add last parameter
+            if current_param:
+                md += format_parameter(current_param) + "\n"
+            
+            md += "\n"
     
-    # Add returns
-    if returns:
-        md += "**Returns:**\n"
-        md += "- " + ' '.join(returns) + "\n\n"
+    # Extract and format returns
+    if returns_idx:
+        returns_end = notes_idx if notes_idx else len(lines)
+        returns_section = lines[returns_idx + 2:returns_end]  # Skip "Returns" and "---"
+        
+        returns_text = '\n'.join(returns_section).strip()
+        if returns_text:
+            md += "**Returns:**\n"
+            md += "- " + returns_text + "\n\n"
     
     return md
+
+
+def format_parameter(param_lines):
+    """Format a single parameter from NumPy docstring format."""
+    # Join all lines
+    full_text = '\n'.join(param_lines)
+    
+    # Split on first colon to separate name/type from description
+    if ':' in full_text:
+        colon_idx = full_text.index(':')
+        name_type = full_text[:colon_idx].strip()
+        description = full_text[colon_idx + 1:].strip()
+        
+        # Extract just the parameter name (before the type)
+        param_name = name_type.split()[0] if name_type else "unknown"
+        
+        # Format with proper indentation for multi-line descriptions
+        desc_lines = description.split('\n')
+        formatted_desc = desc_lines[0]
+        
+        if len(desc_lines) > 1:
+            # Add indentation for continuation lines
+            for line in desc_lines[1:]:
+                stripped = line.strip()
+                if stripped:
+                    formatted_desc += ' \\\n  ' + stripped
+        
+        return f"- `{param_name}`: {name_type.split(maxsplit=1)[1] if ' ' in name_type else ''} {formatted_desc}".rstrip()
+    else:
+        return f"- {full_text.strip()}"
+
 
 
 def generate_api_docs():
@@ -254,7 +259,7 @@ def generate_api_docs():
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(md_content)
     
-    print(f"✓ API documentation generated: {output_path}")
+    print(f"[OK] API documentation generated: {output_path}")
     print(f"  Total modules documented: {len(modules)}")
 
 

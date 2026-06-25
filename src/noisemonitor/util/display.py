@@ -54,8 +54,9 @@ def compare(
     threshold: float, optional
         if provided, plots a horizontal line at this sound level value.
     **kwargs: any
-        Additional keyword arguments passed to matplotlib functions.
-        Common examples: ylim, xlim, title, color, linewidth, alpha, etc.
+        Additional keyword arguments passed to display.line() and 
+        matplotlib functions. Common examples: fill_background,
+        ylim, xlim, title, color, linewidth, alpha, etc.
 
     Returns
     ----------
@@ -848,7 +849,9 @@ def _format_time_axis(ax, x, df) -> None:
     """
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         ax.figure.autofmt_xdate()
-        if (x[1] - x[0]).days < 30:
+        if (x[-1] - x[0]).days < 7:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %I%p'))
+        elif (x[1] - x[0]).days < 15:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         else:
             # Calculate total span in months to determine appropriate interval
