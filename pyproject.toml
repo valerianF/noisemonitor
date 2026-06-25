@@ -1,6 +1,6 @@
 [project]
 name = "noisemonitor"
-version = "1.0.3"
+version = "1.0.4"
 authors = [
   { name="Valérian Fraisse", email="valerian.fraisse@mail.mcgill.ca" },
 ]
