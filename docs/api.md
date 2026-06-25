@@ -115,7 +115,7 @@ above max_value with NaN.
   will be used.
 - `min_value`:  int, default 30 \
   The minimum value threshold.
-- `max_value`: int, default 100 \
+- `max_value`:  int, default 100 \
   The maximum value threshold.
 
 **Returns:**
@@ -152,10 +152,10 @@ Replace values in the specified column with NaN based on weather flags.
 Compute overall Leq and Lden for each frequency band.
 
 **Parameters:**
-- `df`: pd.DataFrame \
-  DataFrame containing octave or third-octave frequency bands as
+- `df`:  pd.DataFrame \
+  DataFrame containing octave or third-octave frequency bands as \
   columns.
-- `hour1 (optional)`: int, default 0 \
+- `hour1`: (optional) int, default 0 \
   Starting hour for the daily Leq average (0-24).
 - `hour2`: (optional) int, default 24 \
   Ending hour for the daily Leq average (0-24).
@@ -832,7 +832,7 @@ of the interval.
 
 ### `noisemonitor.util.core.harmonica()`
 
-Compute the HARMONICA indicator and return a DataFrame with EVT, BGN, 
+Compute the HARMONICA index and return a DataFrame with EVT, BGN, 
 and HARMONICA indicators as proposed in (Mietlicki et al., 2015).
 
 **Parameters:**
