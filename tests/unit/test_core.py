@@ -57,43 +57,6 @@ def laeq1s_data(test_data_paths):
     )
     return df
 
-
-@pytest.fixture(scope="module")
-def test_data_paths():
-    """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data"
-    return {
-        "laeq1m": base_path / "test_data_laeq1m.csv",
-        "laeq1s": base_path / "test_data_laeq1s.csv"
-    }
-
-
-@pytest.fixture(scope="module") 
-def laeq1m_data(test_data_paths):
-    """Load LAeq,1min test data (one week of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1m"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
-
-@pytest.fixture(scope="module")
-def laeq1s_data(test_data_paths):
-    """Load LAeq,1s test data (24 hours of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1s"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
-
 class TestCheckCoverage:
     """Test the check_coverage function."""
 
