@@ -12,6 +12,8 @@ __pycache__
 *.code-workspace
 env/
 .venv
+CLAUDE.md
+TODO.md
 
 # test
 .pytest_cache

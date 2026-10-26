@@ -747,6 +747,125 @@ class TestLoadColumnReference:
         assert len(result.columns) == 2
         assert isinstance(result.index, pd.DatetimeIndex)
 
+    @pytest.mark.parametrize("datetimeindex, valueindexes, expected", [
+        # Integer indices, datetime column on the right
+        (4, 1, ['LCeq']),
+        (4, [1, 3], ['LCeq', 'LAmax']),          # ordered list
+        (4, [3, 0], ['LAeq', 'LAmax']),          # non-ordered list
+        (4, [3, 0, 1], ['LAeq', 'LCeq', 'LAmax']),
+        # Integer indices, datetime column in the middle
+        (2, [3, 0], ['LAeq', 'LAmax']),
+        (2, [0, 3], ['LAeq', 'LAmax']),
+        # String names (positions resolved by name, must behave the same)
+        ('datetime', 'LCeq', ['LCeq']),
+        ('datetime', ['LCeq', 'LAmax'], ['LCeq', 'LAmax']),
+        ('datetime', ['LAmax', 'LAeq'], ['LAeq', 'LAmax']),
+    ])
+    def test_load_datetime_column_not_leftmost(
+        self, datetimeindex, valueindexes, expected
+    ):
+        """Datetime column located after value columns or not selected
+        columns: integer file positions must be remapped after selection."""
+        values = {'LAeq': [65.5, 67.2, 64.8], 'LCeq': [68.1, 69.5, 67.9],
+                  'extra': [1, 2, 3], 'LAmax': [72.3, 74.1, 71.8]}
+        stamps = ['2023-01-01 10:00:00', '2023-01-01 10:01:00',
+                  '2023-01-01 10:02:00']
+        # Columns: LAeq(0), LCeq(1), [extra or datetime](2), LAmax(3), ...(4)
+        if datetimeindex in (4, 'datetime'):
+            order = ['LAeq', 'LCeq', 'extra', 'LAmax', 'datetime']
+        else:
+            order = ['LAeq', 'LCeq', 'datetime', 'LAmax', 'extra']
+        df_file = pd.DataFrame({**values, 'datetime': stamps})[order]
+        path = os.path.join(self.temp_dir, 'test_datetime_right.csv')
+        df_file.to_csv(path, index=False)
+
+        for use_chunks in (False, True):
+            result = load(
+                path=path,
+                datetimeindex=datetimeindex,
+                valueindexes=valueindexes,
+                sep=',',
+                use_chunks=use_chunks
+            )
+
+            assert isinstance(result.index, pd.DatetimeIndex)
+            assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+            assert len(result) == 3
+            assert sorted(result.columns) == sorted(expected)
+            for col in expected:
+                np.testing.assert_allclose(result[col].values, values[col])
+
+    @pytest.mark.parametrize("dateindex, timeindex, valueindexes, expected", [
+        (3, 4, [0, 2], ['LAeq', 'LAmax']),           # ordered
+        (4, 3, [2, 0], ['LAeq', 'LAmax']),           # swapped date/time order
+        (3, 4, 1, ['LCeq']),
+        ('date', 'time', ['LAmax', 'LAeq'], ['LAeq', 'LAmax']),
+    ])
+    def test_load_separate_date_time_not_leftmost(
+        self, dateindex, timeindex, valueindexes, expected
+    ):
+        """Separate date and time columns on the right of the value columns."""
+        # Columns: LAeq(0), LCeq(1), LAmax(2), date/time(3), time/date(4)
+        if dateindex in (3, 'date'):
+            header = 'LAeq,LCeq,LAmax,date,time\n'
+            rows = ['65.5,68.1,72.3,2023-01-01,10:00:00',
+                    '67.2,69.5,74.1,2023-01-01,10:01:00',
+                    '64.8,67.9,71.8,2023-01-01,10:02:00']
+        else:
+            header = 'LAeq,LCeq,LAmax,time,date\n'
+            rows = ['65.5,68.1,72.3,10:00:00,2023-01-01',
+                    '67.2,69.5,74.1,10:01:00,2023-01-01',
+                    '64.8,67.9,71.8,10:02:00,2023-01-01']
+        path = os.path.join(self.temp_dir, 'test_sep_right.csv')
+        with open(path, 'w') as f:
+            f.write(header + '\n'.join(rows) + '\n')
+
+        result = load(
+            path=path,
+            dateindex=dateindex,
+            timeindex=timeindex,
+            valueindexes=valueindexes,
+            sep=',',
+            use_chunks=False
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        assert sorted(result.columns) == sorted(expected)
+        first = {'LAeq': 65.5, 'LCeq': 68.1, 'LAmax': 72.3}
+        for col in expected:
+            assert result[col].iloc[0] == first[col]
+
+    @pytest.mark.parametrize("dateindex, timeindex, valueindexes", [
+        (1, 0, 2),
+        ('date', 'time', 'LAeq'),
+    ])
+    def test_load_time_column_before_date_column(
+        self, dateindex, timeindex, valueindexes
+    ):
+        """Time column placed before the date column: dropping the time
+        column must not shift which column becomes the datetime index."""
+        path = os.path.join(self.temp_dir, 'test_time_first.csv')
+        with open(path, 'w') as f:
+            f.write('time,date,LAeq\n'
+                    '10:00:00,2023-01-01,65.5\n'
+                    '10:01:00,2023-01-01,67.2\n'
+                    '10:02:00,2023-01-01,64.8\n')
+
+        result = load(
+            path=path,
+            dateindex=dateindex,
+            timeindex=timeindex,
+            valueindexes=valueindexes,
+            sep=',',
+            use_chunks=False
+        )
+
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        assert list(result.columns) == ['LAeq']
+        np.testing.assert_allclose(result['LAeq'].values, [65.5, 67.2, 64.8])
+
 
 class TestLoadIntegration:
     """Integration tests for load function.

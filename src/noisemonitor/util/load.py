@@ -145,6 +145,16 @@ def load(
     else:
         usecols = None
 
+    # If uses_ints, remap the date/time indices to their position after selection.
+    if usecols is not None and uses_ints:
+        selected = sorted(set(usecols))
+        if datetimeindex is not None:
+            datetimeindex = selected.index(datetimeindex)
+        if dateindex is not None:
+            dateindex = selected.index(dateindex)
+        if timeindex is not None:
+            timeindex = selected.index(timeindex)
+
     for fp in path:   
         ext = os.path.splitext(fp)[-1].lower()
 
@@ -269,24 +279,25 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
         timeindex = chunk.columns.get_loc(timeindex)
 
     if datetimeindex is not None:
+        datetime_col = chunk.columns[datetimeindex]
         if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
-            chunk[chunk.columns[datetimeindex]] = chunk[chunk.columns[datetimeindex]].map(
+            chunk[datetime_col] = chunk[datetime_col].map(
                 lambda a: parser.parse(a))
     elif all(ind is not None for ind in [dateindex, timeindex]): 
-        chunk[chunk.columns[dateindex]] = chunk[chunk.columns[dateindex]].map(
+        datetime_col = chunk.columns[dateindex]
+        chunk[datetime_col] = chunk[datetime_col].map(
             lambda a: parser.parse(a).date())
         chunk[chunk.columns[timeindex]] = chunk[chunk.columns[timeindex]].map(
             lambda a: parser.parse(a).time())
-        chunk[chunk.columns[dateindex]] = chunk.apply(
+        chunk[datetime_col] = chunk.apply(
             lambda a: datetime.combine(
                 a.iloc[dateindex], a.iloc[timeindex]), axis=1)
-        datetimeindex = dateindex
         chunk = chunk.drop(columns=chunk.columns[timeindex])
     else:
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
-    
-    chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
+
+    chunk = chunk.rename(columns={datetime_col: 'datetime'})
 
     # Convert datetime column to avoid dtype inference
     chunk['datetime'] = pd.to_datetime(chunk['datetime'])

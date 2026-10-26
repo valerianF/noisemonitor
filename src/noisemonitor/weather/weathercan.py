@@ -24,7 +24,7 @@ from typing import List, Optional
 
 from noisemonitor.summary import leq, lden
 
-USER_AGENT = "noisemonitor/1.0.2"
+USER_AGENT = "noisemonitor/1.1.0"
 
 STATIONS_URL = (
     "https://climate.weather.gc.ca/historical_data/"
