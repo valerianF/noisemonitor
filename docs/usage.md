@@ -56,7 +56,7 @@ df_freq = nm.load(
 )
 ```
 
-**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`
+**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`. Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
 
 **Note:** Reading large files with datetime parsing can be computationally intensive. Parallel processing is enabled by default (can be deactivated) to reduce loading time.
 

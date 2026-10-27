@@ -12,13 +12,14 @@ import multiprocessing
 
 from datetime import datetime
 from dateutil import parser
-from xlrd import XLRDError
 from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
 # Number of rows inspected to detect empty unnamed columns and decimal commas.
 _SAMPLE_ROWS = 100
+# First bytes of Excel workbooks: OLE2 (.xls) and ZIP (.xlsx).
+_EXCEL_SIGNATURES = (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1', b'PK\x03\x04')
 
 def load(
     path: Union[str, List[str]], 
@@ -50,7 +51,9 @@ def load(
     path: str or list of str
         absolute or relative pathname (or list of pathnames) to convert as a
         sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx,
-        or .txt. When several files are given, they must share the same
+        or .txt. Files with an .xls extension are read as Excel workbooks
+        or as text files (e.g. NoiseSentry exports), depending on their
+        content. When several files are given, they must share the same
         format (typically, files exported by the same instrument).
     datetimeindex: int or str
         column index or column name for date and time if combined in a single 
@@ -155,15 +158,15 @@ def load(
 
         # Reading datasheet with pandas
         if ext == '.xls':
-            try:
+            if _is_excel_file(fp):
                 temp = pd.read_excel(
-                    fp, 
-                    engine='xlrd', 
+                    fp,
+                    engine='calamine',
                     header=header,
                     usecols=usecols,
                     **kwargs
                     )
-            except XLRDError:
+            else:
                 temp = pd.read_csv(
                     fp, 
                     sep=sep, 
@@ -300,6 +303,13 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):
             timezone).tz_localize(None)
 
     return chunk
+
+def _is_excel_file(path):
+    """Tell Excel workbooks from text files by their first bytes. Some
+    instruments (e.g. NoiseSentry) export tab-separated text files with an
+    .xls extension; an .xlsx workbook renamed .xls is also detected."""
+    with open(path, 'rb') as f:
+        return f.read(8).startswith(_EXCEL_SIGNATURES)
 
 def _drop_unnamed_columns(df, index_labels, header):
     """Drop columns with an empty header (named 'Unnamed: N' by pandas)

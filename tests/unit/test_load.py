@@ -10,7 +10,6 @@ import openpyxl
 from pathlib import Path
 from datetime import datetime, date, time
 from unittest.mock import patch, mock_open
-from xlrd import XLRDError
 
 from noisemonitor.util.load import load, _parse_data
 
@@ -239,13 +238,14 @@ class TestLoad:
         assert isinstance(result.index, pd.DatetimeIndex)
         assert len(result) == 4
 
-    def test_load_excel_fallback_to_csv(self):
-        """Test Excel file loading that falls back to CSV reading."""
+    def test_load_xls_text_file_read_as_csv(self):
+        """Text file with an .xls extension is read as CSV, without
+        calling an Excel engine."""
         fake_xls = os.path.join(self.temp_dir, 'fake.xls')
         with open(fake_xls, 'w') as f:
             f.write("datetime,LAeq\n2023-01-01 10:00:00,65.5\n")
-        
-        with patch('pandas.read_excel', side_effect=XLRDError("Test error")):
+
+        with patch('pandas.read_excel') as read_excel:
             result = load(
                 path=fake_xls,
                 datetimeindex=0,
@@ -253,9 +253,53 @@ class TestLoad:
                 sep=',',
                 use_chunks=False
             )
-        
+
+        read_excel.assert_not_called()
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
+
+    @pytest.mark.filterwarnings("error::DeprecationWarning")
+    @pytest.mark.parametrize("use_chunks", [False, True])
+    def test_load_binary_xls_file(self, use_chunks):
+        """Binary Excel .xls workbook (title row, blank row, header on row
+        2) read with the calamine engine, without deprecation warnings."""
+        result = load(
+            path=str(Path(__file__).parent.parent / 'data' / 'test_data_binary.xls'),
+            datetimeindex=0,
+            valueindexes=[1, 2],
+            header=2,
+            use_chunks=use_chunks,
+            chunksize=4
+        )
+
+        assert list(result.columns) == ['LAeq', 'LCeq']
+        assert len(result) == 10
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        assert result.index[-1] == pd.Timestamp('2023-01-01 10:00:09')
+        np.testing.assert_allclose(result['LAeq'].values, 50 + 0.5 * np.arange(10))
+        np.testing.assert_allclose(result['LCeq'].values, 60 + 0.25 * np.arange(10))
+
+    def test_load_xlsx_saved_as_xls(self):
+        """An .xlsx workbook renamed .xls is detected and read as Excel."""
+        xlsx_file = os.path.join(self.temp_dir, 'test.xlsx')
+        data = pd.DataFrame({
+            'datetime': ['2023-01-01 10:00:00', '2023-01-01 10:01:00'],
+            'LAeq': [65.5, 67.2]
+        })
+        data.to_excel(xlsx_file, index=False, engine='openpyxl')
+        xls_file = os.path.join(self.temp_dir, 'test.xls')
+        os.rename(xlsx_file, xls_file)
+
+        result = load(
+            path=xls_file,
+            datetimeindex=0,
+            valueindexes=[1],
+            use_chunks=False
+        )
+
+        assert list(result.columns) == ['LAeq']
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        np.testing.assert_allclose(result['LAeq'].values, [65.5, 67.2])
 
     def test_load_xlsx_file(self):
         """Test loading XLSX file."""
@@ -870,6 +914,8 @@ class TestLoadUnnamedColumnsAndDecimalComma:
             )
 
         assert not any('empty header' in str(w.message) for w in record)
+        assert not any(issubclass(w.category, DeprecationWarning)
+                       for w in record)
         assert list(result.columns) == self.NS_COLUMNS
         assert all(pd.api.types.is_float_dtype(t) for t in result.dtypes)
         assert len(result) == 60
