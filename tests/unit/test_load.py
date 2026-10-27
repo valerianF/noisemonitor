@@ -5,6 +5,9 @@ import pandas as pd
 import numpy as np
 import tempfile
 import os
+import warnings
+import openpyxl
+from pathlib import Path
 from datetime import datetime, date, time
 from unittest.mock import patch, mock_open
 from xlrd import XLRDError
@@ -25,10 +28,9 @@ class TestParseData:
         
         result = _parse_data(
             chunk=chunk,
-            datetimeindex=0,
+            datetimeindex='datetime_col',
             timeindex=None,
             dateindex=None,
-            slm_type=None,
             timezone=None
         )
         
@@ -49,9 +51,8 @@ class TestParseData:
         result = _parse_data(
             chunk=chunk,
             datetimeindex=None,
-            timeindex=1,
-            dateindex=0,
-            slm_type=None,
+            timeindex='time_col',
+            dateindex='date_col',
             timezone=None 
         )
         
@@ -71,35 +72,14 @@ class TestParseData:
         
         result = _parse_data(
             chunk=chunk,
-            datetimeindex=0,
+            datetimeindex='datetime_col',
             timeindex=None,
             dateindex=None,
-            slm_type=None,
             timezone=None
         )
         
         assert len(result.columns) == 3
         assert list(result.iloc[0, :]) == [65.5, 68.1, 72.3]
-
-    def test_parse_data_noisesentry_format(self):
-        """Test _parse_data with NoiseSentry SLM type (comma decimal separator)."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00', '2023-01-01 10:01:00'],
-            'sound_level': ['65,5', '67,2']  # European decimal format
-        }
-        chunk = pd.DataFrame(data)
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex=0,
-            timeindex=None,
-            dateindex=None,
-            slm_type='NoiseSentry',
-            timezone=None
-        )
-        
-        assert np.isclose(result.iloc[0, 0], 65.5, rtol=1e-10)
-        assert np.isclose(result.iloc[1, 0], 67.2, rtol=1e-10)
 
     def test_parse_data_timezone_conversion(self):
         """Test _parse_data with timezone conversion."""
@@ -112,35 +92,14 @@ class TestParseData:
         
         result = _parse_data(
             chunk=chunk,
-            datetimeindex=0,
+            datetimeindex='datetime_col',
             timeindex=None,
             dateindex=None,
-            slm_type=None,
             timezone='America/New_York'
         )
         
         assert result.index.tz is None
         assert len(result) == 2
-        assert len(result.columns) == 1
-
-    def test_parse_data_unnamed_columns(self):
-        """Test _parse_data removes unnamed columns."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00', '2023-01-01 10:01:00'],
-            'sound_level': [65.5, 67.2],
-            'Unnamed: 2': [np.nan, np.nan]
-        }
-        chunk = pd.DataFrame(data)
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex=0,
-            timeindex=None,
-            dateindex=None,
-            slm_type=None,
-            timezone=None
-        )
-        
         assert len(result.columns) == 1
 
     def test_parse_data_missing_datetime_index(self):
@@ -157,7 +116,6 @@ class TestParseData:
                 datetimeindex=None,
                 timeindex=None,
                 dateindex=None,
-                slm_type=None,
                 timezone=None
             )
 
@@ -174,9 +132,8 @@ class TestParseData:
             _parse_data(
                 chunk=chunk,
                 datetimeindex=None,
-                timeindex=1,
+                timeindex='time_col',
                 dateindex=None,
-                slm_type=None,
                 timezone=None
             )
 
@@ -426,19 +383,18 @@ class TestLoad:
         assert isinstance(result, pd.DataFrame)
         assert result.index.tz is None
 
-    def test_load_noisesentry_format(self):
-        """Test loading NoiseSentry format data."""
+    def test_load_decimal_comma_detected(self):
+        """Values with a decimal comma are converted to floats."""
         ns_file = os.path.join(self.temp_dir, 'noisesentry.csv')
         with open(ns_file, 'w') as f:
             f.write("datetime;LAeq\n")
             f.write("2023-01-01 10:00:00;65,5\n")
             f.write("2023-01-01 10:01:00;67,2\n")
-        
+
         result = load(
             path=ns_file,
             datetimeindex=0,
             valueindexes=[1],
-            slm_type='NoiseSentry',
             sep=';',
             use_chunks=False
         )
@@ -865,6 +821,186 @@ class TestLoadColumnReference:
         assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
         assert list(result.columns) == ['LAeq']
         np.testing.assert_allclose(result['LAeq'].values, [65.5, 67.2, 64.8])
+
+
+class TestLoadUnnamedColumnsAndDecimalComma:
+    """Columns with an empty header ('Unnamed: N') and decimal commas,
+    including NoiseSentry exports (tab-separated text, also with an .xls
+    extension, ending each line with a tab)."""
+
+    NS_COLUMNS = [' L-Max dB -A ', ' LEQ dB -A ', ' L-Min dB -A ']
+
+    def setup_method(self):
+        """Set up test files for each test."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.data_dir = Path(__file__).parent.parent / "data"
+        idx = pd.date_range('2023-01-01 10:00', periods=5, freq='1min')
+        # DatetimeIndex without a name, as after some pandas operations
+        self.df = pd.DataFrame(
+            {'LAeq': [60., 61., 62., 63., 64.],
+            'LCeq': [70., 71., 72., 73., 74.]}, index=idx)
+
+    def teardown_method(self):
+        """Clean up test files after each test."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _write(self, name, content):
+        path = os.path.join(self.temp_dir, name)
+        with open(path, 'w') as f:
+            f.write(content)
+        return path
+
+    @pytest.mark.parametrize("valueindexes", [[1, 2, 3], None])
+    @pytest.mark.parametrize("use_chunks", [False, True])
+    def test_load_noisesentry_decimal_comma(self, valueindexes, use_chunks):
+        """NoiseSentry text export with an .xls extension and decimal commas
+        (values and milliseconds): values are converted, the empty trailing
+        column is dropped silently."""
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter('always')
+            result = load(
+                path=str(self.data_dir / 'test_data_decimal_comma.xls'),
+                datetimeindex=0,
+                valueindexes=valueindexes,
+                header=1,
+                sep='\t',
+                use_chunks=use_chunks,
+                chunksize=20
+            )
+
+        assert not any('empty header' in str(w.message) for w in record)
+        assert list(result.columns) == self.NS_COLUMNS
+        assert all(pd.api.types.is_float_dtype(t) for t in result.dtypes)
+        assert len(result) == 60
+        assert result.index[0] == pd.Timestamp('2024-01-03 12:48:31.625')
+        np.testing.assert_allclose(
+            result.iloc[0].values, [60.920141, 61.020290, 60.920141])
+
+    def test_load_noisesentry_dot(self):
+        """NoiseSentry export with decimal dots: all columns loaded, empty
+        trailing column dropped."""
+        result = load(
+            path=str(self.data_dir / 'test_data_decimal_dot.csv'),
+            datetimeindex=0,
+            valueindexes=None,
+            header=1,
+            sep='\t',
+            use_chunks=False
+        )
+
+        assert list(result.columns) == self.NS_COLUMNS + [' L-PeakdB -A ']
+        assert len(result) == 60
+        np.testing.assert_allclose(
+            result.iloc[0].values, [34.827647, 32.527647, 33.627647, 44.427647])
+
+    def test_load_thousands_separator_not_converted(self):
+        """Numbers with thousands separators (e.g. a NoiseSentry export
+        resaved by Excel) are not read as decimal commas."""
+        path = self._write(
+            'resaved.csv',
+            'datetime\tLAeq\tLCeq\n'
+            '2022/09/12 15:00:00,000\t59,120932\t59,120,932\n'
+            '2022/09/12 15:00:01,000\t60,020932\t60,020,932\n')
+
+        result = load(path=path, datetimeindex=0, valueindexes=None,
+                    sep='\t', use_chunks=False)
+
+        np.testing.assert_allclose(result['LAeq'].values, [59.120932, 60.020932])
+        assert not pd.api.types.is_numeric_dtype(result['LCeq'])
+
+    def test_load_decimal_comma_conversion_error(self):
+        """Detection relies on the first 100 rows; a later value that cannot
+        be converted raises an error naming the column."""
+        rows = ''.join(f'2023-01-01 10:{i // 60:02d}:{i % 60:02d};65,5\n'
+                    for i in range(120))
+        path = self._write('late_error.csv', 'datetime;LAeq\n' + rows
+                        + '2023-01-01 10:02:00;ERR\n')
+
+        with pytest.raises(ValueError, match="'LAeq'.*decimal comma"):
+            load(path=path, datetimeindex=0, valueindexes=[1], sep=';',
+                use_chunks=False)
+
+    @pytest.mark.parametrize("ext", ['csv', 'xlsx'])
+    @pytest.mark.parametrize("datetimeindex, valueindexes", [
+        (0, [1, 2]),
+        (0, None),
+        ('Unnamed: 0', ['LAeq', 'LCeq']),
+    ])
+    def test_load_unnamed_datetime_column(self, ext, datetimeindex,
+                                        valueindexes):
+        """Datetime column with an empty header (DataFrame saved with an
+        unnamed index) is used as the index, not dropped."""
+        path = os.path.join(self.temp_dir, f'saved.{ext}')
+        if ext == 'csv':
+            self.df.to_csv(path)
+        else:
+            self.df.to_excel(path, engine='openpyxl')
+
+        for use_chunks in (False, True):
+            result = load(path=path, datetimeindex=datetimeindex,
+                        valueindexes=valueindexes, sep=',',
+                        use_chunks=use_chunks)
+
+            assert list(result.index) == list(self.df.index)
+            assert list(result.columns) == ['LAeq', 'LCeq']
+            np.testing.assert_allclose(result.values, self.df.values)
+
+    @pytest.mark.parametrize("valueindexes", [[1, 2], None])
+    def test_load_unnamed_column_with_data_kept(self, valueindexes):
+        """A value column with an empty header is kept, with a warning."""
+        path = self._write(
+            'unnamed_values.csv',
+            'datetime,,LAeq\n'
+            '2023-01-01 10:00:00,65.0,60.0\n'
+            '2023-01-01 10:01:00,66.0,61.0\n')
+
+        with pytest.warns(UserWarning, match="'Unnamed: 1' has an empty header"):
+            result = load(path=path, datetimeindex=0,
+                        valueindexes=valueindexes, use_chunks=False)
+
+        assert list(result.columns) == ['Unnamed: 1', 'LAeq']
+        np.testing.assert_allclose(result['Unnamed: 1'].values, [65.0, 66.0])
+
+    @pytest.mark.parametrize("use_chunks", [False, True])
+    def test_load_empty_unnamed_column_before_datetime(self, use_chunks):
+        """Dropping an empty unnamed column located before the datetime
+        column does not shift the datetime column position."""
+        path = self._write(
+            'empty_first.csv',
+            ',datetime,LAeq\n'
+            ',2023-01-01 10:00:00,60.0\n'
+            ',2023-01-01 10:01:00,61.0\n')
+
+        result = load(path=path, datetimeindex=1, valueindexes=None,
+                    use_chunks=use_chunks)
+
+        assert list(result.columns) == ['LAeq']
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        np.testing.assert_allclose(result['LAeq'].values, [60.0, 61.0])
+
+    def test_load_empty_header_row_raises(self):
+        """NoiseSentry export converted to Excel: the blank line is counted
+        as a row, so header=1 points to it and raises a clear error;
+        header=2 loads the file."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['SITE_C_2021_05_17__18h30m00s'])
+        ws.append([])
+        ws.append(['Time (Date hh:mm:ss.ms)'] + self.NS_COLUMNS)
+        ws.append(['2021/05/17 18:30:00.000', 44.13857, 53.93857, 5.83857])
+        ws.append(['2021/05/17 18:30:05.000', 54.73857, 54.13857, 44.73857])
+        path = os.path.join(self.temp_dir, 'converted.xlsx')
+        wb.save(path)
+
+        with pytest.raises(ValueError, match="empty header"):
+            load(path=path, datetimeindex=0, valueindexes=[2], header=1,
+                use_chunks=False)
+
+        result = load(path=path, datetimeindex=0, valueindexes=[2], header=2,
+                    use_chunks=False)
+        np.testing.assert_allclose(result.iloc[:, 0].values,
+                                [53.93857, 54.13857])
 
 
 class TestLoadIntegration:

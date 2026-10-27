@@ -3,7 +3,7 @@ for analysis.
 """
 
 import os
-import locale
+import re
 import pandas as pd
 import numpy as np
 import sys
@@ -17,6 +17,9 @@ from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
+# Number of rows inspected to detect empty unnamed columns and decimal commas.
+_SAMPLE_ROWS = 100
+
 def load(
     path: Union[str, List[str]], 
     datetimeindex: Optional[Union[int, str]] = None, 
@@ -24,26 +27,31 @@ def load(
     dateindex: Optional[Union[int, str]] = None, 
     valueindexes: Optional[Union[int, str, List[Union[int, str]]]] = 1, 
     header: Optional[int] = 0, 
-    sep: str = ',', 
-    slm_type: Optional[str] = None, 
+    sep: str = ',',
     timezone: Optional[str] = None,
     use_chunks: bool = True,
     chunksize: int = 10000,
     **kwargs
 ) -> pd.DataFrame:
     """Take one or several datasheets with date and time indicators
-    in combined in one column or across two columns, and sound level measured 
-    with a sound level monitor as input and return a DataFrame suitable for 
-    sound level averaging and descriptors computation provided in
-    the LevelMonitor class. Date and time are automatically parsed with 
-    dateutil package. 
+    combined in one column or across two columns, and sound level measured 
+    with a sound level monitor as input (e.g., equivalent levels and/or
+    third-octave levels) and return a pandas DataFrame suitable for 
+    use in the noisemonitor package. Date and time are automatically parsed 
+    with dateutil package.
+
+    Columns with an empty header (e.g., trailing column created by a 
+    separator at the end of each line) are dropped when their first 100 rows 
+    are empty; otherwise they are kept and a UserWarning is issued. 
+    Value columns read as text are converted to floats.
 
     Parameters
-    ---------- 
+    ----------
     path: str or list of str
-        absolute or relative pathname (or list of pathnames) to convert as a 
-        sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx, 
-        or .txt
+        absolute or relative pathname (or list of pathnames) to convert as a
+        sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx,
+        or .txt. When several files are given, they must share the same
+        format (typically, files exported by the same instrument).
     datetimeindex: int or str
         column index or column name for date and time if combined in a single 
         column. Not to be indicated if date and time are in different columns.
@@ -64,15 +72,12 @@ def load(
         work with smaller or higher refresh rates). If None, all columns are loaded.
         Example of relevant indices: LAeq, LCeq, LZeq, LAmax, LAmin, LCpeak, etc. 
     header: int, None, default 0
-        row index for datasheet header. If None, the datasheet has 
-        no header.
+        row index for datasheet header. If None, the datasheet has
+        no header. Blank lines are not counted in text files (.csv, .txt,
+        and text files with an .xls extension) but are counted in Excel
+        files.
     sep: str, default ','
         separator if reading .csv file(s).
-    slm_type: str, default None
-        performs specific parsing operation for known sound level monitor
-        manufacturers. For now will only respond to 'NoiseSentry' as input, 
-        replacing the commas by dots in the sound level data to convert sound
-        levels to floats.
     timezone: str, default None
         when indicated, will convert the datetime index from the specified 
         timezone to a timezone unaware format.
@@ -145,17 +150,7 @@ def load(
     else:
         usecols = None
 
-    # If uses_ints, remap the date/time indices to their position after selection.
-    if usecols is not None and uses_ints:
-        selected = sorted(set(usecols))
-        if datetimeindex is not None:
-            datetimeindex = selected.index(datetimeindex)
-        if dateindex is not None:
-            dateindex = selected.index(dateindex)
-        if timeindex is not None:
-            timeindex = selected.index(timeindex)
-
-    for fp in path:   
+    for fp in path:
         ext = os.path.splitext(fp)[-1].lower()
 
         # Reading datasheet with pandas
@@ -199,6 +194,22 @@ def load(
         if not temp.empty:
             df = pd.concat([df, temp])
 
+    # Refer to the datetime, date and time columns by label from now on.
+    if uses_ints:
+        positions = (
+            sorted(set(usecols)) if usecols is not None
+            else range(len(df.columns))
+        )
+        labels = dict(zip(positions, df.columns))
+        datetimeindex, dateindex, timeindex = (
+            labels.get(idx) for idx in (datetimeindex, dateindex, timeindex)
+        )
+    index_labels = [
+        idx for idx in (datetimeindex, dateindex, timeindex) if idx is not None
+    ]
+    df = _drop_unnamed_columns(df, index_labels, header)
+    df = _convert_decimal_comma(df, index_labels)
+
     if use_chunks:
         try:
             with ProcessPoolExecutor() as executor:
@@ -215,8 +226,7 @@ def load(
                         df.iloc[start:stop],
                         datetimeindex, 
                         timeindex, 
-                        dateindex, 
-                        slm_type, 
+                        dateindex,
                         timezone
                     ) for start, stop in slices
                 ]
@@ -229,19 +239,17 @@ def load(
                 RuntimeWarning
             )
             df = _parse_data(
-                df, 
-                datetimeindex, 
-                timeindex, 
-                dateindex, 
-                slm_type, 
+                df,
+                datetimeindex,
+                timeindex,
+                dateindex,
                 timezone)
     else:
         df = _parse_data(
-            df, 
-            datetimeindex, 
-            timeindex, 
-            dateindex, 
-            slm_type, 
+            df,
+            datetimeindex,
+            timeindex,
+            dateindex,
             timezone)
 
     # Ensure the index is unique and sorted
@@ -259,40 +267,24 @@ def load(
         
     return df
 
-def _parse_data(chunk, datetimeindex, timeindex, dateindex,
-                    slm_type, timezone):
+def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):
     """Process a chunk of data to convert it into a DataFrame suitable for
-    sound level analysis."""
-    try:
-        # Only try to remove Unnamed columns if columns are string type
-        if hasattr(chunk.columns, 'str'):
-            chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')].copy()
-    except (TypeError, AttributeError):
-        pass
-
-    # Convert column names (strings) to column indices (integers)
-    if datetimeindex is not None and isinstance(datetimeindex, str):
-        datetimeindex = chunk.columns.get_loc(datetimeindex)
-    if dateindex is not None and isinstance(dateindex, str):
-        dateindex = chunk.columns.get_loc(dateindex)
-    if timeindex is not None and isinstance(timeindex, str):
-        timeindex = chunk.columns.get_loc(timeindex)
+    sound level analysis. Datetime, date and time columns are given by
+    column label."""
+    chunk = chunk.copy()
 
     if datetimeindex is not None:
-        datetime_col = chunk.columns[datetimeindex]
-        if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
+        datetime_col = datetimeindex
+        if not isinstance(chunk[datetime_col].iloc[0], pd.Timestamp):
             chunk[datetime_col] = chunk[datetime_col].map(
                 lambda a: parser.parse(a))
-    elif all(ind is not None for ind in [dateindex, timeindex]): 
-        datetime_col = chunk.columns[dateindex]
-        chunk[datetime_col] = chunk[datetime_col].map(
-            lambda a: parser.parse(a).date())
-        chunk[chunk.columns[timeindex]] = chunk[chunk.columns[timeindex]].map(
-            lambda a: parser.parse(a).time())
-        chunk[datetime_col] = chunk.apply(
-            lambda a: datetime.combine(
-                a.iloc[dateindex], a.iloc[timeindex]), axis=1)
-        chunk = chunk.drop(columns=chunk.columns[timeindex])
+    elif all(ind is not None for ind in [dateindex, timeindex]):
+        datetime_col = dateindex
+        dates = chunk[dateindex].map(lambda a: parser.parse(a).date())
+        times = chunk[timeindex].map(lambda a: parser.parse(a).time())
+        chunk[datetime_col] = [
+            datetime.combine(d, t) for d, t in zip(dates, times)]
+        chunk = chunk.drop(columns=timeindex)
     else:
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
@@ -307,18 +299,67 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex,
         chunk.index = chunk.index.tz_convert(
             timezone).tz_localize(None)
 
-    # Apply NoiseSentry formatting only to value columns, not datetime
-    if slm_type == 'NoiseSentry':
-        for col in chunk.columns:
-            # Convert European decimal format only for numeric columns
-            chunk[col] = chunk[col].map(
-                lambda a: (
-                    locale.atof(str(a).replace(',', '.'))
-                    if pd.notna(a) else a
-                )
-            )
-
     return chunk
+
+def _drop_unnamed_columns(df, index_labels, header):
+    """Drop columns with an empty header (named 'Unnamed: N' by pandas)
+    whose first rows are empty, e.g. the trailing column created by a
+    separator at the end of each line. Only the first rows are inspected to
+    keep the check inexpensive. Unnamed columns holding data are kept with
+    a warning; datetime, date and time columns are always kept."""
+    unnamed = [
+        col for col in df.columns
+        if isinstance(col, str) and re.fullmatch(r'Unnamed: \d+', col)
+    ]
+    if not unnamed:
+        return df
+
+    if header is not None and len(unnamed) == len(df.columns):
+        raise ValueError(
+            f"All loaded columns have an empty header: row {header} may not "
+            "be the header row. Note that blank lines are not counted in "
+            "text files (.csv, .txt) but are counted in Excel files."
+        )
+
+    head = df.iloc[:_SAMPLE_ROWS]
+    empty = []
+    for col in unnamed:
+        if col in index_labels:
+            continue
+        if head[col].isna().all():
+            empty.append(col)
+        else:
+            warnings.warn(
+                f"Column '{col}' has an empty header but contains data; "
+                "it is kept as a value column.",
+                UserWarning
+            )
+    return df.drop(columns=empty)
+
+def _convert_decimal_comma(df, index_labels):
+    """Convert value columns read as text that hold numbers with a decimal
+    comma (e.g. '63,723268') to floats. A column is converted when all
+    non-empty values of its first rows are numbers with at most one comma,
+    so that different formats (e.g. '59,120,932') are never read as
+    decimal commas."""
+    for col in df.columns:
+        if col in index_labels or pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        head = df[col].iloc[:_SAMPLE_ROWS].dropna()
+        head = head[head.map(lambda a: isinstance(a, str))].astype(str)
+        if (head.empty
+                or not head.str.contains(',', regex=False).any()
+                or not head.str.fullmatch(r'\s*[+-]?\d+(,\d+)?\s*').all()):
+            continue
+        try:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(',', '.', regex=False))
+        except ValueError as e:
+            raise ValueError(
+                f"Column '{col}' holds numbers with a decimal comma but some "
+                f"values could not be converted: {e}"
+            ) from e
+    return df
 
 
 
