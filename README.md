@@ -63,7 +63,7 @@ import noisemonitor as nm
 
 # Load data
 df_1m = nm.load(
-    'tests/data/test_data_laeq1m.csv',
+    'tests/data/internal/test_data_laeq1m.csv',
     datetimeindex=0, # Column index for datetime
     valueindexes=1,  # Column index(es) for sound levels
     header=0,        # Header row index

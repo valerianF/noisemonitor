@@ -20,7 +20,7 @@ import noisemonitor as nm
 
 # Basic loading
 df_1s = nm.load(
-    'tests/data/test_data_laeq1s.csv', # Example dataset with 1-second LAeq data
+    'tests/data/internal/test_data_laeq1s.csv', # Example dataset with 1-second LAeq data
     datetimeindex=0,      # Column index for datetime
     valueindexes=1,       # Column index for sound levels
     header=0,             # Header row index
@@ -48,7 +48,7 @@ df3 = nm.load(
 
 # Multiple columns (e.g., octave band levels, LAeq vs. LCeq, etc.)
 df_freq = nm.load(
-    'tests/data/test_data_freq.csv', # Load data with octave bands levels
+    'tests/data/internal/test_data_freq.csv', # Load data with octave bands levels
     datetimeindex=0, # Column index for datetime
     valueindexes=list(range(1, 9)), # Columns with octave band levels
     header=0,

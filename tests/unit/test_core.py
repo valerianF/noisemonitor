@@ -25,7 +25,7 @@ from noisemonitor.util.core import (
 @pytest.fixture(scope="module")
 def test_data_paths():
     """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data"
+    base_path = Path(__file__).parent.parent / "data" / "internal"
     return {
         "laeq1m": base_path / "test_data_laeq1m.csv",
         "laeq1s": base_path / "test_data_laeq1s.csv"

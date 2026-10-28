@@ -264,7 +264,8 @@ class TestLoad:
         """Binary Excel .xls workbook (title row, blank row, header on row
         2) read with the calamine engine, without deprecation warnings."""
         result = load(
-            path=str(Path(__file__).parent.parent / 'data' / 'test_data_binary.xls'),
+            path=str(Path(__file__).parent.parent / 'data' / 'internal'
+                     / 'test_data_binary.xls'),
             datetimeindex=0,
             valueindexes=[1, 2],
             header=2,
@@ -877,7 +878,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
     def setup_method(self):
         """Set up test files for each test."""
         self.temp_dir = tempfile.mkdtemp()
-        self.data_dir = Path(__file__).parent.parent / "data"
+        self.data_dir = Path(__file__).parent.parent / "data" / "internal"
         idx = pd.date_range('2023-01-01 10:00', periods=5, freq='1min')
         # DatetimeIndex without a name, as after some pandas operations
         self.df = pd.DataFrame(
