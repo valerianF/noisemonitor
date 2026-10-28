@@ -43,7 +43,9 @@ def periodic(
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
     win: int, default 3600
-        window size for the averaging function, in seconds.
+        window size for the averaging function, in seconds. Each window
+        covers the half-open interval [start, start + win): a timestamp
+        marks the start of its integration period.
     step: int, default 0
         step size to compute a rolling average. If set to 0 (default 
         value), the function will compute non-rolling averages.
@@ -134,15 +136,16 @@ def periodic(
 
         temp_slice = temp.between_time(
             time(
-                hour=(t1//3600)%24, 
-                minute=(t1%3600)//60, 
+                hour=(t1//3600)%24,
+                minute=(t1%3600)//60,
                 second=(t1%3600)%60
-            ), 
+            ),
             time(
-                hour=(t2//3600)%24, 
-                minute=(t2%3600)//60, 
+                hour=(t2//3600)%24,
+                minute=(t2%3600)//60,
                 second=(t2%3600)%60
-        ))
+            ),
+            inclusive='left')
 
         times.append(time(
             hour=(t//3600)%24, 
@@ -220,7 +223,8 @@ def freq_periodic(
     day2: Optional[str], default None
         Last day of the week included in the weekly average.
     win: int, default 3600
-        Window size for the averaging function, in seconds.
+        Window size for the averaging function, in seconds. Each window
+        covers the half-open interval [start, start + win).
     step: int, default 0
         Step size to compute a sliding average. If set to 0 (default value),
         the function will compute non-sliding averages.
@@ -456,7 +460,8 @@ def nne(
     min_gap: int
         Minimum time gap in seconds between successive noise events.
     win: int, default 3600
-        Window size for the averaging function, in seconds.
+        Window size for the averaging function, in seconds. Each window
+        covers the half-open interval [start, start + win).
     step: int, default 0
         Step size to compute a sliding average. If set to 0 (default value), 
         the function will compute non-sliding averages.
@@ -511,15 +516,16 @@ def nne(
 
             temp = group.between_time(
                 time(
-                    hour=(t1//3600)%24, 
-                    minute=(t1%3600)//60, 
+                    hour=(t1//3600)%24,
+                    minute=(t1%3600)//60,
                     second=(t1%3600)%60
-                ), 
+                ),
                 time(
-                    hour=(t2//3600)%24, 
-                    minute=(t2%3600)//60, 
+                    hour=(t2//3600)%24,
+                    minute=(t2%3600)//60,
                     second=(t2%3600)%60
-            ))
+                ),
+                inclusive='left')
 
             arr = temp.iloc[:, column]
 

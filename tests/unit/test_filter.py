@@ -293,6 +293,28 @@ class TestHours:
         if len(result) > 0:
             assert (result.index.hour == 12).all()
     
+    @pytest.mark.parametrize("hour1, hour2, first, last, count", [
+        (7, 19, '07:00', '18:59', 720),
+        (23, 7, '00:00', '23:59', 480),
+        (22, 24, '22:00', '23:59', 120),
+        (24, 7, '00:00', '06:59', 420),
+        (0, 24, '00:00', '23:59', 1440),
+    ])
+    def test_hours_half_open(self, hour1, hour2, first, last, count):
+        """_hours keeps [hour1, hour2): the sample at hour2 is excluded (B3),
+        24 maps to midnight and (0, 24) keeps the full day."""
+        dates = pd.date_range('2023-01-01', periods=1440, freq='min')
+        df = pd.DataFrame({'LAeq': 50.0}, index=dates)
+
+        result = _hours(df, hour1, hour2)
+        times = result.index.strftime('%H:%M')
+
+        assert len(result) == count
+        assert times.min() == first
+        assert times.max() == last
+        if hour1 != 0 or hour2 != 24:
+            assert f'{hour2 % 24:02d}:00' not in times
+
     def test_invalid_hour_range(self, laeq1m_data):
         """Test error handling for invalid hour values."""
         with pytest.raises(ValueError) as exc_info:

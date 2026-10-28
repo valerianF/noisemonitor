@@ -86,6 +86,8 @@ df_filtered = nm.filter.extreme_values(
 
 The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators)) but rather return aggregate indicators.
 
+**Time convention:** a timestamp marks the start of its integration period (e.g., an LAeq,1s stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open, `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the Lden evening only. This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
+
 ### Equivalent level and statistical levels
 
 The `noisemonitor.summary.leq()` function computes the overall or time-filtered (by the time of the day and optionaly day of the week) equivalent level together with statistical sound levels.

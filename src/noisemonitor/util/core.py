@@ -278,13 +278,14 @@ def lden(
     start_night: int = 23
     ) -> pd.DataFrame:
     """Compute the Lden value for a given DataFrame, following the
-    UE Directive 2002/49/EC: Lden = 10 lg[(t_day 10^(Lday/10) +
+    EU Directive 2002/49/EC: Lden = 10 lg[(t_day 10^(Lday/10) +
     t_evening 10^((Levening+5)/10) + t_night 10^((Lnight+10)/10)) / 24],
     where t_day, t_evening and t_night are the durations of the periods in
     hours (ISO 1996-1:2016). The Directive defines Lden over a year;
     here it is computed over all the data in df. Defaults are the
     Directive's 07:00-19:00, 19:00-23:00 and 23:00-07:00 (12, 4 and 8
-    hours); other start hours may be choosen.
+    hours); other start hours may be chosen. Periods are half-open, e.g.,
+    [07:00, 19:00).
 
     Parameters
     ----------
@@ -336,11 +337,14 @@ def lden(
             f"{start_day}, {start_evening} and {start_night}.")
     
     day = df.between_time(
-        time(hour=start_day), time(hour=start_evening)).iloc[:, column]
+        time(hour=start_day), time(hour=start_evening),
+        inclusive='left').iloc[:, column]
     evening = df.between_time(
-        time(hour=start_evening), time(hour=start_night)).iloc[:, column]
+        time(hour=start_evening), time(hour=start_night),
+        inclusive='left').iloc[:, column]
     night = df.between_time(
-        time(hour=start_night), time(hour=start_day)).iloc[:, column]
+        time(hour=start_night), time(hour=start_day),
+        inclusive='left').iloc[:, column]
     
     lday = equivalent_level(day)
     levening = equivalent_level(evening)

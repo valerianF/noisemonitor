@@ -371,15 +371,15 @@ class TestLden:
         df = pd.DataFrame({'sound_level': data}, index=dates)
 
         result = lden(df, 0, values=True,
-                      start_day=7, start_evening=20, start_night=23)
+                    start_day=7, start_evening=20, start_night=23)
         lday = result['Lday'].iloc[0]
         levening = result['Levening'].iloc[0]
         lnight = result['Lnight'].iloc[0]
 
-        # Boundary samples fall in two periods (B3), hence atol=0.1
-        assert np.isclose(lday, 65.0, atol=0.1)
-        assert np.isclose(levening, 60.0, atol=0.1)
-        assert np.isclose(lnight, 55.0, atol=0.1)
+        # Periods are half-open: boundary samples count once
+        assert np.isclose(lday, 65.0, atol=1e-9)
+        assert np.isclose(levening, 60.0, atol=1e-9)
+        assert np.isclose(lnight, 55.0, atol=1e-9)
 
         expected_lden = 10 * np.log10((
             13 * np.power(10, lday / 10)
@@ -387,6 +387,25 @@ class TestLden:
             + 8 * np.power(10, (lnight + 10) / 10)
         ) / 24)
         assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=1e-9)
+
+    def test_lden_period_boundaries(self):
+        """A sample at a period start belongs to that period only:
+        07:00, 19:00 and 23:00 samples are counted once."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
+        boundary = dates.strftime('%H:%M').isin(['07:00', '19:00', '23:00'])
+        df = pd.DataFrame({'sound_level': np.where(boundary, 100.0, 40.0)},
+                        index=dates)
+
+        result = lden(df, 0, values=True)
+
+        def expected(n_samples):
+            return 10 * np.log10(
+                (np.power(10, 10.0) + (n_samples - 1) * np.power(10, 4.0))
+                / n_samples)
+
+        assert np.isclose(result['Lday'].iloc[0], expected(720), atol=1e-9)
+        assert np.isclose(result['Levening'].iloc[0], expected(240), atol=1e-9)
+        assert np.isclose(result['Lnight'].iloc[0], expected(480), atol=1e-9)
 
     def test_lden_not_rounded(self):
         """core.lden returns unrounded period levels and Lden (B11)."""

@@ -234,18 +234,16 @@ class TestPeriodic:
 
     def test_periodic_start_at_day(self, one_loud_night_data):
         """With start_at_day, days run from start_day to start_day and keep
-        each night whole (C3); by default they are calendar days."""
+        each night whole; by default they are calendar days."""
         result = periodic(one_loud_night_data, freq='D', values=True,
                         start_at_day=True)
 
         assert (result.index.hour == 7).all()
-        # The day starting 2023-01-01 07:00 holds the whole loud night
-        # (+ its own 07:00 sample, counted twice by between_time, B3)
         night = result.loc[pd.Timestamp('2023-01-01 07:00'), 'Lnight']
-        assert np.isclose(night, 50.0, atol=0.05)
+        assert np.isclose(night, 50.0, atol=1e-9)
         assert np.isclose(
             result.loc[pd.Timestamp('2023-01-02 07:00'), 'Lnight'],
-            40.0, atol=0.05)
+            40.0, atol=1e-9)
 
         calendar = periodic(one_loud_night_data, freq='D', values=True)
         assert (calendar.index.hour == 0).all()

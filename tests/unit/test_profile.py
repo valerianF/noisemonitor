@@ -130,9 +130,28 @@ def octave_data_with_gaps(sample_octave_data):
     return test_data
 
 
+@pytest.fixture
+def hour_start_peaks_data():
+    """One day at 1 s, 40 dB except 100 dB at every hh:00:00."""
+    dates = pd.date_range('2023-01-01', periods=86400, freq='s')
+    peaks = (dates.minute == 0) & (dates.second == 0)
+    return pd.DataFrame({'LAeq': np.where(peaks, 100.0, 40.0)}, index=dates)
+
+
 class TestPeriodic:
     """Test cases for the periodic function."""
-    
+
+    def test_periodic_windows_half_open(self, hour_start_peaks_data):
+        """Each window covers [start, start + win): the hh:00:00 peak is in
+        one window only."""
+        result = periodic(hour_start_peaks_data, hour1=0, hour2=23,
+                        column=0, win=3600)
+
+        expected = 10 * np.log10(
+            (np.power(10, 10.0) + 3599 * np.power(10, 4.0)) / 3600)
+        assert len(result) == 24
+        assert np.allclose(result['Leq'], expected, atol=1e-9)
+
     def test_periodic_exact_values(self, laeq1s_data):
         """Test periodic with exact expected values from dataset."""
         # Test full day profile (0-23h) with 1-hour windows
@@ -515,7 +534,16 @@ class TestSeries:
 
 class TestNne:
     """Test cases for the nne (Number of Noise Events) function."""
-    
+
+    def test_nne_windows_half_open(self, hour_start_peaks_data):
+        """Each window covers [start, start + win): the hh:00:00 event is
+        counted in one window only, not also in the previous one."""
+        result = nne(hour_start_peaks_data, hour1=0, hour2=23,
+                    background_type=70, min_gap=0, win=3600, column=0)
+
+        assert len(result) == 23
+        assert (result.iloc[:, 0] == 1).all()
+
     @pytest.mark.slow
     @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
     def test_nne_basic(self, laeq1s_data):

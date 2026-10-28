@@ -334,8 +334,10 @@ def leq(
     hour1: int, between 0 and 24
         hour for the starting time of the daily average.
     hour2: int, between 0 and 24
-        hour for the ending time of the daily average. If hour2 > hour1 
-        the average will be computed outside of these hours.
+        hour for the ending time of the daily average: the
+        average covers [hour1, hour2), a timestamp marking the start of
+        its integration period. If hour2 < hour1 the average will be
+        computed outside of these hours.
     day1 (optional): str, a day of the week in english, case-insensitive
         first day of the week included in the Lden computation.
     day2 (optional): str, a day of the week in english, case-insensitive

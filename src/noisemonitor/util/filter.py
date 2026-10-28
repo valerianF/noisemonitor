@@ -161,7 +161,7 @@ def weather_flags(
     proportion_filtered = (filtered_out / initial_count) * 100
 
     print(f"Proportion of values filtered out: "
-          f"{proportion_filtered:.2f}%")
+        f"{proportion_filtered:.2f}%")
 
     return df
 
@@ -221,7 +221,7 @@ def _days(
         
         if filtered_df.empty:
             raise ValueError(f"No data found for the specified day range "
-                           f"({day1.lower()} to {day2.lower()}). ")
+                        f"({day1.lower()} to {day2.lower()}). ")
         
         return filtered_df
     else:
@@ -232,7 +232,9 @@ def _hours(
     hour1: int, 
     hour2: int
     ) -> pd.DataFrame:
-    """Filter the DataFrame based on the specified hours.
+    """Filter the DataFrame based on the specified hours, over the
+    half-open interval [hour1, hour2): a timestamp marks the start of its
+    integration period, so a sample at hour2 is excluded.
 
     Parameters
     ----------
@@ -241,27 +243,24 @@ def _hours(
     hour1: int
         Hour for the starting time of the daily average.
     hour2: int
-        Hour for the ending time of the daily average.
+        Hour for the ending time of the daily average. If
+        hour1 > hour2, the interval wraps past midnight. hour1=0 and
+        hour2=24 keep the full day.
 
     Returns
     ----------
     pd.Series: Filtered Series based on the specified hours.
     """
-    
+
     if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
-        raise ValueError("Hours must be between 0 and 24.")  
+        raise ValueError("Hours must be between 0 and 24.")
 
-    if hour1 == 24:
-        t1 = time(hour=23, minute=59, second=59)
-        t2 = time(hour=hour2)
-    elif hour2 == 24:
-        t1 = time(hour=hour1)
-        t2 = time(hour=23, minute=59, second=59)
-    else:
-        t1 = time(hour=hour1)
-        t2 = time(hour=hour2)
+    # 0 and 24 both map to midnight; [0, 24) is the full day
+    if hour1 != hour2 and hour1 % 24 == hour2 % 24:
+        return df
 
-    return df.between_time(t1, t2)
+    return df.between_time(
+        time(hour=hour1 % 24), time(hour=hour2 % 24), inclusive='left')
 
 
 
