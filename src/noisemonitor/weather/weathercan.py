@@ -371,12 +371,16 @@ def contingency_weather_flags(
     include_wind_flag: bool = True, 
     include_rain_flag: bool = True, 
     include_temp_flag: bool = False,
-    include_rel_hum_flag: bool = False, 
-    include_snow_flag: bool = False
+    include_rel_hum_flag: bool = False,
+    include_snow_flag: bool = False,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23
 ) -> pd.DataFrame:
     """
-    Create a contingency table for LAeq, Lden, Lday, Levening, and Lnight 
-    with and without the different weather flags.
+    Create a contingency table for LAeq, Lden, Lday, Levening, and Lnight
+    with and without the different weather flags. Lden follows the
+    Directive 2002/49/EC (see noisemonitor.summary.lden).
 
     Parameters
     ----------
@@ -395,6 +399,12 @@ def contingency_weather_flags(
         Whether to include the Relative Humidity Flag in the contingency table.
     include_snow_flag: bool, default False
         Whether to include the Snow Flag in the contingency table.
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
 
     Returns
     ----------
@@ -447,7 +457,13 @@ def contingency_weather_flags(
                 hour1=0, 
                 hour2=24
                 )
-            ov_lden = lden(df=datafr, column=column)
+            ov_lden = lden(
+                df=datafr,
+                column=column,
+                start_day=start_day,
+                start_evening=start_evening,
+                start_night=start_night
+                )
             results[key] = {
                 'Leq': ov_leq['Leq'][0],
                 'Lden': ov_lden['Lden'][0]

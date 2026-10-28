@@ -272,16 +272,26 @@ def lden(
     column: Union[int, str], 
     values: bool = False,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23
     ) -> pd.DataFrame:
-    """Compute the Lden value for a given DataFrame.
+    """Compute the Lden value for a given DataFrame, following the
+    UE Directive 2002/49/EC: Lden = 10 lg[(t_day 10^(Lday/10) +
+    t_evening 10^((Levening+5)/10) + t_night 10^((Lnight+10)/10)) / 24],
+    where t_day, t_evening and t_night are the durations of the periods in
+    hours (ISO 1996-1:2016). The Directive defines Lden over a year;
+    here it is computed over all the data in df. Defaults are the
+    Directive's 07:00-19:00, 19:00-23:00 and 23:00-07:00 (12, 4 and 8
+    hours); other start hours may be choosen.
 
     Parameters
     ----------
     df: DataFrame
         DataFrame with a datetime index and sound level values.
     column: int or str
-        column index (int) or column name (str) to use for calculations. 
+        column index (int) or column name (str) to use for calculations.
         Should contain LAeq values.
     values: bool, default False
         If set to True, the function will return individual day, evening
@@ -291,30 +301,57 @@ def lden(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the night period starts.
 
     Returns
     ----------
     DataFrame: Lden value and optionally day, evening, and night levels.
     """
     column = _column_to_index(df, column)
+
+    starts = {
+        'start_day': start_day,
+        'start_evening': start_evening,
+        'start_night': start_night
+    }
+    for name, value in starts.items():
+        if (isinstance(value, bool) or not isinstance(value, (int, np.integer))
+                or not 0 <= value <= 23):
+            raise ValueError(
+                f"{name} must be an integer between 0 and 23, got {value!r}.")
+
+    t_day = (start_evening - start_day) % 24
+    t_evening = (start_night - start_evening) % 24
+    t_night = (start_day - start_night) % 24
+
+    if 0 in (t_day, t_evening, t_night) or t_day + t_evening + t_night != 24:
+        raise ValueError(
+            "start_day, start_evening and start_night must be distinct and "
+            "follow each other in this order over 24 hours, got "
+            f"{start_day}, {start_evening} and {start_night}.")
     
     day = df.between_time(
-        time(hour=7), time(hour=19)).iloc[:, column]
+        time(hour=start_day), time(hour=start_evening)).iloc[:, column]
     evening = df.between_time(
-        time(hour=19), time(hour=23)).iloc[:, column]
+        time(hour=start_evening), time(hour=start_night)).iloc[:, column]
     night = df.between_time(
-        time(hour=23), time(hour=7)).iloc[:, column]
+        time(hour=start_night), time(hour=start_day)).iloc[:, column]
     
-    lday = np.round(equivalent_level(day), 2)
-    levening = np.round(equivalent_level(evening), 2)
-    lnight = np.round(equivalent_level(night), 2)
+    lday = equivalent_level(day)
+    levening = equivalent_level(evening)
+    lnight = equivalent_level(night)
 
-    lden = np.round(10 * np.log10(
+    lden = 10 * np.log10(
         (
-            12 * np.power(10, lday / 10)
-            + 4 * np.power(10, (levening + 5) / 10)
-            + 8 * np.power(10, (lnight + 10) / 10)
-        ) / 24), 2)
+            t_day * np.power(10, lday / 10)
+            + t_evening * np.power(10, (levening + 5) / 10)
+            + t_night * np.power(10, (lnight + 10) / 10)
+        ) / 24)
     
     if coverage_check:
         passes_threshold_day = check_coverage(

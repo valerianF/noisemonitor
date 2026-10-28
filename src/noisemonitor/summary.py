@@ -68,9 +68,15 @@ def periodic(
     column: Optional[Union[int, str]] = 0,
     values: bool=False,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23,
+    start_at_day: bool = False
 ) -> pd.DataFrame:
-    """Compute Leq and Lden on a periodic basis.
+    """Compute Leq and Lden on a periodic basis. Lden follows the
+    Directive 2002/49/EC (Annex I), computed here over each period instead
+    of a year (see noisemonitor.util.core.lden).
 
     Parameters
     ----------
@@ -80,7 +86,7 @@ def periodic(
         frequency for the computation. 'D' for daily, 'W' for weekly, and
         'MS' for monthly.
     column: int or str, default 0
-        column index (int) or column name (str) to use for calculations. 
+        column index (int) or column name (str) to use for calculations.
         If None, the first column of the DataFrame will be used.
     values: bool, default False
         if set to True, the function will return individual day, evening
@@ -90,6 +96,19 @@ def periodic(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
+    start_at_day: bool, default False
+        if False, days, weeks and months start at midnight (calendar
+        periods): a day's night then joins the end of one night (00:00 to
+        start_day) and the start of the next (start_night to 24:00). If
+        True, they start at start_day (e.g. 07:00 to 07:00 the next day),
+        so that each night is kept whole. Periods are labelled by their
+        start time. That this affects both Leq and Lden computation. 
 
     Returns
     ----------
@@ -99,20 +118,20 @@ def periodic(
 
     results = []
 
-    if freq == 'D':
-        resampled = df.resample('D')
-    elif freq == 'MS':
-        resampled = df.resample('MS')
-    elif freq == 'W':
-        resampled = df.resample('W-MON')
-    else:
-        raise ValueError("Invalid frequency. Use 'D' for daily, 'W' for" 
+    rules = {'D': 'D', 'MS': 'MS', 'W': 'W-MON'}
+    if freq not in rules:
+        raise ValueError("Invalid frequency. Use 'D' for daily, 'W' for"
                             " weekly or 'MS' for monthly.")
-    
+
+    # Shift the index so that calendar periods start at start_day
+    offset = pd.Timedelta(hours=start_day if start_at_day else 0)
+    resampled = df.set_axis(df.index - offset, axis=0).resample(rules[freq])
+
     coverage_warning_issued = False
 
     for period, group in resampled:
         if len(group) > 0:
+            group = group.set_axis(group.index + offset, axis=0)
             array = group.iloc[:, column]
 
             if coverage_check:
@@ -135,10 +154,13 @@ def periodic(
                 column=column,
                 values=values,
                 coverage_check=coverage_check,
-                coverage_threshold=coverage_threshold
+                coverage_threshold=coverage_threshold,
+                start_day=start_day,
+                start_evening=start_evening,
+                start_night=start_night
             )
             result = {
-                'Period': period,
+                'Period': period + offset,
                 'Leq': leq_value,
                 'Lden': lden_values['Lden'][0]
             }
@@ -158,11 +180,16 @@ def freq_periodic(
     freq: str = 'D', 
     values: bool = False,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23,
+    start_at_day: bool = False
 ) -> pd.DataFrame:
     """
-    Compute periodic levels for each frequency band (e.g. octave 
-    band or third octave bands) in the input DataFrame.
+    Compute periodic levels for each frequency band (e.g. octave
+    band or third octave bands) in the input DataFrame. Lden follows the
+    Directive 2002/49/EC (see noisemonitor.summary.periodic).
 
     Parameters
     ----------
@@ -180,10 +207,19 @@ def freq_periodic(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
+    start_at_day: bool, default False
+        if True, days, weeks and months start at start_day instead of
+        midnight (see noisemonitor.summary.periodic).
 
     Returns
     ----------
-    pd.DataFrame: DataFrame with weekly or daily levels for each 
+    pd.DataFrame: DataFrame with weekly or daily levels for each
         frequency band.
     """
 
@@ -191,7 +227,9 @@ def freq_periodic(
 
     results = {
         col: periodic(df, column=df.columns.get_loc(col), freq=freq, values=values,
-                    coverage_check=coverage_check, coverage_threshold=coverage_threshold)
+                    coverage_check=coverage_check, coverage_threshold=coverage_threshold,
+                    start_day=start_day, start_evening=start_evening,
+                    start_night=start_night, start_at_day=start_at_day)
         for col in df.columns
     }
 
@@ -212,13 +250,18 @@ def lden(
     column: Optional[Union[int, str]] = 0,
     values: bool=True,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23
 ) -> pd.DataFrame:
     """Return the Lden, an indicator of noise level based on Leq over
-    a whole day with a penalty for evening (19h-23h) and night (23h-7h)
-    time noise. By default, an average Lden encompassing
-    all the dataset is computed. Can return a Lden value
-    corresponding to specific days of the week.
+    a whole day with a penalty of 5 dB for evening (default 19h-23h) and
+    10 dB for night (default 23h-7h), following the EU Directive
+    2002/49/EC. Each period is weighted by its duration in hours
+    (ISO 1996-1:2016). The Directive defines Lden over a year; here
+    an average Lden encompassing all the dataset is computed by default.
+    Can return a Lden value corresponding to specific days of the week.
 
     Parameters
     ----------
@@ -241,23 +284,33 @@ def lden(
         with insufficient data coverage.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the night period starts. Member States may
+        choose start hours other than the Directive's defaults.
 
     Returns
-    ---------- 
-    pd.DataFrame: dataframe with daily or weekly lden rounded to two decimals. 
-        Associated day, evening and night values are returned if values 
+    ----------
+    pd.DataFrame: dataframe with daily or weekly lden rounded to two decimals.
+        Associated day, evening and night values are returned if values
         is set to True.
     """
     column = core._column_to_index(df, column)
     temp = filter._days(df, day1, day2)
 
     return core.lden(
-        temp, 
-        column, 
+        temp,
+        column,
         values=values,
         coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold  
-        )
+        coverage_threshold=coverage_threshold,
+        start_day=start_day,
+        start_evening=start_evening,
+        start_night=start_night
+        ).round(2)
 
 def leq(
     df: pd.DataFrame, 
@@ -354,10 +407,14 @@ def freq_indicators(
     stats: bool = False,
     values: bool = True,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23
 ) -> pd.DataFrame:
     """
-    Compute overall Leq and Lden for each frequency band.
+    Compute overall Leq and Lden for each frequency band. Lden follows the
+    Directive 2002/49/EC (see noisemonitor.summary.lden).
 
     Parameters
     ----------
@@ -385,6 +442,12 @@ def freq_indicators(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
 
     Returns
     ----------
@@ -421,7 +484,10 @@ def freq_indicators(
             column=col_idx,
             values=values,
             coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold
+            coverage_threshold=coverage_threshold,
+            start_day=start_day,
+            start_evening=start_evening,
+            start_night=start_night
         )
 
         # Combine results for this frequency band
@@ -459,7 +525,11 @@ def nday(
     freq: str = 'D',
     column: Optional[Union[int, str]] = 0,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23,
+    start_at_day: bool = False
 ) -> Tuple[pd.DataFrame, List[int]]:
     """Compute the number of days in a dataset for which the indicators 
     are between given values of decibels.
@@ -482,10 +552,19 @@ def nday(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
+    start_at_day: bool, default False
+        if True, days and weeks start at start_day instead of midnight
+        (see noisemonitor.summary.periodic).
 
     Returns
     ----------
-    tuple[pd.DataFrame, List[int]] : Tuple containing a DataFrame with the 
+    tuple[pd.DataFrame, List[int]] : Tuple containing a DataFrame with the
         number of days for each decibel range and the list of bins used.
     """
     column = core._column_to_index(df, column)
@@ -500,7 +579,11 @@ def nday(
         column=column,
         values=True,
         coverage_check=coverage_check,
-        coverage_threshold=coverage_threshold
+        coverage_threshold=coverage_threshold,
+        start_day=start_day,
+        start_evening=start_evening,
+        start_night=start_night,
+        start_at_day=start_at_day
     )
 
     # Validate the indicator

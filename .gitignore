@@ -14,6 +14,7 @@ env/
 .venv
 CLAUDE.md
 TODO.md
+M1_references.md
 
 # test
 .pytest_cache

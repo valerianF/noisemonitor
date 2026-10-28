@@ -67,6 +67,14 @@ def sample_octave_data():
     
     return pd.DataFrame(data, index=dates)
 
+@pytest.fixture
+def one_loud_night_data():
+    """Three days at 1 min, 40 dB everywhere except the night from
+    2023-01-01 23:00 to 2023-01-02 07:00 at 50 dB."""
+    dates = pd.date_range('2023-01-01', periods=3*1440, freq='min')
+    loud = ((dates >= '2023-01-01 23:00') & (dates < '2023-01-02 07:00'))
+    return pd.DataFrame({'LAeq': np.where(loud, 50.0, 40.0)}, index=dates)
+
 @pytest.fixture(scope="module")
 def data_with_gaps(laeq1m_data):
     """Create data with gaps: 3 days with 60% of day 2 set to NaN."""
@@ -224,6 +232,40 @@ class TestPeriodic:
         with pytest.raises(ValueError, match="Invalid frequency"):
             periodic(laeq1m_data, freq='X', column=0)
 
+    def test_periodic_start_at_day(self, one_loud_night_data):
+        """With start_at_day, days run from start_day to start_day and keep
+        each night whole (C3); by default they are calendar days."""
+        result = periodic(one_loud_night_data, freq='D', values=True,
+                        start_at_day=True)
+
+        assert (result.index.hour == 7).all()
+        # The day starting 2023-01-01 07:00 holds the whole loud night
+        # (+ its own 07:00 sample, counted twice by between_time, B3)
+        night = result.loc[pd.Timestamp('2023-01-01 07:00'), 'Lnight']
+        assert np.isclose(night, 50.0, atol=0.05)
+        assert np.isclose(
+            result.loc[pd.Timestamp('2023-01-02 07:00'), 'Lnight'],
+            40.0, atol=0.05)
+
+        calendar = periodic(one_loud_night_data, freq='D', values=True)
+        assert (calendar.index.hour == 0).all()
+        # The calendar day 2023-01-02 mixes 7 h of the loud night with 1 h
+        # of the next one
+        assert 40.5 < calendar.loc[pd.Timestamp('2023-01-02'), 'Lnight'] < 49.5
+
+    def test_periodic_custom_periods(self, one_loud_night_data):
+        """Start hours are passed to core.lden and set the day start."""
+        starts = dict(start_day=6, start_evening=18, start_night=22)
+        result = periodic(one_loud_night_data, freq='D', values=True,
+                          start_at_day=True, **starts)
+
+        assert (result.index.hour == 6).all()
+        day = pd.Timestamp('2023-01-01 06:00')
+        group = one_loud_night_data.loc[day:day + pd.Timedelta(hours=24)
+                                        - pd.Timedelta(minutes=1)]
+        expected = nm.util.core.lden(group, 0, values=True, **starts)
+        for col in ['Lden', 'Lday', 'Levening', 'Lnight']:
+            assert result.loc[day, col] == expected[col][0]
 
 class TestFreq:
     """Test cases for the frequency bands function."""
@@ -277,10 +319,23 @@ class TestFreq:
         for band in expected_bands:
             assert band in result.columns
 
-        expected_indicators = ['Leq', 'Lden', 'L10', 'L50', 'L90', 'Lday', 
+        expected_indicators = ['Leq', 'Lden', 'L10', 'L50', 'L90', 'Lday',
                             'Levening', 'Lnight']
         for indicator in expected_indicators:
             assert indicator in result.index
+
+    def test_freq_lden_custom_periods(self, sample_octave_data):
+        """Start hours are passed through to Lden in both freq functions."""
+        starts = dict(start_day=6, start_evening=18, start_night=22)
+        indicators = freq_indicators(sample_octave_data, **starts)
+        periodic_bands = freq_periodic(sample_octave_data, values=True,
+                                       start_at_day=True, **starts)
+
+        assert (periodic_bands.index.hour == 6).all()
+        for i, band in enumerate(sample_octave_data.columns):
+            expected = lden(sample_octave_data, column=i, **starts)
+            for col in ['Lden', 'Lday', 'Levening', 'Lnight']:
+                assert indicators.loc[col, float(band)] == expected[col][0]
 
 class TestLevels:
     """Test cases for the levels (Lden and Leq) functions."""
@@ -317,6 +372,15 @@ class TestLevels:
         
         lden_value = result['Lden'][0]
         assert 30 <= lden_value <= 90
+
+    def test_lden_custom_periods(self, one_loud_night_data):
+        """Start hours are passed to core.lden."""
+        starts = dict(start_day=6, start_evening=18, start_night=22)
+        result = lden(one_loud_night_data, column=0, **starts)
+        expected = nm.util.core.lden(
+            one_loud_night_data, 0, values=True, **starts).round(2)
+
+        pd.testing.assert_frame_equal(result, expected)
     
     def test_leq(self, laeq1s_data):
         """Test basic Leq computation with exact expected values."""
@@ -371,6 +435,17 @@ class TestNday:
         """Test nday with invalid indicator."""
         with pytest.raises(ValueError, match="Invalid indicator"):
             nday(laeq1m_data, indicator='InvalidIndicator', column=0)
+
+    def test_nday_start_at_day(self, one_loud_night_data):
+        """nday passes start hours and start_at_day to periodic."""
+        result, _ = nday(one_loud_night_data, indicator='Lnight',
+                        bins=[45], column=0, start_at_day=True)
+        counts = result.set_index('Decibel Range')['Number of Days']
+
+        # Days from 07:00: partial day (00-07 of 2023-01-01), the loud night,
+        # 40 dB night, partial last day (23-24 of 2023-01-03)
+        assert counts.iloc[1] == 1
+        assert counts.sum() == 4
 
 class TestSummaryEdgeCases:
     """Test edge cases and error conditions."""

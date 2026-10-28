@@ -360,6 +360,68 @@ class TestLden:
         assert np.isclose(result['Levening'].iloc[0], 60.0, rtol=0.01)
         assert np.isclose(result['Lnight'].iloc[0], 55.0, rtol=0.01)
 
+    def test_lden_custom_periods(self):
+        """Custom start hours select the periods and weight them by
+        duration (shortened evening: 13 h day, 3 h evening, 8 h night)."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
+        data = np.where(
+            (dates.hour >= 7) & (dates.hour < 20), 65.0,
+            np.where((dates.hour >= 20) & (dates.hour < 23), 60.0, 55.0)
+        )
+        df = pd.DataFrame({'sound_level': data}, index=dates)
+
+        result = lden(df, 0, values=True,
+                      start_day=7, start_evening=20, start_night=23)
+        lday = result['Lday'].iloc[0]
+        levening = result['Levening'].iloc[0]
+        lnight = result['Lnight'].iloc[0]
+
+        # Boundary samples fall in two periods (B3), hence atol=0.1
+        assert np.isclose(lday, 65.0, atol=0.1)
+        assert np.isclose(levening, 60.0, atol=0.1)
+        assert np.isclose(lnight, 55.0, atol=0.1)
+
+        expected_lden = 10 * np.log10((
+            13 * np.power(10, lday / 10)
+            + 3 * np.power(10, (levening + 5) / 10)
+            + 8 * np.power(10, (lnight + 10) / 10)
+        ) / 24)
+        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=1e-9)
+
+    def test_lden_not_rounded(self):
+        """core.lden returns unrounded period levels and Lden (B11)."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
+        level = 65.123456
+        df = pd.DataFrame({'sound_level': level}, index=dates)
+
+        result = lden(df, 0, values=True)
+
+        expected_lden = 10 * np.log10((
+            12 * np.power(10, level / 10)
+            + 4 * np.power(10, (level + 5) / 10)
+            + 8 * np.power(10, (level + 10) / 10)
+        ) / 24)
+        assert np.isclose(result['Lday'].iloc[0], level, atol=1e-9)
+        assert np.isclose(result['Levening'].iloc[0], level, atol=1e-9)
+        assert np.isclose(result['Lnight'].iloc[0], level, atol=1e-9)
+        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=1e-9)
+
+    @pytest.mark.parametrize("starts", [
+        {'start_day': 24},
+        {'start_evening': -1},
+        {'start_day': 7.0},
+        {'start_night': True},
+        {'start_day': 7, 'start_evening': 23, 'start_night': 19},
+        {'start_day': 7, 'start_evening': 7, 'start_night': 23},
+    ])
+    def test_lden_invalid_start_hours(self, starts):
+        """Invalid or misordered start hours raise a ValueError."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
+        df = pd.DataFrame({'sound_level': 60.0}, index=dates)
+
+        with pytest.raises(ValueError):
+            lden(df, 0, **starts)
+
 class TestNoiseEvents:
     """Test the noise_events function."""
 
