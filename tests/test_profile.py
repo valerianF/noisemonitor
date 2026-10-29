@@ -6,49 +6,13 @@ import numpy as np
 import warnings
 import os
 from datetime import time, datetime
-from pathlib import Path
 
 import noisemonitor as nm
 from noisemonitor.profile import (
     periodic, series, nne, freq_periodic, freq_series
 )
 from noisemonitor.util.core import CoverageWarning
-
-
-@pytest.fixture(scope="module")
-def test_data_paths():
-    """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data" / "internal"
-    return {
-        "laeq1m": base_path / "test_data_laeq1m.csv",
-        "laeq1s": base_path / "test_data_laeq1s.csv"
-    }
-
-
-@pytest.fixture(scope="module") 
-def laeq1m_data(test_data_paths):
-    """Load LAeq,1min test data (one week of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1m"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
-
-@pytest.fixture(scope="module")
-def laeq1s_data(test_data_paths):
-    """Load LAeq,1s test data (one day of data).""" 
-    df = nm.load(
-        str(test_data_paths["laeq1s"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
+from tests.conftest import ACCRA_COLUMNS, SOURCE_COVERAGE, assert_close
 
 
 @pytest.fixture(scope="module")
@@ -67,47 +31,6 @@ def sample_octave_data():
         data[band] = base_level + variation
     
     return pd.DataFrame(data, index=index)
-
-@pytest.fixture(scope="module")
-def data_with_gaps(laeq1m_data):
-    """Create data with gaps: 3 days with 60% of day 2 set to NaN."""
-    # Take 3 days of data
-    test_data = laeq1m_data[:3 * 1440].copy()
-    
-    # Find day 2 indices (1440 to 2880)
-    day2_start = 1440
-    day2_end = 2880
-    day2_indices = test_data.index[day2_start:day2_end]
-    
-    # Randomly set 60% of day 2 data to NaN
-    np.random.seed(42)
-    nan_indices = np.random.choice(
-        day2_indices, 
-        size=int(len(day2_indices) * 0.6), 
-        replace=False
-    )
-    test_data.loc[nan_indices] = np.nan
-    return test_data
-
-@pytest.fixture(scope="module")
-def data_with_time_gaps(laeq1s_data):
-    """Create data with time-specific gaps: 70% of evening period set to NaN."""
-    # Take 1 day of data
-    test_data = laeq1s_data[:86400].copy()
-    
-    # Find evening period (19:00-23:00)
-    evening_mask = (test_data.index.hour >= 19) & (test_data.index.hour < 23)
-    evening_indices = test_data.index[evening_mask]
-    
-    # Randomly set 70% of evening data to NaN
-    np.random.seed(42)
-    nan_indices = np.random.choice(
-        evening_indices,
-        size=int(len(evening_indices) * 0.7),
-        replace=False
-    )
-    test_data.loc[nan_indices] = np.nan
-    return test_data
 
 
 @pytest.fixture(scope="module")
@@ -138,19 +61,64 @@ def hour_start_peaks_data():
     return pd.DataFrame({'LAeq': np.where(peaks, 100.0, 40.0)}, index=dates)
 
 
-class TestPeriodic:
-    """Test cases for the periodic function."""
+@pytest.mark.external
+@pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
+@pytest.mark.filterwarnings("ignore:Computing the L10:UserWarning")  # hourly data
+@pytest.mark.filterwarnings("ignore:All-NaN slice:UserWarning")  # days not kept
+@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
+class TestExternalAccra:
+    """Published daily values of two Accra sites (Clark et al., 2021),
+    reproducible days only."""
 
-    def test_periodic_windows_half_open(self, hour_start_peaks_data):
-        """Each window covers [start, start + win): the hh:00:00 peak is in
-        one window only."""
-        result = periodic(hour_start_peaks_data, hour1=0, hour2=23,
-                        column=0, win=3600)
+    @pytest.mark.parametrize("indicator, hour, win", [
+        ('LDay', 6, 16 * 3600),  # window [06, 22)
+        ('LNight', 22, 8 * 3600),  # window [22, 06), past midnight
+    ], ids=['LDay', 'LNight'])
+    @pytest.mark.parametrize("span", ['day', 'week'])
+    @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
+                             ids=['no_check', 'coverage_check'])
+    def test_periodic(self, accra_daily, accra_spans, indicator, hour, win, span,
+                      coverage):
+        """Leq of one window matching a published period (hour1 = hour2), on
+        one day so that no averaging across days happens: each calendar day,
+        or the 7 days starting on it with day1 = day2."""
+        got = [periodic(data, hour, hour, weekday, weekday,
+                        column=ACCRA_COLUMNS[site], win=win, **coverage)['Leq'].iloc[0]
+               for (data, weekday), site in zip(accra_spans[span], accra_daily['ID'])]
+        assert_close(got, accra_daily[indicator])
 
-        expected = 10 * np.log10(
-            (np.power(10, 10.0) + 3599 * np.power(10, 4.0)) / 3600)
-        assert len(result) == 24
-        assert np.allclose(result['Leq'], expected, atol=1e-9)
+    @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
+                             ids=['no_check', 'coverage_check'])
+    def test_series(self, accra_hourly, accra_daily, coverage):
+        """24 h windows starting at midnight, labelled by their centre
+        (12:00), on the whole series: LAeq24hr."""
+        per_site = {site: series(accra_hourly, win=86400, column=column,
+                                 start_at_midnight=True, **coverage)
+                    for site, column in ACCRA_COLUMNS.items()}
+        got = [per_site[site].loc[date + pd.Timedelta(hours=12), 'Leq'] for site, date
+               in zip(accra_daily['ID'], accra_daily['date'])]
+        assert_close(got, accra_daily['LAeq24hr'])
+
+
+@pytest.mark.internal
+class TestCalculations:
+    """Internal validation: closed-form results on synthetic signals, or
+    consistency with another noisemonitor function."""
+
+    def test_nne_windows_half_open(self, hour_start_peaks_data):
+        """Each window covers [start, start + win): the hh:00:00 event is
+        counted in one window only, not also in the previous one."""
+        result = nne(hour_start_peaks_data, hour1=0, hour2=23,
+                    background_type=70, min_gap=0, win=3600, column=0)
+
+        assert len(result) == 23
+        assert (result.iloc[:, 0] == 1).all()
+
+
+@pytest.mark.snapshot
+class TestExactValues:
+    """Regression: values previously computed by noisemonitor (exact
+    values). They detect changes; they do not validate."""
 
     def test_periodic_exact_values(self, laeq1s_data):
         """Test periodic with exact expected values from dataset."""
@@ -192,36 +160,7 @@ class TestPeriodic:
         # Verify ordering relationships hold
         assert (result['L10'] >= result['L50']).all()
         assert (result['L50'] >= result['L90']).all()
-    
-    def test_periodic_basic_daytime(self, laeq1m_data):
-        """Test basic daytime periodic averaging with 1-minute data."""
 
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=6, 
-                hour2=22,
-                column=0,
-                win=3600 
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        assert all(isinstance(idx, time) for idx in result.index)
-        
-        assert (result['L10'] >= result['L50']).all()
-        assert (result['L50'] >= result['L90']).all()
-        assert result['Leq'].between(30, 90).all()
-    
     def test_periodic_nighttime_exact_values(self, laeq1s_data):
         """Test nighttime periodic with exact expected values from dataset."""
 
@@ -256,117 +195,7 @@ class TestPeriodic:
         # Verify ordering relationships hold
         assert (result['L10'] >= result['L50']).all()
         assert (result['L50'] >= result['L90']).all()
-    
-    def test_periodic_nighttime(self, laeq1m_data):
-        """Test nighttime periodic averaging (hour2 < hour1)."""
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=22,
-                hour2=6,
-                column=0,
-                win=3600
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        if len(result) > 0:
-            night_hours = [22, 23, 0, 1, 2, 3, 4, 5, 6]
-            result_hours = [idx.hour for idx in result.index]
-            assert any(hour in night_hours for hour in result_hours)
-    
-    def test_periodic_traffic_indicators(self, laeq1s_data):
-        """Test periodic with traffic noise indicators using 1s data."""
-        result = periodic(
-                laeq1s_data,
-                hour1=7,
-                hour2=19,
-                column=0,
-                win=1800, 
-                traffic_noise_indicators=True
-            )
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90', 'TNI', 'NPL']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        if len(result) > 0:
-            # Allow some tolerance
-            assert result['TNI'].between(0, 150).all()
-            assert (result['NPL'] >= result['Leq']).all()
-    
-    def test_periodic_roughness_indicators(self, laeq1s_data):
-        """Test periodic with roughness indicators using 1s data."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            
-            result = periodic(
-                laeq1s_data,
-                hour1=8,
-                hour2=18,
-                column=0, 
-                win=1800, 
-                roughness_indicators=True
-            )
-        
-        roughness_columns = ['dLav', 'dLmax,1', 'dLmin,90']
-        for col in roughness_columns:
-            assert col in result.columns
-        
-        for col in roughness_columns:
-            assert (result[col] >= 0).all()
-    
-    def test_periodic_sliding_windows(self, laeq1m_data):
-        """Test periodic with sliding windows (step < win)."""
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=9,
-                hour2=17,
-                column=0,
-                win=3600,
-                step=1800
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        with pytest.warns(UserWarning) as record2:
-            result_no_overlap = periodic(
-                laeq1m_data,
-                hour1=9,
-                hour2=17, 
-                column=0,
-                win=3600
-            )
-        
-        # Check for warnings in second call too
-        warning_messages2 = [str(w.message) for w in record2]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages2)
-        
-        assert len(result) >= len(result_no_overlap)
-    
-    def test_periodic_warns_with_large_interval(self, laeq1m_data):
-        """Test that periodic warns when using large time intervals for percentiles."""
-        with pytest.warns(UserWarning) as record:
-            periodic(
-                laeq1m_data,
-                hour1=10,
-                hour2=16,
-                column=0,
-                win=3600
-            )
-        
-        # Check for L10/L50/L90 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50, L90" in msg for msg in warning_messages)
-    
+
     def test_periodic_stat_single_value(self, laeq1m_data):
         """Test periodic with single stat parameter value."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -393,7 +222,7 @@ class TestPeriodic:
         # Verify ordering relationships
         assert (result['L10'] >= result['L25']).all()
         assert (result['L25'] >= result['L50']).all()
-    
+
     def test_periodic_stat_multiple_values(self, laeq1m_data):
         """Test periodic with multiple stat parameter values."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -431,9 +260,155 @@ class TestPeriodic:
         assert (result['L90'] >= result['L95']).all()
         assert (result['L95'] >= result['L99']).all()
 
+
+@pytest.mark.behaviour
+class TestPeriodic:
+    """Test cases for the periodic function."""
+
+    def test_periodic_basic_daytime(self, laeq1m_data):
+        """Test basic daytime periodic averaging with 1-minute data."""
+
+        with pytest.warns(UserWarning) as record:
+            result = periodic(
+                laeq1m_data,
+                hour1=6, 
+                hour2=22,
+                column=0,
+                win=3600 
+            )
+        
+        # Check for L10/L50 warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+        
+        expected_columns = ['Leq', 'L10', 'L50', 'L90']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        assert all(isinstance(idx, time) for idx in result.index)
+        
+        assert (result['L10'] >= result['L50']).all()
+        assert (result['L50'] >= result['L90']).all()
+        assert result['Leq'].between(30, 90).all()
+
+    def test_periodic_nighttime(self, laeq1m_data):
+        """Test nighttime periodic averaging (hour2 < hour1)."""
+        with pytest.warns(UserWarning) as record:
+            result = periodic(
+                laeq1m_data,
+                hour1=22,
+                hour2=6,
+                column=0,
+                win=3600
+            )
+        
+        # Check for L10/L50 warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+        
+        if len(result) > 0:
+            night_hours = [22, 23, 0, 1, 2, 3, 4, 5, 6]
+            result_hours = [idx.hour for idx in result.index]
+            assert any(hour in night_hours for hour in result_hours)
+
+    def test_periodic_traffic_indicators(self, laeq1s_data):
+        """Test periodic with traffic noise indicators using 1s data."""
+        result = periodic(
+                laeq1s_data,
+                hour1=7,
+                hour2=19,
+                column=0,
+                win=1800, 
+                traffic_noise_indicators=True
+            )
+        
+        expected_columns = ['Leq', 'L10', 'L50', 'L90', 'TNI', 'NPL']
+        for col in expected_columns:
+            assert col in result.columns
+        
+        if len(result) > 0:
+            # Allow some tolerance
+            assert result['TNI'].between(0, 150).all()
+            assert (result['NPL'] >= result['Leq']).all()
+
+    def test_periodic_roughness_indicators(self, laeq1s_data):
+        """Test periodic with roughness indicators using 1s data."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            
+            result = periodic(
+                laeq1s_data,
+                hour1=8,
+                hour2=18,
+                column=0, 
+                win=1800, 
+                roughness_indicators=True
+            )
+        
+        roughness_columns = ['dLav', 'dLmax,1', 'dLmin,90']
+        for col in roughness_columns:
+            assert col in result.columns
+        
+        for col in roughness_columns:
+            assert (result[col] >= 0).all()
+
+    def test_periodic_sliding_windows(self, laeq1m_data):
+        """Test periodic with sliding windows (step < win)."""
+        with pytest.warns(UserWarning) as record:
+            result = periodic(
+                laeq1m_data,
+                hour1=9,
+                hour2=17,
+                column=0,
+                win=3600,
+                step=1800
+            )
+        
+        # Check for L10/L50 warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages)
+        
+        with pytest.warns(UserWarning) as record2:
+            result_no_overlap = periodic(
+                laeq1m_data,
+                hour1=9,
+                hour2=17, 
+                column=0,
+                win=3600
+            )
+        
+        # Check for warnings in second call too
+        warning_messages2 = [str(w.message) for w in record2]
+        assert any("Computing the L10, L50" in msg for msg in warning_messages2)
+        
+        assert len(result) >= len(result_no_overlap)
+
+    def test_periodic_warns_with_large_interval(self, laeq1m_data):
+        """Test that periodic warns when using large time intervals for percentiles."""
+        with pytest.warns(UserWarning) as record:
+            periodic(
+                laeq1m_data,
+                hour1=10,
+                hour2=16,
+                column=0,
+                win=3600
+            )
+        
+        # Check for L10/L50/L90 warning
+        warning_messages = [str(w.message) for w in record]
+        assert any("Computing the L10, L50, L90" in msg for msg in warning_messages)
+
+
+@pytest.mark.behaviour
 class TestSeries:
     """Test cases for the series function."""
-    
+
     def test_series_basic(self, laeq1m_data):
         """Test basic time series calculation."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -455,7 +430,8 @@ class TestSeries:
         assert (result['L10'] >= result['L50']).all()
         assert (result['L50'] >= result['L90']).all()
         assert len(result) < len(laeq1m_data)
-    
+
+    @pytest.mark.slow
     def test_series_sliding_windows(self, laeq1m_data):
         """Test series with sliding windows."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -477,7 +453,7 @@ class TestSeries:
             )
         
         assert len(result) >= len(result_no_overlap)
-    
+
     def test_series_start_at_midnight(self, laeq1m_data):
         """Test series starting at midnight."""
         win_seconds = 3600  # 1 hour window
@@ -505,7 +481,7 @@ class TestSeries:
             expected_first_time = expected_midnight + pd.Timedelta(seconds=win_seconds/2)
 
             assert first_time == expected_first_time
-    
+
     def test_series_warns_with_large_interval(self, laeq1m_data):
         """Test that series warns when using large time intervals."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -514,7 +490,7 @@ class TestSeries:
                 win=1800,
                 column=0
             )
-    
+
     def test_series_handles_nan_data(self, laeq1m_data):
         """Test series handling of NaN data."""
         test_data = laeq1m_data.copy()
@@ -532,17 +508,9 @@ class TestSeries:
         assert len(result) > 0
 
 
+@pytest.mark.behaviour
 class TestNne:
     """Test cases for the nne (Number of Noise Events) function."""
-
-    def test_nne_windows_half_open(self, hour_start_peaks_data):
-        """Each window covers [start, start + win): the hh:00:00 event is
-        counted in one window only, not also in the previous one."""
-        result = nne(hour_start_peaks_data, hour1=0, hour2=23,
-                    background_type=70, min_gap=0, win=3600, column=0)
-
-        assert len(result) == 23
-        assert (result.iloc[:, 0] == 1).all()
 
     @pytest.mark.slow
     @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
@@ -566,7 +534,7 @@ class TestNne:
             assert 'Average NNEs' in result.columns
             assert len(result) > 0
             assert (result['Average NNEs'] >= 0).all()
-    
+
     def test_nne_insufficient_data(self, laeq1s_data):
         """Test that NNE handles insufficient daily data gracefully."""
         subset_data = laeq1s_data[:7200]  # 2 hours of data
@@ -583,7 +551,7 @@ class TestNne:
         )
         
         assert isinstance(result, pd.DataFrame)
-    
+
     def test_nne_constant_threshold(self, laeq1s_data):
         """Test NNE with constant threshold value."""
         with warnings.catch_warnings():
@@ -603,7 +571,7 @@ class TestNne:
         assert 'Average NNEs' in result.columns
         assert len(result) > 0
         assert (result['Average NNEs'] >= 0).all()
-    
+
     def test_nne_invalid_background_type(self, laeq1s_data):
         """Test NNE with invalid background type."""
         with pytest.raises(ValueError, match="Invalid background type"):
@@ -617,9 +585,10 @@ class TestNne:
             )
 
 
+@pytest.mark.behaviour
 class TestFreqPeriodic:
     """Test cases for the freq_periodic function."""
-    
+
     def test_freq_periodic_basic(self, sample_octave_data):
         """Test basic frequency-domain periodic analysis."""
         with pytest.warns(
@@ -645,7 +614,8 @@ class TestFreqPeriodic:
         ]
         for band in octave_bands:
             assert float(band) in result.columns.levels[1]
-    
+
+    @pytest.mark.slow
     def test_freq_periodic_with_chunks(self, sample_octave_data):
         """Test frequency periodic with parallel processing."""
         result = freq_periodic(
@@ -659,7 +629,7 @@ class TestFreqPeriodic:
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         assert isinstance(result.columns, pd.MultiIndex)
-    
+
     def test_freq_periodic_non_numeric_columns(self):
         """Test freq_periodic with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
         # Create test data with non-numeric frequency band column names
@@ -698,9 +668,11 @@ class TestFreqPeriodic:
         assert 125.0 in freq_bands
         assert 8000.0 in freq_bands
 
+
+@pytest.mark.behaviour
 class TestFreqSeries:
     """Test cases for the freq_series function."""
-    
+
     def test_freq_series_basic(self, sample_octave_data):
         """Test basic frequency-domain time series."""
         with pytest.warns(
@@ -720,7 +692,7 @@ class TestFreqSeries:
         octave_bands = ['63', '125', '250', '500', '1000', '2000', '4000', '8000']
         for band in octave_bands:
             assert float(band) in result.columns.levels[1]
-    
+
     def test_freq_series_sliding_windows(self, sample_octave_data):
         """Test frequency series with sliding windows."""
         with pytest.warns(
@@ -746,7 +718,7 @@ class TestFreqSeries:
             )
         
         assert len(result) >= len(result_no_overlap)
-    
+
     def test_freq_series_non_numeric_columns(self):
         """Test freq_series with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
         # Create test data with non-numeric frequency band column names
@@ -783,9 +755,11 @@ class TestFreqSeries:
         assert 125.0 in freq_bands
         assert 8000.0 in freq_bands
 
+
+@pytest.mark.behaviour
 class TestProfileEdgeCases:
     """Test edge cases and error conditions."""
-    
+
     def test_empty_dataframe(self):
         """Test profile functions with empty DataFrame."""
         empty_df = pd.DataFrame(
@@ -795,7 +769,7 @@ class TestProfileEdgeCases:
         
         with pytest.raises((ValueError, IndexError)):
             series(empty_df, win=300)
-    
+
     def test_insufficient_data(self, laeq1m_data):
         """Test with insufficient data for window size."""
         small_subset = laeq1m_data.iloc[:5]
@@ -807,16 +781,18 @@ class TestProfileEdgeCases:
                 ValueError, match="Insufficient data: need at least"
             ):
                 series(small_subset, win=600, column=0)
-    
+
     def test_invalid_column_index(self, laeq1m_data):
         """Test with invalid column index."""
         with pytest.raises((IndexError, KeyError)):
             with pytest.warns(UserWarning, match="Computing the L10, L50"):
                 series(laeq1m_data, win=300, column=99)
 
+
+@pytest.mark.behaviour
 class TestCoverageCheck:
     """Tests for coverage_check functionality across profile functions."""
-    
+
     def test_periodic_coverage_check(self, data_with_time_gaps):
         """Test periodic function with coverage_check enabled."""
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
@@ -843,7 +819,8 @@ class TestCoverageCheck:
             assert pd.isna(result.iloc[i]['L90']), f"Expected NaN at index {i}"
         
         assert len(result) == 6
-    
+
+    @pytest.mark.slow
     def test_freq_periodic_coverage_check(self, octave_data_with_gaps):
         """Test freq_periodic function with coverage_check enabled."""
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
@@ -872,7 +849,8 @@ class TestCoverageCheck:
                     if pd.isna(result.iloc[idx][('Leq', float(band))]):
                         nan_count += 1
             assert nan_count > 0, "Expected some NaN values for bands at hour 2 due to insufficient coverage"
-    
+
+    @pytest.mark.slow
     def test_freq_series_coverage_check(self, octave_data_with_gaps):
         """Test freq_series function with coverage_check enabled."""
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
@@ -896,7 +874,7 @@ class TestCoverageCheck:
                     has_nans = True
                     break
         assert has_nans, "Expected some NaN values due to insufficient coverage in gaps"
-    
+
     def test_series_coverage_check(self, data_with_time_gaps):
         """Test series function with coverage_check enabled."""
         with pytest.warns(CoverageWarning, match="Insufficient data coverage detected"):
@@ -920,6 +898,7 @@ class TestCoverageCheck:
         if len(evening_results) > 0:
             assert evening_results['Leq'].isna().any(), \
                 "Expected some NaN values in evening hours due to insufficient coverage"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

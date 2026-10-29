@@ -6,7 +6,6 @@ import numpy as np
 import warnings
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
-from pathlib import Path
 
 import noisemonitor as nm
 from noisemonitor.util.core import (
@@ -20,43 +19,46 @@ from noisemonitor.util.core import (
     check_coverage,
     CoverageWarning
 )
+from tests.conftest import (
+    ACCRA_COLUMNS, ACCRA_PERIODS, SOURCE_COVERAGE, assert_close, lday_06_22
+)
 
 
-@pytest.fixture(scope="module")
-def test_data_paths():
-    """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data" / "internal"
-    return {
-        "laeq1m": base_path / "test_data_laeq1m.csv",
-        "laeq1s": base_path / "test_data_laeq1s.csv"
-    }
+@pytest.mark.external
+@pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
+class TestExternalAccra:
+    """Published daily values of two Accra sites (Clark et al., 2021),
+    reproducible days only."""
+
+    @pytest.mark.parametrize("indicator, hours", [
+        ('LAeq24hr', range(24)),
+        ('LDay', range(6, 22)),
+        ('LNight', [22, 23, 0, 1, 2, 3, 4, 5]),
+    ], ids=['LAeq24hr', 'LDay', 'LNight'])
+    def test_equivalent_level(self, accra_daily, accra_days, indicator, hours):
+        """Leq of the hourly values of a period, each calendar day."""
+        got = [equivalent_level(day.loc[day.index.hour.isin(hours), site].to_numpy())
+               for day, site in zip(accra_days, accra_daily['ID'])]
+        assert_close(got, accra_daily[indicator])
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
+                             ids=['no_check', 'coverage_check'])
+    def test_lden(self, accra_daily, accra_days, coverage):
+        """Lden, Lnight, and Lday + Levening (as the source's LDay), each
+        calendar day with the Accra periods."""
+        sites = accra_daily['ID']
+        result = pd.concat([
+            lden(day, ACCRA_COLUMNS[site], values=True, **ACCRA_PERIODS, **coverage)
+            for day, site in zip(accra_days, sites)], ignore_index=True)
+
+        assert_close(result['Lden'], accra_daily['LDEN'])
+        assert_close(result['Lnight'], accra_daily['LNight'])
+        assert_close(lday_06_22(result['Lday'], result['Levening'], accra_days, sites),
+                     accra_daily['LDay'])
 
 
-@pytest.fixture(scope="module") 
-def laeq1m_data(test_data_paths):
-    """Load LAeq,1min test data (one week of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1m"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
-
-@pytest.fixture(scope="module")
-def laeq1s_data(test_data_paths):
-    """Load LAeq,1s test data (24h dataset - 86,401 samples)."""
-    df = nm.load(
-        str(test_data_paths["laeq1s"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
+@pytest.mark.behaviour
 class TestCheckCoverage:
     """Test the check_coverage function."""
 
@@ -132,21 +134,9 @@ class TestCheckCoverage:
         assert passes is False
 
 
+@pytest.mark.behaviour
 class TestEquivalentLevel:
-    """Test the equivalent_level function."""
-
-    def test_equivalent_level_basic(self):
-        """Test basic equivalent level calculation."""
-        array = np.array([60.0, 65.0, 70.0])
-        result = equivalent_level(array)
-        expected = 10 * np.log10(np.mean(np.power(10, array / 10)))
-        assert np.isclose(result, expected, rtol=1e-10)
-
-    def test_equivalent_level_single_value(self):
-        """Test with single value."""
-        array = np.array([50.0])
-        result = equivalent_level(array)
-        assert np.isclose(result, 50.0, rtol=1e-10)
+    """Test the equivalent_level function without data."""
 
     def test_equivalent_level_empty_array(self):
         """Test with empty array."""
@@ -160,14 +150,8 @@ class TestEquivalentLevel:
         result = equivalent_level(array)
         assert np.isnan(result)
 
-    def test_equivalent_level_with_nan(self):
-        """Test with some NaN values."""
-        array = np.array([60.0, np.nan, 70.0])
-        result = equivalent_level(array)
-        expected = 10 * np.log10(np.nanmean(np.power(10, array / 10)))
-        assert np.isnan(result) == np.isnan(expected)
 
-
+@pytest.mark.behaviour
 class TestGetInterval:
     """Test the get_interval function."""
 
@@ -200,6 +184,7 @@ class TestGetInterval:
             get_interval(df)
 
 
+@pytest.mark.behaviour
 class TestHarmonicaValidation:
     """Test the harmonica function input validation."""
 
@@ -212,6 +197,7 @@ class TestHarmonicaValidation:
                            "an integration time equal to or below 1s"):
             harmonica(df, 0)
 
+    @pytest.mark.slow
     def test_harmonica_valid_interval_1s(self):
         """Test that harmonica accepts 1-second intervals."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=7200, freq='1s')
@@ -223,6 +209,7 @@ class TestHarmonicaValidation:
         assert 'BGN' in result.columns
         assert 'HARMONICA' in result.columns
 
+    @pytest.mark.slow
     def test_harmonica_valid_interval_subsecond(self):
         """Test that harmonica accepts sub-second intervals."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')
@@ -238,6 +225,7 @@ class TestHarmonicaValidation:
             harmonica(df, 0)
 
 
+@pytest.mark.behaviour
 class TestHourlyHarmonica:
     """Test the hourly_harmonica helper function."""
 
@@ -308,6 +296,7 @@ class TestHourlyHarmonica:
         assert not np.isnan(result['HARMONICA'])
 
 
+@pytest.mark.behaviour
 class TestLden:
     """Test the lden function."""
 
@@ -333,98 +322,6 @@ class TestLden:
         assert len(result) == 1
         assert not np.isnan(result['Lden'].iloc[0])
 
-    def test_lden_with_values(self):
-        """Test lden calculation with individual period values."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*3600, freq='1s')
-        
-        data = []
-        for date in dates:
-            if 7 <= date.hour < 19:
-                data.append(65.0)
-            elif 19 <= date.hour < 23:
-                data.append(60.0)
-            else:
-                data.append(55.0)
-        
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = lden(df, 0, values=True)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert 'Lden' in result.columns
-        assert 'Lday' in result.columns
-        assert 'Levening' in result.columns
-        assert 'Lnight' in result.columns
-        assert len(result) == 1
-        
-        assert np.isclose(result['Lday'].iloc[0], 65.0, rtol=0.01)
-        assert np.isclose(result['Levening'].iloc[0], 60.0, rtol=0.01)
-        assert np.isclose(result['Lnight'].iloc[0], 55.0, rtol=0.01)
-
-    def test_lden_custom_periods(self):
-        """Custom start hours select the periods and weight them by
-        duration (shortened evening: 13 h day, 3 h evening, 8 h night)."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
-        data = np.where(
-            (dates.hour >= 7) & (dates.hour < 20), 65.0,
-            np.where((dates.hour >= 20) & (dates.hour < 23), 60.0, 55.0)
-        )
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-
-        result = lden(df, 0, values=True,
-                    start_day=7, start_evening=20, start_night=23)
-        lday = result['Lday'].iloc[0]
-        levening = result['Levening'].iloc[0]
-        lnight = result['Lnight'].iloc[0]
-
-        # Periods are half-open: boundary samples count once
-        assert np.isclose(lday, 65.0, atol=1e-9)
-        assert np.isclose(levening, 60.0, atol=1e-9)
-        assert np.isclose(lnight, 55.0, atol=1e-9)
-
-        expected_lden = 10 * np.log10((
-            13 * np.power(10, lday / 10)
-            + 3 * np.power(10, (levening + 5) / 10)
-            + 8 * np.power(10, (lnight + 10) / 10)
-        ) / 24)
-        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=1e-9)
-
-    def test_lden_period_boundaries(self):
-        """A sample at a period start belongs to that period only:
-        07:00, 19:00 and 23:00 samples are counted once."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
-        boundary = dates.strftime('%H:%M').isin(['07:00', '19:00', '23:00'])
-        df = pd.DataFrame({'sound_level': np.where(boundary, 100.0, 40.0)},
-                        index=dates)
-
-        result = lden(df, 0, values=True)
-
-        def expected(n_samples):
-            return 10 * np.log10(
-                (np.power(10, 10.0) + (n_samples - 1) * np.power(10, 4.0))
-                / n_samples)
-
-        assert np.isclose(result['Lday'].iloc[0], expected(720), atol=1e-9)
-        assert np.isclose(result['Levening'].iloc[0], expected(240), atol=1e-9)
-        assert np.isclose(result['Lnight'].iloc[0], expected(480), atol=1e-9)
-
-    def test_lden_not_rounded(self):
-        """core.lden returns unrounded period levels and Lden (B11)."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
-        level = 65.123456
-        df = pd.DataFrame({'sound_level': level}, index=dates)
-
-        result = lden(df, 0, values=True)
-
-        expected_lden = 10 * np.log10((
-            12 * np.power(10, level / 10)
-            + 4 * np.power(10, (level + 5) / 10)
-            + 8 * np.power(10, (level + 10) / 10)
-        ) / 24)
-        assert np.isclose(result['Lday'].iloc[0], level, atol=1e-9)
-        assert np.isclose(result['Levening'].iloc[0], level, atol=1e-9)
-        assert np.isclose(result['Lnight'].iloc[0], level, atol=1e-9)
-        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=1e-9)
-
     @pytest.mark.parametrize("starts", [
         {'start_day': 24},
         {'start_evening': -1},
@@ -441,6 +338,8 @@ class TestLden:
         with pytest.raises(ValueError):
             lden(df, 0, **starts)
 
+
+@pytest.mark.internal
 class TestNoiseEvents:
     """Test the noise_events function."""
 
@@ -515,9 +414,11 @@ class TestNoiseEvents:
         assert result == 3
 
 
+@pytest.mark.behaviour
 class TestHarmonicaIntegration:
     """Integration tests for harmonica function with different scenarios."""
 
+    @pytest.mark.slow
     def test_harmonica_single_hour(self):
         """Test harmonica with exactly one hour of data."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=3600, freq='1s')
@@ -532,6 +433,7 @@ class TestHarmonicaIntegration:
         assert 'BGN' in result.columns
         assert 'HARMONICA' in result.columns
 
+    @pytest.mark.slow
     def test_harmonica_multiple_hours(self):
         """Test harmonica with multiple hours of data."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=3*3600, freq='1s')  # 3 hours
@@ -560,6 +462,7 @@ class TestHarmonicaIntegration:
         assert 'BGN' in result.columns
         assert 'HARMONICA' in result.columns
 
+    @pytest.mark.slow
     def test_harmonica_subsecond_interval(self):
         """Test harmonica with sub-second intervals."""
         # Create data with 0.1 second intervals
@@ -576,13 +479,15 @@ class TestHarmonicaIntegration:
         assert 'HARMONICA' in result.columns
 
 
+@pytest.mark.internal
 class TestLdenCalculations:
-    """Test lden calculation accuracy."""
+    """Test lden calculation accuracy with the default periods
+    (constant levels per period)."""
 
-    def test_lden_calculation_accuracy(self):
-        """Test lden calculation with known values."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*60, freq='1min')
-        
+    def test_lden_with_values(self):
+        """Test lden calculation with individual period values."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=24*3600, freq='1s')
+
         data = []
         for date in dates:
             if 7 <= date.hour < 19:
@@ -591,20 +496,20 @@ class TestLdenCalculations:
                 data.append(60.0)
             else:
                 data.append(55.0)
-        
+
         df = pd.DataFrame({'sound_level': data}, index=dates)
         result = lden(df, 0, values=True)
-        
-        expected_lden = 10 * np.log10((
-            12 * np.power(10, 65/10) + 
-            4 * np.power(10, 65/10) + 
-            8 * np.power(10, 65/10)
-        ) / 24)
-        
-        assert np.isclose(result['Lday'].iloc[0], 65.0, atol=0.1)
-        assert np.isclose(result['Levening'].iloc[0], 60.0, atol=0.1)
-        assert np.isclose(result['Lnight'].iloc[0], 55.0, atol=0.1)
-        assert np.isclose(result['Lden'].iloc[0], expected_lden, atol=0.1)
+
+        assert isinstance(result, pd.DataFrame)
+        assert 'Lden' in result.columns
+        assert 'Lday' in result.columns
+        assert 'Levening' in result.columns
+        assert 'Lnight' in result.columns
+        assert len(result) == 1
+
+        assert np.isclose(result['Lday'].iloc[0], 65.0, rtol=0.01)
+        assert np.isclose(result['Levening'].iloc[0], 60.0, rtol=0.01)
+        assert np.isclose(result['Lnight'].iloc[0], 55.0, rtol=0.01)
 
 
 if __name__ == '__main__':

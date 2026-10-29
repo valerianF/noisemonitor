@@ -8,7 +8,6 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import warnings
-from pathlib import Path
 from unittest.mock import patch
 from datetime import datetime
 
@@ -21,41 +20,8 @@ from noisemonitor.util.display import (
     line_weather, compare_weather_daily
 )
 
-
-@pytest.fixture(scope="module")
-def test_data_paths():
-    """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data" / "internal"
-    return {
-        "laeq1m": base_path / "test_data_laeq1m.csv",
-        "laeq1s": base_path / "test_data_laeq1s.csv"
-    }
-
-
-@pytest.fixture(scope="module") 
-def laeq1m_data(test_data_paths):
-    """Load LAeq,1min test data (one week of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1m"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
-
-
-@pytest.fixture(scope="module")
-def laeq1s_data(test_data_paths):
-    """Load LAeq,1s test data (one day of data).""" 
-    df = nm.load(
-        str(test_data_paths["laeq1s"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
+# Plots only: no acoustic reference values
+pytestmark = pytest.mark.behaviour
 
 
 @pytest.fixture
@@ -159,6 +125,7 @@ class TestBasicPlotFunctions:
 class TestAdvancedPlotFunctions:
     """Test frequency-specific plotting functions."""
     
+    @pytest.mark.slow
     @patch('matplotlib.pyplot.show')
     def test_freq_line(self, mock_show, sample_octave_data):
         """Test frequency line plotting with options."""

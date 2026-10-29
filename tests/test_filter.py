@@ -4,7 +4,6 @@ import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime, time
-from pathlib import Path
 
 import noisemonitor as nm
 from noisemonitor.util.filter import (
@@ -12,27 +11,9 @@ from noisemonitor.util.filter import (
     _get_week_indexes, _days, _hours
 )
 
+# Filtering only: no acoustic reference values
+pytestmark = pytest.mark.behaviour
 
-@pytest.fixture(scope="module")
-def test_data_paths():
-    """Provide paths to the test data files."""
-    base_path = Path(__file__).parent.parent / "data" / "internal"
-    return {
-        "laeq1m": base_path / "test_data_laeq1m.csv"
-    }
-
-
-@pytest.fixture(scope="module") 
-def laeq1m_data(test_data_paths):
-    """Load LEQ dB -A,1min test data (one week of data)."""
-    df = nm.load(
-        str(test_data_paths["laeq1m"]),
-        datetimeindex=0,
-        valueindexes=1,
-        header=0,
-        sep=','
-    )
-    return df
 
 @pytest.fixture(scope="module")
 def sample_weather_data():
@@ -301,7 +282,7 @@ class TestHours:
         (0, 24, '00:00', '23:59', 1440),
     ])
     def test_hours_half_open(self, hour1, hour2, first, last, count):
-        """_hours keeps [hour1, hour2): the sample at hour2 is excluded (B3),
+        """_hours keeps [hour1, hour2): the sample at hour2 is excluded,
         24 maps to midnight and (0, 24) keeps the full day."""
         dates = pd.date_range('2023-01-01', periods=1440, freq='min')
         df = pd.DataFrame({'LAeq': 50.0}, index=dates)

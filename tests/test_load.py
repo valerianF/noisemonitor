@@ -13,6 +13,9 @@ from unittest.mock import patch, mock_open
 
 from noisemonitor.util.load import load, _parse_data
 
+# Loading and parsing only: no acoustic reference values
+pytestmark = pytest.mark.behaviour
+
 
 class TestParseData:
     """Test the _parse_data helper function."""
@@ -223,6 +226,7 @@ class TestLoad:
         assert len(result) >= 4
         assert isinstance(result.index, pd.DatetimeIndex)
 
+    @pytest.mark.slow
     def test_load_with_chunks(self):
         """Test loading with chunk processing enabled."""
         result = load(
@@ -259,12 +263,12 @@ class TestLoad:
         assert len(result) == 1
 
     @pytest.mark.filterwarnings("error::DeprecationWarning")
-    @pytest.mark.parametrize("use_chunks", [False, True])
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)])
     def test_load_binary_xls_file(self, use_chunks):
         """Binary Excel .xls workbook (title row, blank row, header on row
         2) read with the calamine engine, without deprecation warnings."""
         result = load(
-            path=str(Path(__file__).parent.parent / 'data' / 'internal'
+            path=str(Path(__file__).parent / 'data' / 'internal'
                      / 'test_data_binary.xls'),
             datetimeindex=0,
             valueindexes=[1, 2],
@@ -552,6 +556,7 @@ class TestLoad:
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
 
+    @pytest.mark.slow
     def test_load_concurrent_processing(self):
         """Test load function's concurrent processing with ProcessPoolExecutor."""
         large_file = os.path.join(self.temp_dir, 'large.csv')
@@ -748,6 +753,7 @@ class TestLoadColumnReference:
         assert len(result.columns) == 2
         assert isinstance(result.index, pd.DatetimeIndex)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("datetimeindex, valueindexes, expected", [
         # Integer indices, datetime column on the right
         (4, 1, ['LCeq']),
@@ -878,7 +884,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
     def setup_method(self):
         """Set up test files for each test."""
         self.temp_dir = tempfile.mkdtemp()
-        self.data_dir = Path(__file__).parent.parent / "data" / "internal"
+        self.data_dir = Path(__file__).parent / "data" / "internal"
         idx = pd.date_range('2023-01-01 10:00', periods=5, freq='1min')
         # DatetimeIndex without a name, as after some pandas operations
         self.df = pd.DataFrame(
@@ -897,7 +903,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
         return path
 
     @pytest.mark.parametrize("valueindexes", [[1, 2, 3], None])
-    @pytest.mark.parametrize("use_chunks", [False, True])
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)])
     def test_load_noisesentry_decimal_comma(self, valueindexes, use_chunks):
         """NoiseSentry text export with an .xls extension and decimal commas
         (values and milliseconds): values are converted, the empty trailing
@@ -968,6 +974,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
             load(path=path, datetimeindex=0, valueindexes=[1], sep=';',
                 use_chunks=False)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("ext", ['csv', 'xlsx'])
     @pytest.mark.parametrize("datetimeindex, valueindexes", [
         (0, [1, 2]),
@@ -1009,7 +1016,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
         assert list(result.columns) == ['Unnamed: 1', 'LAeq']
         np.testing.assert_allclose(result['Unnamed: 1'].values, [65.0, 66.0])
 
-    @pytest.mark.parametrize("use_chunks", [False, True])
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)])
     def test_load_empty_unnamed_column_before_datetime(self, use_chunks):
         """Dropping an empty unnamed column located before the datetime
         column does not shift the datetime column position."""
