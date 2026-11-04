@@ -20,7 +20,8 @@ from noisemonitor.util.core import (
     CoverageWarning
 )
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, SOURCE_COVERAGE, assert_close, lday_06_22
+    ACCRA_COLUMNS, ACCRA_PERIODS, HARMONICA_INDICATORS, SOURCE_COVERAGE,
+    TOL_HARMONICA, assert_close, lday_06_22
 )
 
 
@@ -38,12 +39,12 @@ class TestExternalAccra:
     def test_equivalent_level(self, accra_daily, accra_days, indicator, hours):
         """Leq of the hourly values of a period, each calendar day."""
         got = [equivalent_level(day.loc[day.index.hour.isin(hours), site].to_numpy())
-               for day, site in zip(accra_days, accra_daily['ID'])]
+            for day, site in zip(accra_days, accra_daily['ID'])]
         assert_close(got, accra_daily[indicator])
 
     @pytest.mark.slow
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_lden(self, accra_daily, accra_days, coverage):
         """Lden, Lnight, and Lday + Levening (as the source's LDay), each
         calendar day with the Accra periods."""
@@ -55,7 +56,70 @@ class TestExternalAccra:
         assert_close(result['Lden'], accra_daily['LDEN'])
         assert_close(result['Lnight'], accra_daily['LNight'])
         assert_close(lday_06_22(result['Lday'], result['Levening'], accra_days, sites),
-                     accra_daily['LDay'])
+                    accra_daily['LDay'])
+
+
+@pytest.mark.external
+class TestExternalBruitparif:
+    """Hourly indicators computed by Bruitparif from the LAeq,1s of one
+    station, over two days."""
+
+    def test_equivalent_level(self, bruitparif_1s, bruitparif_hourly):
+        """Leq of the LAeq,1s of each hour: LAeq_1h."""
+        hour = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+        got = [equivalent_level(bruitparif_1s.loc[h:h + hour].iloc[:, 0].to_numpy())
+            for h in bruitparif_hourly.index]
+        assert_close(got, bruitparif_hourly['LAeq_1h'])
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("use_chunks", [True, False], ids=['chunks', 'no_chunks'])
+    def test_harmonica(self, bruitparif_1s, bruitparif_hourly,
+                    bruitparif_span_complete, use_chunks):
+        """HARMONICA, BGN and EVT of each hour: within TOL when its span has
+        no missing second, within TOL_HARMONICA otherwise."""
+        result = harmonica(bruitparif_1s, 0, use_chunks=use_chunks)
+        result = result.loc[bruitparif_hourly.index]
+        complete = bruitparif_span_complete.to_numpy()
+        for indicator in HARMONICA_INDICATORS:
+            assert_close(result.loc[complete, indicator],
+                        bruitparif_hourly.loc[complete, indicator])
+            assert_close(result.loc[~complete, indicator],
+                        bruitparif_hourly.loc[~complete, indicator], TOL_HARMONICA)
+
+
+@pytest.mark.internal
+class TestCalculations:
+    """Internal validation: closed-form results on synthetic signals."""
+
+    @pytest.mark.parametrize("missing", [False, True], ids=['complete', 'missing_second'])
+    def test_harmonica_la95_window(self, missing):
+        """40 dB for one hour, then 60 dB. The LA95 of second t of the second
+        hour covers [t - 600 s, t) and is the 31st lowest of its 600 values:
+        40 dB while at least 31 of them are 40 dB (t < 570 s), 60 dB after.
+        A missing second (00:50:01) is ignored: it leaves these LA95 unchanged."""
+        dates = pd.date_range('2023-01-01', periods=2 * 3600, freq='s')
+        levels = np.where(dates.hour == 0, 40.0, 60.0)
+        if missing:
+            levels[3001] = np.nan
+        df = pd.DataFrame({'LAeq': levels}, index=dates)
+        result = harmonica(df, 0, use_chunks=False).loc[dates[3600]]
+
+        la95eq = 10 * np.log10((570 * 10 ** 4 + 3030 * 10 ** 6) / 3600)
+        assert np.isclose(result['BGN'], 0.2 * (la95eq - 30), rtol=0, atol=1e-9)
+        assert np.isclose(result['EVT'], 0.25 * (60 - la95eq), rtol=0, atol=1e-9)
+
+    def test_harmonica_la95_window_coverage(self):
+        """One hour without data before it: 90 dB for 10 s, then 50 dB. The
+        windows of t < 300 s hold fewer than half of their 600 values and
+        give no LA95; the later ones give 50 dB."""
+        dates = pd.date_range('2023-01-01', periods=3600, freq='s')
+        df = pd.DataFrame({'LAeq': np.where(np.arange(3600) < 10, 90.0, 50.0)},
+                        index=dates)
+        result = harmonica(df, 0, use_chunks=False).iloc[0]
+
+        laeq = 10 * np.log10((10 * 10 ** 9 + 3590 * 10 ** 5) / 3600)
+        assert np.isclose(result['BGN'], 0.2 * (50 - 30), rtol=0, atol=1e-9)
+        assert np.isclose(result['EVT'], 0.25 * (laeq - 50), rtol=0, atol=1e-9)
 
 
 @pytest.mark.behaviour
@@ -194,29 +258,19 @@ class TestHarmonicaValidation:
         df = pd.DataFrame({'sound_level': np.random.uniform(40, 80, 100)}, index=dates)
         
         with pytest.raises(ValueError, match="Computing the HARMONICA indicator requires "
-                           "an integration time equal to or below 1s"):
+                        "an integration time equal to or below 1s"):
             harmonica(df, 0)
 
     @pytest.mark.slow
-    def test_harmonica_valid_interval_1s(self):
-        """Test that harmonica accepts 1-second intervals."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=7200, freq='1s')
-        df = pd.DataFrame({'sound_level': np.random.uniform(40, 80, 7200)}, index=dates)
-        
-        result = harmonica(df, 0)
-        assert isinstance(result, pd.DataFrame)
-        assert 'EVT' in result.columns
-        assert 'BGN' in result.columns
-        assert 'HARMONICA' in result.columns
-
-    @pytest.mark.slow
     def test_harmonica_valid_interval_subsecond(self):
-        """Test that harmonica accepts sub-second intervals."""
+        """Test that harmonica accepts sub-second intervals (one hour at 0.1 s)."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')
-        df = pd.DataFrame({'sound_level': np.random.uniform(40, 80, 36000)}, index=dates)
-        
+        df = pd.DataFrame({'sound_level': np.random.uniform(50, 70, 36000)}, index=dates)
+
         result = harmonica(df, 0)
-        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 1
+        assert list(result.columns) == ['EVT', 'BGN', 'HARMONICA']
+        assert not result.isna().any().any()
 
     def test_harmonica_empty_dataframe(self):
         """Test harmonica with empty DataFrame."""
@@ -412,71 +466,6 @@ class TestNoiseEvents:
         result = noise_events(df, 0, threshold=65.0, min_gap=2)
         
         assert result == 3
-
-
-@pytest.mark.behaviour
-class TestHarmonicaIntegration:
-    """Integration tests for harmonica function with different scenarios."""
-
-    @pytest.mark.slow
-    def test_harmonica_single_hour(self):
-        """Test harmonica with exactly one hour of data."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=3600, freq='1s')
-        data = np.random.uniform(50, 70, 3600)
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = harmonica(df, 0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 1
-        assert 'EVT' in result.columns
-        assert 'BGN' in result.columns
-        assert 'HARMONICA' in result.columns
-
-    @pytest.mark.slow
-    def test_harmonica_multiple_hours(self):
-        """Test harmonica with multiple hours of data."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=3*3600, freq='1s')  # 3 hours
-        data = np.random.uniform(50, 70, 3*3600)
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = harmonica(df, 0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 3
-        assert 'EVT' in result.columns
-        assert 'BGN' in result.columns
-        assert 'HARMONICA' in result.columns
-
-    def test_harmonica_no_chunks(self):
-        """Test harmonica with chunks disabled."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=7200, freq='1s')  # 2 hours
-        data = np.random.uniform(50, 70, 7200)
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = harmonica(df, 0, use_chunks=False)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 2
-        assert 'EVT' in result.columns
-        assert 'BGN' in result.columns
-        assert 'HARMONICA' in result.columns
-
-    @pytest.mark.slow
-    def test_harmonica_subsecond_interval(self):
-        """Test harmonica with sub-second intervals."""
-        # Create data with 0.1 second intervals
-        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')  # 1 hour at 0.1s
-        data = np.random.uniform(50, 70, 36000)
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = harmonica(df, 0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 1
-        assert 'EVT' in result.columns
-        assert 'BGN' in result.columns
-        assert 'HARMONICA' in result.columns
 
 
 @pytest.mark.internal

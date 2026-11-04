@@ -4,11 +4,12 @@ Dataset 1, Accra (Clark et al., 2021), from its Zenodo archive: writes
 ext_data_accra_h.csv and ext_data_accra_d.csv, keeping only the days whose
 published LAeq24hr is reproducible from the published hourly values.
 
-Dataset 2, Bruitparif: extracts two days from the files Bruitparif provided
-on request (LAeq,1s and the matching hourly indicators computed by
-Bruitparif, CC BY 4.0). The source files are not downloadable: set
-BRUITPARIF_DIR to the folder holding them. Writes ext_data_bruitparif_s.csv.xz
-and ext_data_bruitparif_h.csv. Skipped when the source files are missing.
+Dataset 2, Bruitparif: extracts two days from files provided by Bruitparif 
+(LAeq,1s and the matching hourly indicators computed by
+Bruitparif, CC BY 4.0), plus the 10 min of LAeq,1s before the first hour,
+which the HARMONICA of that hour needs. The source files are not
+downloadable: set BRUITPARIF_DIR to the folder holding them. Writes
+ext_data_bruitparif_s.csv.xz and ext_data_bruitparif_h.csv. 
 
 Requires pandas, plus acoustic-toolbox (Python >= 3.11) for dataset 1;
 neither the script nor acoustic-toolbox is needed to run the tests.
@@ -27,7 +28,7 @@ OUT = Path(__file__).parent
 # Dataset 1: Accra
 RECORD = 'https://zenodo.org/records/11223686/files/'
 MD5 = {'Hr.long.csv': '3f515bde8f126e1b9809521483916c10',
-       'Day.long.csv': 'cf464b25b70093d044e2d3c82f82939b'}
+    'Day.long.csv': 'cf464b25b70093d044e2d3c82f82939b'}
 SITES = ['EL', 'JT']  # the two most complete of the year-long sites
 TOL = 1e-4  # dB
 
@@ -37,6 +38,7 @@ BRUITPARIF_FILES = {'s': 'ext_data_bruitparif_s.csv',  # LAeq,1s
                     'h': 'ext_data_bruitparif_h.csv'}  # hourly indicators
 # Friday 23 and Saturday 24 October 2026: one weekday and one weekend day
 DAYS = ('2026-10-23', '2026-10-24')
+LA95_LEAD = ('2026-10-22 23:50:00', '2026-10-22 23:59:59')  # 10 min before the first hour
 
 
 def download(name):
@@ -84,7 +86,10 @@ def bruitparif():
     # are copied unchanged; missing seconds stay empty
     for k, p in sources.items():
         df = pd.read_csv(p, dtype=str, keep_default_na=False)
-        df = df[df['ts'].str[:10].isin(DAYS)]
+        keep = df['ts'].str[:10].isin(DAYS)
+        if k == 's':
+            keep |= df['ts'].str[:19].between(*LA95_LEAD)
+        df = df[keep]
         assert df['ts'].str.endswith('+02:00').all()
         out = OUT / (p.name + ('.xz' if k == 's' else ''))
         df.to_csv(out, index=False, lineterminator='\n',

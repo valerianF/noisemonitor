@@ -26,6 +26,8 @@ def periodic(
 ) -> pd.DataFrame:
     """Compute daily or weekly rolling averages of the sound level, in 
     terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
+    Percentiles are computed by linear interpolation between samples
+    (numpy's default method).
 
     Parameters
     ---------- 
@@ -581,6 +583,8 @@ def series(
 ) -> pd.DataFrame:
     """Sliding average of the entire sound level array, in terms of
     equivalent level (LEQ), and percentiles (L10, L50 and L90).
+    Percentiles are computed by linear interpolation between samples
+    (numpy's default method).
 
     Parameters
     ---------- 

@@ -12,7 +12,9 @@ from noisemonitor.profile import (
     periodic, series, nne, freq_periodic, freq_series
 )
 from noisemonitor.util.core import CoverageWarning
-from tests.conftest import ACCRA_COLUMNS, SOURCE_COVERAGE, assert_close
+from tests.conftest import (
+    ACCRA_COLUMNS, BRUITPARIF_LEVELS, SOURCE_COVERAGE, assert_close
+)
 
 
 @pytest.fixture(scope="module")
@@ -76,19 +78,19 @@ class TestExternalAccra:
     ], ids=['LDay', 'LNight'])
     @pytest.mark.parametrize("span", ['day', 'week'])
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_periodic(self, accra_daily, accra_spans, indicator, hour, win, span,
-                      coverage):
+                    coverage):
         """Leq of one window matching a published period (hour1 = hour2), on
         one day so that no averaging across days happens: each calendar day,
         or the 7 days starting on it with day1 = day2."""
         got = [periodic(data, hour, hour, weekday, weekday,
                         column=ACCRA_COLUMNS[site], win=win, **coverage)['Leq'].iloc[0]
-               for (data, weekday), site in zip(accra_spans[span], accra_daily['ID'])]
+            for (data, weekday), site in zip(accra_spans[span], accra_daily['ID'])]
         assert_close(got, accra_daily[indicator])
 
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_series(self, accra_hourly, accra_daily, coverage):
         """24 h windows starting at midnight, labelled by their centre
         (12:00), on the whole series: LAeq24hr."""
@@ -96,8 +98,41 @@ class TestExternalAccra:
                                  start_at_midnight=True, **coverage)
                     for site, column in ACCRA_COLUMNS.items()}
         got = [per_site[site].loc[date + pd.Timedelta(hours=12), 'Leq'] for site, date
-               in zip(accra_daily['ID'], accra_daily['date'])]
+            in zip(accra_daily['ID'], accra_daily['date'])]
         assert_close(got, accra_daily['LAeq24hr'])
+
+
+@pytest.mark.external
+@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
+class TestExternalBruitparif:
+    """Hourly indicators computed by Bruitparif from the LAeq,1s of one
+    station, over two days."""
+
+    @pytest.mark.parametrize("hour1, hour2", [(0, 23), (22, 6)],
+                            ids=['whole_day', 'past_midnight'])
+    def test_periodic(self, bruitparif_1s, bruitparif_hourly, hour1, hour2):
+        """1 h windows from hour1 to hour2 on one day (day1 = day2), so that
+        no averaging across days happens, labelled by their centre (hh:30):
+        Leq, L10, L50 and L90 of each hour."""
+        hours = [(hour1 + i) % 24 for i in range((hour2 - hour1) % 24 + 1)]
+        days = bruitparif_hourly.index.normalize().unique()
+        result = pd.concat([periodic(bruitparif_1s, hour1, hour2, d.day_name(),
+                                    d.day_name(), column=0, win=3600) for d in days])
+        expected = bruitparif_hourly.loc[[d + pd.Timedelta(hours=h)
+                                        for d in days for h in hours]]
+
+        assert list(result.index) == [time(h, 30) for h in hours] * len(days)
+        for got, ref in BRUITPARIF_LEVELS.items():
+            assert_close(result[got], expected[ref])
+
+    def test_series(self, bruitparif_1s, bruitparif_hourly):
+        """1 h windows starting at midnight, labelled by their centre (hh:30),
+        on the whole series: Leq, L10, L50 and L90 of each hour."""
+        result = series(bruitparif_1s, win=3600, column=0, start_at_midnight=True)
+
+        assert list(result.index) == list(bruitparif_hourly.index + pd.Timedelta(minutes=30))
+        for got, ref in BRUITPARIF_LEVELS.items():
+            assert_close(result[got], bruitparif_hourly[ref])
 
 
 @pytest.mark.internal
@@ -119,82 +154,6 @@ class TestCalculations:
 class TestExactValues:
     """Regression: values previously computed by noisemonitor (exact
     values). They detect changes; they do not validate."""
-
-    def test_periodic_exact_values(self, laeq1s_data):
-        """Test periodic with exact expected values from dataset."""
-        # Test full day profile (0-23h) with 1-hour windows
-        result = periodic(
-            laeq1s_data,
-            hour1=0, 
-            hour2=23,
-            column=0,
-            win=3600 
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 24  # 24 hourly values
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        # Test exact values for first three hours from dataset
-        # Hour 0 (00:30:00)
-        assert abs(result.iloc[0]['Leq'] - 45.164192) < 1e-2
-        assert abs(result.iloc[0]['L10'] - 46.485907) < 1e-2
-        assert abs(result.iloc[0]['L50'] - 44.285907) < 1e-2
-        assert abs(result.iloc[0]['L90'] - 43.185907) < 1e-2
-        
-        # Hour 1 (01:30:00)
-        assert abs(result.iloc[1]['Leq'] - 43.236100) < 1e-2
-        assert abs(result.iloc[1]['L10'] - 44.685907) < 1e-2
-        assert abs(result.iloc[1]['L50'] - 42.685907) < 1e-2
-        assert abs(result.iloc[1]['L90'] - 41.685907) < 1e-2
-        
-        # Hour 2 (02:30:00)
-        assert abs(result.iloc[2]['Leq'] - 42.633263) < 1e-2
-        assert abs(result.iloc[2]['L10'] - 44.185907) < 1e-2
-        assert abs(result.iloc[2]['L50'] - 41.985907) < 1e-2
-        assert abs(result.iloc[2]['L90'] - 41.085907) < 1e-2
-        
-        # Verify ordering relationships hold
-        assert (result['L10'] >= result['L50']).all()
-        assert (result['L50'] >= result['L90']).all()
-
-    def test_periodic_nighttime_exact_values(self, laeq1s_data):
-        """Test nighttime periodic with exact expected values from dataset."""
-
-        result = periodic(
-            laeq1s_data,
-            hour1=22, 
-            hour2=6,
-            column=0,
-            win=3600  
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 9  # Hours 22, 23, 0, 1, 2, 3, 4, 5, 6
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        # Test exact values for first two night hours from dataset
-        # Hour 22 (22:30:00) - first entry in night profile
-        assert abs(result.iloc[0]['Leq'] - 52.327007) < 1e-2
-        assert abs(result.iloc[0]['L10'] - 55.185907) < 1e-2
-        assert abs(result.iloc[0]['L50'] - 49.385907) < 1e-2
-        assert abs(result.iloc[0]['L90'] - 46.585907) < 1e-2
-        
-        # Hour 23 (23:30:00) - second entry in night profile
-        assert abs(result.iloc[1]['Leq'] - 51.256863) < 1e-2
-        assert abs(result.iloc[1]['L10'] - 53.885907) < 1e-2
-        assert abs(result.iloc[1]['L50'] - 47.185907) < 1e-2
-        assert abs(result.iloc[1]['L90'] - 44.085907) < 1e-2
-        
-        # Verify ordering relationships hold
-        assert (result['L10'] >= result['L50']).all()
-        assert (result['L50'] >= result['L90']).all()
 
     def test_periodic_stat_single_value(self, laeq1m_data):
         """Test periodic with single stat parameter value."""

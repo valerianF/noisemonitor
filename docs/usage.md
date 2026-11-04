@@ -113,7 +113,7 @@ weekday_leq = nm.summary.leq(
 )
 ```
 
-**Note:** To be accurate, statistical levels (L10, L50, L90) require a minimum data refresh rate of 1 second.
+**Note:** To be accurate, statistical levels (L10, L50, L90) require a minimum data refresh rate of 1 second. They are percentiles of the samples, computed by linear interpolation between samples (numpy's default method).
 
 ### Day-Evening-Night Level (Lden)
 
@@ -164,6 +164,8 @@ nm.display.line(
 
 The `noisemonitor.summary.harmonica_periodic()` function computes and plots the HARMONICA index based on Mietlicki et al. (2015). Optionally, this can be computed for specific days of the week (e.g., weekdays only).
 
+Hourly values follow the Bruitparif implementation: BGN = 0.2 (LA95eq − 30), EVT = 0.25 (LAeq − LA95eq) and HARMONICA = BGN + EVT, where LA95eq is the equivalent level of one LA95 per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean).
+
 ```python
 # Hourly HARMONICA profile
 harmonica_profile = nm.summary.harmonica_periodic(df_1s)
@@ -171,9 +173,9 @@ harmonica_profile = nm.summary.harmonica_periodic(df_1s)
 
 | Time     | EVT  | BGN  | HARMONICA |
 |----------|------|------|-----------|
-| 00:00:00 | 2.64 | 0.50 | 3.13      |
-| 01:00:00 | 2.38 | 0.34 | 2.72      |
-| 02:00:00 | 2.27 | 0.33 | 2.59      |
+| 00:00:00 | 0.49 | 2.64 | 3.13      |
+| 01:00:00 | 0.34 | 2.38 | 2.72      |
+| 02:00:00 | 0.33 | 2.27 | 2.59      |
 
 ```python
 # Visualization

@@ -13,8 +13,8 @@ from noisemonitor.summary import (
 )
 from noisemonitor.util.core import CoverageWarning
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, SOURCE_COVERAGE, TOL_ROUNDED, assert_close,
-    lday_06_22
+    ACCRA_COLUMNS, ACCRA_PERIODS, BRUITPARIF_LEVELS, HARMONICA_INDICATORS,
+    SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close, lday_06_22
 )
 
 
@@ -73,7 +73,7 @@ class TestExternalAccra:
     @pytest.mark.slow
     @pytest.mark.parametrize("span", ['day', 'week'])
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_lden(self, accra_daily, accra_spans, span, coverage):
         """Lden, Lnight, and Lday + Levening (as the source's LDay), rounded:
         each calendar day, or the 7 days starting on it with day1 = day2."""
@@ -96,15 +96,53 @@ class TestExternalAccra:
     ], ids=['LAeq24hr', 'LDay', 'LNight'])
     @pytest.mark.parametrize("span", ['day', 'week'])
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_leq(self, accra_daily, accra_spans, indicator, hour1, hour2, span,
-                 coverage):
+                coverage):
         """Leq of [hour1, hour2), rounded: each calendar day, or the 7 days
         starting on it with day1 = day2."""
         got = [leq(data, hour1, hour2, weekday, weekday,
                    column=ACCRA_COLUMNS[site], stats=False, **coverage)['Leq'][0]
-               for (data, weekday), site in zip(accra_spans[span], accra_daily['ID'])]
+            for (data, weekday), site in zip(accra_spans[span], accra_daily['ID'])]
         assert_close(got, accra_daily[indicator], TOL_ROUNDED)
+
+
+@pytest.mark.external
+@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
+class TestExternalBruitparif:
+    """Hourly indicators computed by Bruitparif from the LAeq,1s of one
+    station, over two days."""
+
+    def test_leq(self, bruitparif_1s, bruitparif_hourly):
+        """Leq, L10, L50 and L90 of [h, h + 1) on each day (day1 = day2),
+        rounded."""
+        result = pd.concat([
+            leq(bruitparif_1s, h.hour, h.hour + 1, h.day_name(), h.day_name(),
+                column=0, stats=True)
+            for h in bruitparif_hourly.index], ignore_index=True)
+        for got, ref in BRUITPARIF_LEVELS.items():
+            assert_close(result[got], bruitparif_hourly[ref], TOL_ROUNDED)
+
+    @pytest.mark.slow
+    # the 10 min before the first day form a partial hour (NaN)
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
+    def test_harmonica_periodic(self, bruitparif_1s, bruitparif_hourly,
+                                bruitparif_span_complete):
+        """HARMONICA, BGN and EVT of each hour of the day, averaged over the
+        two days: within TOL when the span of that hour has no missing
+        second on both days, within TOL_HARMONICA otherwise (see test_core)."""
+        result = harmonica_periodic(bruitparif_1s, column=0)
+        ref = bruitparif_hourly[HARMONICA_INDICATORS]
+        expected = ref.groupby(ref.index.hour).mean()
+        complete = (bruitparif_span_complete
+                    .groupby(bruitparif_span_complete.index.hour).all().to_numpy())
+
+        assert list(result.index) == [time(h) for h in range(24)]
+        for indicator in HARMONICA_INDICATORS:
+            assert_close(result[indicator].to_numpy()[complete],
+                        expected[indicator].to_numpy()[complete])
+            assert_close(result[indicator].to_numpy()[~complete],
+                        expected[indicator].to_numpy()[~complete], TOL_HARMONICA)
 
 
 @pytest.mark.internal
@@ -175,37 +213,6 @@ class TestExactValues:
     """Regression: values previously computed by noisemonitor (exact
     values). They detect changes; they do not validate."""
 
-    @pytest.mark.slow
-    def test_harmonica_periodic(self, laeq1s_data):
-        """Test basic harmonica periodic computation with exact expected values."""
-        with pytest.warns(CoverageWarning, 
-                        match="Insufficient data coverage or gaps detected"):
-            result = harmonica_periodic(
-                laeq1s_data, 
-                column=0,
-                use_chunks=False
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 24 
-        assert all(isinstance(idx, time) for idx in result.index)
-        
-        expected_columns = ['BGN', 'EVT', 'HARMONICA']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        assert abs(result.iloc[0]['BGN'] - 2.635803) < 1e-5
-        assert abs(result.iloc[0]['EVT'] - 0.496360) < 1e-5  
-        assert abs(result.iloc[0]['HARMONICA'] - 3.132164) < 1e-5
-        
-        assert abs(result.iloc[1]['BGN'] - 2.375998) < 1e-5
-        assert abs(result.iloc[1]['EVT'] - 0.339076) < 1e-5
-        assert abs(result.iloc[1]['HARMONICA'] - 2.715074) < 1e-5
-        
-        assert abs(result.iloc[2]['BGN'] - 2.26511) < 1e-5
-        assert abs(result.iloc[2]['EVT'] - 0.326900) < 1e-5
-        assert abs(result.iloc[2]['HARMONICA'] - 2.592018) < 1e-5
-
     def test_periodic_daily_exact_values(self, laeq1s_data):
         """Test daily periodic with exact expected values from dataset."""
         result = periodic(laeq1s_data, freq='D', column=0, values=True)
@@ -240,36 +247,6 @@ class TestExactValues:
         assert abs(result['Lday'][0] - 49.66) < 0.01  
         assert abs(result['Levening'][0] - 53.02) < 0.01
         assert abs(result['Lnight'][0] - 46.38) < 0.01
-
-    def test_leq(self, laeq1s_data):
-        """Test basic Leq computation with exact expected values."""
-        # Test day period (7-22h) with exact values
-        result_day = leq(laeq1s_data, hour1=7, hour2=22, column=0)
-            
-        assert isinstance(result_day, pd.DataFrame)
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result_day.columns
-        
-        # Test exact values for day period from dataset
-        assert abs(result_day['Leq'][0] - 50.65) < 0.01
-        assert abs(result_day['L10'][0] - 52.89) < 0.01
-        assert abs(result_day['L50'][0] - 48.59) < 0.01 
-        assert abs(result_day['L90'][0] - 44.89) < 0.01
-        
-        # Test night period (22-7h) 
-        result_night = leq(laeq1s_data, hour1=22, hour2=7, column=0)
-            
-        # Test exact values for night period from dataset
-        assert abs(result_night['Leq'][0] - 47.6) < 0.01
-        assert abs(result_night['L10'][0] - 49.29) < 0.01
-        assert abs(result_night['L50'][0] - 44.89) < 0.01
-        assert abs(result_night['L90'][0] - 41.79) < 0.01
-        
-        # Verify ordering relationships
-        assert (result_day['L10'] >= result_day['L50']).all()
-        assert (result_day['L50'] >= result_day['L90']).all()
 
 
 @pytest.mark.behaviour

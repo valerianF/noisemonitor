@@ -16,8 +16,14 @@ def harmonica_periodic(
     day1: Optional[str] = None,
     day2: Optional[str] = None
 ) -> pd.DataFrame:
-    """Compute the average HARMONICA indicators for each hour of a day.
-    Optionally, can return the average values for specific days of the week.
+    """Compute the average HARMONICA indicators for each hour of a day:
+    the hourly values of core.harmonica, averaged over the days for each
+    hour of the day (arithmetic mean). Optionally, can return the average
+    values for specific days of the week. Coverage rules are those of
+    core.harmonica: a 10 min LA95 window with fewer than 50% of its
+    expected values gives no LA95, and an hour with less than 80% of its
+    expected values is NaN; NaN hours are left out of the mean, with a
+    CoverageWarning.
 
     Parameters
     ----------
@@ -349,7 +355,8 @@ def leq(
         If None, the first column of the DataFrame will be used.
     stats: bool, default True
         If set to True, the function will return L10, L50 and L90 
-        together with the Leq.
+        together with the Leq (percentiles by linear interpolation between
+        samples, numpy's default method).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.

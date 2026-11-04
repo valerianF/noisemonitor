@@ -1,11 +1,13 @@
 """Shared by the test modules: fixtures of the internal test data
-(data/internal), and fixtures, constants and helpers of the Accra external
-data (data/external). Constants and helpers are imported with
+(data/internal), and fixtures, constants and helpers of the external data
+(data/external). Constants and helpers are imported with
 `from tests.conftest import ...`.
 
 Module scope: each test module gets its own copy of the data, so a function
 that modifies its input cannot affect other modules."""
 
+import lzma
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -116,9 +118,9 @@ def lday_06_22(lday, levening, days, sites):
     """LDay (06-22) of the source from Lday (06-19) and Levening (19-22),
     each weighted by its number of hours with data."""
     n_day = np.array([day[site].between_time('06:00', '19:00', inclusive='left')
-                      .count() for day, site in zip(days, sites)])
+                    .count() for day, site in zip(days, sites)])
     n_evening = np.array([day[site].between_time('19:00', '22:00', inclusive='left')
-                          .count() for day, site in zip(days, sites)])
+                        .count() for day, site in zip(days, sites)])
     energy = np.nansum([n_day * 10 ** (np.asarray(lday) / 10),
                         n_evening * 10 ** (np.asarray(levening) / 10)], axis=0)
     with np.errstate(invalid='ignore'):  # no data in 06-22: NaN
@@ -129,7 +131,7 @@ def lday_06_22(lday, levening, days, sites):
 def accra_hourly():
     """Hourly LAeq at two Accra sites (EL, JT), one column per site."""
     return nm.load(str(EXT_PATH / "ext_data_accra_h.csv"),
-                   datetimeindex=0, valueindexes=[1, 2])
+                datetimeindex=0, valueindexes=[1, 2])
 
 
 @pytest.fixture(scope="module")
@@ -153,3 +155,57 @@ def accra_spans(accra_hourly, accra_daily):
         end = pd.Timedelta(days=n_days) - pd.Timedelta(hours=1)
         return [(accra_hourly.loc[d:d + end], weekday(d)) for d in accra_daily['date']]
     return {'day': span(1, lambda d: None), 'week': span(7, lambda d: d.day_name())}
+
+
+# External data: Bruitparif (data/external/README.md)
+
+BRUITPARIF_TZ = 'Europe/Paris'
+# noisemonitor output column: Bruitparif hourly column
+BRUITPARIF_LEVELS = {'Leq': 'LAeq_1h', 'L10': 'L10_1h', 'L50': 'L50_1h',
+                    'L90': 'L90_1h'}
+HARMONICA_INDICATORS = ['HARMONICA', 'BGN', 'EVT']
+# Hours whose span (the hour and the 10 min before it) has a missing second:
+# Bruitparif computed HARMONICA with values for seconds that are missing from
+# its LAeq,1s export. Other hours: TOL.
+TOL_HARMONICA = 0.005
+
+
+@pytest.fixture(scope="session")
+def bruitparif_1s_path(tmp_path_factory):
+    """The LAeq,1s file, stored xz-compressed, unpacked once per session."""
+    path = tmp_path_factory.mktemp("bruitparif") / "ext_data_bruitparif_s.csv"
+    with lzma.open(EXT_PATH / "ext_data_bruitparif_s.csv.xz") as src:
+        with open(path, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    return path
+
+
+@pytest.fixture(scope="module")
+def bruitparif_1s(bruitparif_1s_path):
+    """LAeq,1s over two days and the 10 min before them; timestamps with a
+    UTC offset in the file, converted to naive local time by load()."""
+    return nm.load(str(bruitparif_1s_path), datetimeindex=0, valueindexes=1,
+                timezone=BRUITPARIF_TZ)
+
+
+@pytest.fixture(scope="module")
+def bruitparif_hourly():
+    """Hourly indicators computed by Bruitparif, indexed by the start of
+    their hour in naive local time."""
+    df = pd.read_csv(EXT_PATH / "ext_data_bruitparif_h.csv")
+    df.index = (pd.DatetimeIndex(pd.to_datetime(df.pop('ts')))
+                .tz_convert(BRUITPARIF_TZ).tz_localize(None))
+    return df
+
+
+@pytest.fixture(scope="module")
+def bruitparif_span_complete(bruitparif_1s, bruitparif_hourly):
+    """For each hour of bruitparif_hourly, whether its HARMONICA span (the
+    hour and the 10 min before it, the window of its first LA95) has no
+    missing second."""
+    levels = bruitparif_1s.iloc[:, 0]
+    end = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+    return pd.Series(
+        [levels.loc[h - pd.Timedelta(minutes=10):h + end].notna().sum() == 4200
+        for h in bruitparif_hourly.index],
+        index=bruitparif_hourly.index)

@@ -142,8 +142,18 @@ def harmonica(
         column: int,
         use_chunks: bool = True
         ) -> pd.DataFrame:
-    """Compute the HARMONICA index and return a DataFrame with EVT, BGN, 
-    and HARMONICA indicators as proposed in (Mietlicki et al., 2015).
+    """Compute the hourly HARMONICA index and its EVT and BGN components, 
+    as proposed by Bruitparif (Mietlicki et al., 2015):
+    BGN = 0.2 (LA95eq - 30), EVT = 0.25 (LAeq - LA95eq) and
+    HARMONICA = BGN + EVT, where LAeq is the equivalent level of the hour
+    and LA95eq the equivalent level of its LA95 values. One LA95 is computed
+    every second t of the hour over the 10 min before it, [t - 600 s, t),
+    as the 5th percentile taken as the next higher sample (numpy method
+    'higher'), from the values available in the window; a window holding
+    fewer than 50% of its expected values gives no LA95, so an hour without
+    data before it uses the LA95 values from 5 min into the hour. An hour
+    with less than 80% of its expected values returns NaN. HARMONICA is not
+    capped: values above 10 are possible.
 
     Parameters
     ----------
@@ -219,7 +229,7 @@ def harmonica(
     return pd.DataFrame(results).set_index('hour')
 
 def hourly_harmonica(hour, group, column, interval, previous_data):
-    """Compute a single hour of data to compute HARMONICA indicators."""
+    """Compute the HARMONICA indicators of one hour (see harmonica)."""
     # Return NaN only when fewer than 80% of the expected data points
     # (both missing rows and NaN values) are present for the hour.
     expected_count = int(round(3600 / interval))
@@ -235,25 +245,30 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
             'HARMONICA': np.nan
             }
 
-    # Filter previous_data to include only the last 10 minutes
+    # Levels of the hour, preceded by those of the previous hour (if any)
+    levels = group.iloc[:, column]
     if not previous_data.empty:
-        start_time = group.index[0] - pd.Timedelta(minutes=10)
-        previous_data = previous_data.loc[previous_data.index >= start_time]
+        levels = pd.concat([previous_data.iloc[:, column], levels])
+    times = levels.index
+    values = levels.to_numpy(dtype=float)
 
-    # Combine the current hour's data with the filtered previous data
-    combined_data = pd.concat([previous_data, group])
+    # One LA95 per second t of the hour, over the 10 min before it,
+    # [t - 600 s, t), from the values available in this window. LA95 is the
+    # 5th percentile taken as the next higher sample (numpy method 'higher').
+    # A window holding fewer than half of its expected values gives no LA95.
+    window_count = int(round(600 / interval))
+    ends = group.index[::max(1, int(round(1.0 / interval)))]
+    starts = times.searchsorted(ends - pd.Timedelta(seconds=600))
+    stops = times.searchsorted(ends)
+    la95 = np.full(len(ends), np.nan)
+    for i, (start, stop) in enumerate(zip(starts, stops)):
+        window = values[start:stop]
+        window = window[~np.isnan(window)]
+        if len(window) >= window_count / 2:
+            la95[i] = np.percentile(window, 5, method='higher')
 
-    # Compute LAeq for the hour
     laeq = equivalent_level(group.iloc[:, column])
-
-    # Compute LA95eq for the hour using a rolling window
-    la95 = combined_data.iloc[:, column].rolling(
-        window=int(round(600 / interval)),
-        step=max(1, int(round(1.0 / interval)))
-    ).apply(lambda x: np.nanpercentile(x, 5), raw=True)
-
-    la95 = la95.loc[group.index[0]:group.index[-1]]
-    la95eq = equivalent_level(la95.dropna())
+    la95eq = equivalent_level(la95)
 
     # Compute EVT, BGN, and HARMONICA
     bgn = 0.2 * (la95eq - 30)
