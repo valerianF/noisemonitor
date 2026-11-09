@@ -22,7 +22,7 @@ Reference values from outside `noisemonitor`, used by the external validation te
 
 **Source:** Bruitparif (CC BY 4.0). Provided by Bruitparif on request: LAeq,1s and the hourly LAeq, L10, L50, L90, and the HARMONICA index with its BGN and EVT components (Mietlicki et al., 2015).
 
-**Tested:** hourly indicators computed from the LAeq,1s, against Bruitparif's: LAeq, L10, L50 and L90 with `core.equivalent_level` (LAeq), `summary.leq`, `profile.periodic`, `profile.series`; HARMONICA, BGN and EVT with `core.harmonica`, `summary.harmonica_periodic`.
+**Tested:** hourly indicators computed from the LAeq,1s, against Bruitparif's: LAeq, L10, L50 and L90 with `core.equivalent_level` (LAeq), `summary.leq`, `profile.periodic`, `profile.series`; HARMONICA, BGN and EVT with `core.harmonica`, `summary.harmonica_periodic`. Also used by an internal check of the Traffic Noise Index of `profile.periodic`, against its formula applied to Bruitparif's hourly L10 and L90 (`TestCalculations` in `tests/test_profile.py`).
 
 **Processing:** The source files (one week of data) were processed to contain only two days: Friday 23 and Saturday 24 October 2026:
 - `ext_data_bruitparif_s.csv.xz`: source data with LAeq,1s values compressed with xz; the tests unpack it to a temporary folder.

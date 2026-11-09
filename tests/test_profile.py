@@ -149,6 +149,20 @@ class TestCalculations:
         assert len(result) == 23
         assert (result.iloc[:, 0] == 1).all()
 
+    def test_periodic_tni(self, bruitparif_1s, bruitparif_hourly):
+        """TNI = 4 (L10 - L90) + L90 - 30 (Griffiths and Langdon, 1968) of
+        each hour, against the formula applied to Bruitparif's hourly L10 and
+        L90 (the percentiles are checked in TestExternalBruitparif): 1 h
+        windows on one day (day1 = day2)."""
+        days = bruitparif_hourly.index.normalize().unique()
+        result = pd.concat([periodic(bruitparif_1s, 0, 23, d.day_name(), d.day_name(),
+                                    column=0, win=3600, traffic_noise_indicators=True)
+                            for d in days])
+        l10 = bruitparif_hourly[BRUITPARIF_LEVELS['L10']]
+        l90 = bruitparif_hourly[BRUITPARIF_LEVELS['L90']]
+
+        assert_close(result['TNI'], 4 * (l10 - l90) + l90 - 30)
+
 
 @pytest.mark.snapshot
 class TestExactValues:
