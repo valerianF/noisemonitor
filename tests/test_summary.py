@@ -13,9 +13,11 @@ from noisemonitor.summary import (
 )
 from noisemonitor.util.core import CoverageWarning
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, BRUITPARIF_LEVELS, HARMONICA_INDICATORS,
+    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, HARMONICA_INDICATORS,
     SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close, lday_06_22
 )
+
+LDEN_COLUMNS = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
 
 
 @pytest.fixture(scope="module")
@@ -150,25 +152,6 @@ class TestCalculations:
     """Internal validation: closed-form results on synthetic signals, or
     consistency with another noisemonitor function."""
 
-    def test_periodic_start_at_day(self, one_loud_night_data):
-        """With start_at_day, days run from start_day to start_day and keep
-        each night whole; by default they are calendar days."""
-        result = periodic(one_loud_night_data, freq='D', values=True,
-                        start_at_day=True)
-
-        assert (result.index.hour == 7).all()
-        night = result.loc[pd.Timestamp('2023-01-01 07:00'), 'Lnight']
-        assert np.isclose(night, 50.0, atol=1e-9)
-        assert np.isclose(
-            result.loc[pd.Timestamp('2023-01-02 07:00'), 'Lnight'],
-            40.0, atol=1e-9)
-
-        calendar = periodic(one_loud_night_data, freq='D', values=True)
-        assert (calendar.index.hour == 0).all()
-        # The calendar day 2023-01-02 mixes 7 h of the loud night with 1 h
-        # of the next one
-        assert 40.5 < calendar.loc[pd.Timestamp('2023-01-02'), 'Lnight'] < 49.5
-
     def test_periodic_custom_periods(self, one_loud_night_data):
         """Start hours are passed to core.lden and set the day start."""
         starts = dict(start_day=6, start_evening=18, start_night=22)
@@ -207,46 +190,104 @@ class TestCalculations:
         assert counts.iloc[1] == 1
         assert counts.sum() == 4
 
+    @pytest.mark.slow
+    @pytest.mark.parametrize("start_at_day", [False, True],
+                            ids=['calendar', 'start_at_day'])
+    @pytest.mark.parametrize("freq", ['D', 'W', 'MS'])
+    def test_periodic_periods(self, accra_hourly, freq, start_at_day):
+        """Leq and Lden (default periods) of each day, week (Monday to
+        Sunday) or calendar month, starting at midnight or at start_day
+        (07:00), on the whole Accra series: core.equivalent_level and
+        core.lden of the hours of each period. The period of each hour is
+        found from its date, without resampling."""
+        shift = pd.Timedelta(hours=7 if start_at_day else 0)
+        shifted = accra_hourly.index - shift
+        if freq == 'D':
+            starts = shifted.normalize()
+        elif freq == 'W':
+            starts = shifted.normalize() - pd.to_timedelta(shifted.day_of_week, unit='D')
+        else:
+            starts = shifted.to_period('M').start_time
+        starts = starts + shift
 
-@pytest.mark.snapshot
-class TestExactValues:
-    """Regression: values previously computed by noisemonitor (exact
-    values). They detect changes; they do not validate."""
+        for site, column in ACCRA_COLUMNS.items():
+            result = periodic(accra_hourly, freq=freq, column=column, values=True,
+                            start_at_day=start_at_day)
+            expected = pd.DataFrame([
+                {'Leq': nm.util.core.equivalent_level(group[site].to_numpy()),
+                 **nm.util.core.lden(group, site, values=True).iloc[0]}
+                for _, group in accra_hourly.groupby(starts)])
 
-    def test_periodic_daily_exact_values(self, laeq1s_data):
-        """Test daily periodic with exact expected values from dataset."""
-        result = periodic(laeq1s_data, freq='D', column=0, values=True)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) >= 1  # At least one day of data
-        expected_columns = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        # Test exact values from dataset (first day)
-        first_day = result.iloc[0] 
-        assert abs(first_day['Leq'] - 49.736828) < 1e-5
-        assert abs(first_day['Lden'] - 54.72) < 0.01
-        assert abs(first_day['Lday'] - 49.66) < 0.01
-        assert abs(first_day['Levening'] - 53.02) < 0.01
-        assert abs(first_day['Lnight'] - 46.38) < 0.01
+            assert list(result.index) == list(starts.unique())
+            for col in LDEN_COLUMNS:
+                assert_close(result[col], expected[col])
 
-    def test_lden(self, laeq1s_data):
-        """Test basic Lden computation with exact expected values."""
-        # Use 1s data for exact value testing
-        result = lden(laeq1s_data, column=0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert 'Lden' in result
-        assert 'Lday' in result
-        assert 'Levening' in result
-        assert 'Lnight' in result
-        
-        # Test exact values from dataset
-        assert abs(result['Lden'][0] - 54.72) < 0.01
-        assert abs(result['Lday'][0] - 49.66) < 0.01  
-        assert abs(result['Levening'][0] - 53.02) < 0.01
-        assert abs(result['Lnight'][0] - 46.38) < 0.01
+    @pytest.mark.slow
+    @pytest.mark.parametrize("freq", ['D', 'W'])
+    def test_nday_counts(self, accra_hourly, freq):
+        """Number of days or weeks per bin, for each indicator: the values of
+        summary.periodic counted in [lower, upper) bins, NaN left out."""
+        bins = [50, 55, 60, 65, 70, 75]
+        edges = [-np.inf] + bins + [np.inf]
+        for site, column in ACCRA_COLUMNS.items():
+            indicators = periodic(accra_hourly, freq=freq, column=column, values=True)
+            for indicator in LDEN_COLUMNS:
+                result, returned_bins = nday(accra_hourly, indicator=indicator,
+                                             bins=bins, freq=freq, column=column)
+                values = indicators[indicator]
+                expected = [int(((values >= lower) & (values < upper)).sum())
+                            for lower, upper in zip(edges[:-1], edges[1:])]
+
+                assert returned_bins == bins
+                assert list(result['Number of Days']) == expected
+                assert sum(expected) == values.notna().sum()
+                ranges = list(result['Decibel Range'])
+                assert [r.left for r in ranges] == edges[:-1]
+                assert [r.right for r in ranges] == edges[1:]
+                assert all(r.closed == 'left' for r in ranges)
+
+    def test_nday_bin_edge(self):
+        """A value equal to a bin edge is counted in the bin above it: three
+        days at a constant 60 dB (Leq exactly 60.0)."""
+        dates = pd.date_range('2023-01-01', periods=3 * 24, freq='h')
+        df = pd.DataFrame({'LAeq': 60.0}, index=dates)
+        result, _ = nday(df, bins=[55, 60, 65])
+
+        assert list(result['Number of Days']) == [0, 0, 3, 0]
+
+    def test_freq_periodic_bands(self, bruitparif_bands):
+        """Each band (column names in mixed formats, unsorted) gives the
+        values of summary.periodic on its own column, under its frequency;
+        bands in ascending order."""
+        result = freq_periodic(bruitparif_bands, freq='D', values=True)
+
+        assert result.columns.names == ['Indicator', 'Frequency Band']
+        assert (list(result.columns.get_level_values('Frequency Band').unique())
+                == sorted(BANDS.values()))
+        for name, band in BANDS.items():
+            expected = periodic(bruitparif_bands, freq='D', column=name, values=True)
+            pd.testing.assert_frame_equal(
+                result.xs(band, axis=1, level='Frequency Band'), expected,
+                check_names=False, check_exact=True)
+
+    def test_freq_indicators_bands(self, bruitparif_bands):
+        """Each band gives the values of summary.leq (with L10, L50, L90) and
+        summary.lden on its own column, under its frequency; bands in
+        ascending order."""
+        result = freq_indicators(bruitparif_bands, hour1=22, hour2=6, stats=True,
+                                values=True)
+
+        assert list(result.columns) == sorted(BANDS.values())
+        for name, band in BANDS.items():
+            levels = leq(bruitparif_bands, 22, 6, column=name, stats=True).iloc[0]
+            periods = lden(bruitparif_bands, column=name, values=True).iloc[0]
+            expected = pd.Series({
+                'Leq': levels['Leq'], 'Lden': periods['Lden'],
+                'L10': levels['L10'], 'L50': levels['L50'], 'L90': levels['L90'],
+                'Lday': periods['Lday'], 'Levening': periods['Levening'],
+                'Lnight': periods['Lnight']})
+            pd.testing.assert_series_equal(result[band], expected, check_names=False,
+                                        check_exact=True)
 
 
 @pytest.mark.behaviour
@@ -280,41 +321,6 @@ class TestHarmonicaPeriodic:
 class TestPeriodic:
     """Test cases for the periodic function."""
 
-    def test_periodic_daily(self, laeq1m_data):
-        """Test daily periodic with individual day/evening/night values."""
-        result = periodic(laeq1m_data, freq='D', column=0, values=True)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        expected_columns = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        valid_mask = result['Leq'].notna() & result['Lden'].notna()
-        if valid_mask.any():
-            assert (result.loc[valid_mask, 'Leq'] <= \
-                    result.loc[valid_mask, 'Lden']).all()
-
-    def test_periodic_weekly(self, laeq1m_data):
-        """Test weekly periodic computation."""
-        result = periodic(laeq1m_data, freq='W', column=0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert isinstance(result.index, pd.DatetimeIndex)
-        
-        expected_columns = ['Leq', 'Lden']
-        for col in expected_columns:
-            assert col in result.columns
-
-    def test_periodic_monthly(self, laeq1m_data):
-        """Test monthly periodic computation."""
-        result = periodic(laeq1m_data, freq='MS', column=0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert isinstance(result.index, pd.DatetimeIndex)
-
     def test_periodic_invalid_frequency(self, laeq1m_data):
         """Test periodic with invalid frequency."""
         with pytest.raises(ValueError, match="Invalid frequency"):
@@ -324,35 +330,6 @@ class TestPeriodic:
 @pytest.mark.behaviour
 class TestFreq:
     """Test cases for the frequency bands function."""
-
-    def test_freq_periodic(self, sample_octave_data):
-        """Test frequency periodic with individual day/evening/night values."""
-        result = freq_periodic(sample_octave_data, freq='D', values=True)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert isinstance(result.columns, pd.MultiIndex)
-        
-        indicators = result.columns.get_level_values(0)
-        expected_indicators = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
-        for indicator in expected_indicators:
-            assert indicator in indicators
-            
-        frequency_bands = result.columns.get_level_values(1)
-        octave_bands = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
-        for band in octave_bands:
-            assert band in frequency_bands
-            
-        # Check that Lden >= Leq for each band (due to evening/night penalties)
-        for band in octave_bands:
-            valid_mask = (
-                result[('Leq', band)].notna() &
-                result[('Lden', band)].notna()
-            )
-            if valid_mask.any():
-                # Allow small numerical differences
-                assert (result.loc[valid_mask, ('Lden', band)] >= 
-                    result.loc[valid_mask, ('Leq', band)] - 0.1).all(), \
-                    f"Lden should be >= Leq for band {band}"
 
     def test_freq_indicators(self, sample_octave_data):
         """Test basic frequency indicators computation."""
@@ -381,45 +358,8 @@ class TestFreq:
 
 
 @pytest.mark.behaviour
-class TestLevels:
-    """Test cases for the levels (Lden and Leq) functions."""
-
-    def test_lden_1m_data(self, laeq1m_data):
-        """Test Lden computation with 1m data (original generic test).""" 
-        result = lden(
-            laeq1m_data, 
-            column=0
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert 'Lden' in result
-        assert 'Lday' in result
-        assert 'Levening' in result
-        assert 'Lnight' in result
-        
-        lden_value = result['Lden'][0]
-        assert 30 <= lden_value <= 90
-
-
-@pytest.mark.behaviour
 class TestNday:
     """Test cases for the nday function."""
-
-    def test_nday(self, laeq1m_data):
-        """Test basic nday computation."""
-        custom_bins = [45, 55, 65, 75]
-        result, bins = nday(laeq1m_data, bins=custom_bins, column=0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert bins == custom_bins
-        assert len(result) == len(custom_bins) + 1 
-        
-        expected_columns = ['Decibel Range', 'Number of Days']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        assert (result['Number of Days'] >= 0).all()
-        assert result['Number of Days'].dtype in ['int64', 'int32']
 
     def test_nday_invalid_indicator(self, laeq1m_data):
         """Test nday with invalid indicator."""
@@ -581,23 +521,6 @@ class TestCoverageCheck:
         # Check that the sum of 'Number of Days' equals 2 (days 1 and 3)
         total_days = result['Number of Days'].sum()
         assert total_days == 2
-
-    def test_coverage_warning_emitted(self, data_with_gaps):
-        """Verify that coverage warnings are emitted when coverage is insufficient."""
-        # Use pytest.warns() which collects all warnings
-        with pytest.warns(CoverageWarning) as warning_list:
-            result = periodic(
-                data_with_gaps,
-                freq='D',
-                column=0,
-                coverage_check=True
-            )
-        
-        # Should have warnings emitted (periodic checks both Leq and Lden)
-        assert len(warning_list) >= 1
-        # Verify the warning message
-        assert any("Insufficient data coverage detected" in str(w.message)
-                for w in warning_list)
 
     @pytest.mark.slow
     def test_harmonica_periodic_coverage_check(self, laeq1s_data):

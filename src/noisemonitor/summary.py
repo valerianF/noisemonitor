@@ -89,8 +89,9 @@ def periodic(
     df: pd.DataFrame
         DataFrame with a datetime index and sound level values.
     freq: str, default 'D'
-        frequency for the computation. 'D' for daily, 'W' for weekly, and
-        'MS' for monthly.
+        frequency for the computation. 'D' for daily, 'W' for weekly
+        (Monday to Sunday), and 'MS' for monthly (calendar months). Periods
+        are labelled by their start.
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations.
         If None, the first column of the DataFrame will be used.
@@ -131,7 +132,8 @@ def periodic(
 
     # Shift the index so that calendar periods start at start_day
     offset = pd.Timedelta(hours=start_day if start_at_day else 0)
-    resampled = df.set_axis(df.index - offset, axis=0).resample(rules[freq])
+    resampled = df.set_axis(df.index - offset, axis=0).resample(
+        rules[freq], closed='left', label='left')
 
     coverage_warning_issued = False
 
@@ -203,8 +205,9 @@ def freq_periodic(
         DataFrame containing octave or third-octave frequency bands as 
         columns.
     freq: str, default 'D'
-        Frequency for the computation. 'D' for daily, 'W' for weekly, 
-        and 'MS' for monthly.
+        Frequency for the computation. 'D' for daily, 'W' for weekly
+        (Monday to Sunday), and 'MS' for monthly (calendar months).
+        Periods are labelled by their start.
     values: bool, default False
         If set to True, the function will return individual day, 
         evening, and night values in addition to the Lden.
@@ -552,7 +555,8 @@ def nday(
         List of decibel values to define the bins. By default: <40 dBA 
         and every 5 dBA until >=80 dBA.
     freq: str, default 'D'
-        Frequency for the computation. 'D' for daily and 'W' for weekly.
+        Frequency for the computation. 'D' for daily, 'W' for weekly
+        (Monday to Sunday) and 'MS' for monthly (calendar months).
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.

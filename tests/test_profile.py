@@ -13,8 +13,17 @@ from noisemonitor.profile import (
 )
 from noisemonitor.util.core import CoverageWarning
 from tests.conftest import (
-    ACCRA_COLUMNS, BRUITPARIF_LEVELS, SOURCE_COVERAGE, assert_close
+    ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, SOURCE_COVERAGE, assert_close
 )
+
+
+def window_levels(levels):
+    """Leq, L10, L50 and L90 of the samples of one window (percentiles by
+    linear interpolation, as checked against Bruitparif's hourly values)."""
+    return {'Leq': nm.util.core.equivalent_level(levels.to_numpy()),
+            'L10': np.nanpercentile(levels, 90),
+            'L50': np.nanpercentile(levels, 50),
+            'L90': np.nanpercentile(levels, 10)}
 
 
 @pytest.fixture(scope="module")
@@ -125,6 +134,21 @@ class TestExternalBruitparif:
         for got, ref in BRUITPARIF_LEVELS.items():
             assert_close(result[got], expected[ref])
 
+    @pytest.mark.parametrize("stat", [[10, 50, 90], 50], ids=['list', 'int'])
+    def test_periodic_stat(self, bruitparif_1s, bruitparif_hourly, stat):
+        """stat as a list or an int: each statistical level L_s is the
+        (100 - s)th percentile, and these columns replace the default ones.
+        1 h windows on one day (day1 = day2): Bruitparif's Ln of each hour."""
+        days = bruitparif_hourly.index.normalize().unique()
+        result = pd.concat([periodic(bruitparif_1s, 0, 23, d.day_name(), d.day_name(),
+                                    column=0, win=3600, stat=stat)
+                            for d in days])
+        expected = bruitparif_hourly.loc[[d + pd.Timedelta(hours=h)
+                                        for d in days for h in range(24)]]
+
+        for s in stat if isinstance(stat, list) else [stat]:
+            assert_close(result[f'L{s}'], expected[BRUITPARIF_LEVELS[f'L{s}']])
+
     def test_series(self, bruitparif_1s, bruitparif_hourly):
         """1 h windows starting at midnight, labelled by their centre (hh:30),
         on the whole series: Leq, L10, L50 and L90 of each hour."""
@@ -163,132 +187,101 @@ class TestCalculations:
 
         assert_close(result['TNI'], 4 * (l10 - l90) + l90 - 30)
 
+    @pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
+    @pytest.mark.parametrize("step, hour2", [(0, 23), (900, 22)],
+                            ids=['hourly', 'sliding'])
+    @pytest.mark.parametrize("one_day", [False, True], ids=['pooled', 'one_day'])
+    def test_periodic_windows(self, bruitparif_1s, bruitparif_hourly, step, hour2,
+                            one_day):
+        """1 h windows starting every hour (step 0) or every 15 min, from
+        00:00 to hour2, labelled by their centre: each window holds the
+        samples whose time of day lies in [start, start + 1 h), on one day
+        (day1 = day2) or pooled over all days without a day filter (the 10 min
+        before the first day included). Leq and percentiles of the pooled
+        samples, not means of daily values."""
+        levels = bruitparif_1s.iloc[:, 0]
+        index = levels.index
+        seconds = index.hour * 3600 + index.minute * 60 + index.second
+        starts = range(0, hour2 * 3600 + 1, step or 3600)
+        days = ([d.day_name() for d in bruitparif_hourly.index.normalize().unique()]
+                if one_day else [None])
 
-@pytest.mark.snapshot
-class TestExactValues:
-    """Regression: values previously computed by noisemonitor (exact
-    values). They detect changes; they do not validate."""
+        for day in days:
+            result = periodic(bruitparif_1s, 0, hour2, day, day, column=0,
+                            win=3600, step=step)
+            on_day = index.day_name() == day if day else np.ones(len(index), bool)
+            expected = pd.DataFrame([
+                window_levels(levels[on_day & (seconds >= s) & (seconds < s + 3600)])
+                for s in starts])
 
-    def test_periodic_stat_single_value(self, laeq1m_data):
-        """Test periodic with single stat parameter value."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result = periodic(
-                laeq1m_data,
-                hour1=7,
-                hour2=19,
-                column=0,
-                win=3600,
-                stat=25
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert 'L25' in result.columns
-        
-        # Check that default columns are still present
-        expected_columns = ['Leq', 'L10', 'L50', 'L90', 'L25']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        # Test exact value for first hour (07:30:00)
-        assert abs(result.iloc[0]['L25'] - 53.968935699183120) < 1e-5
-        
-        # Verify ordering relationships
-        assert (result['L10'] >= result['L25']).all()
-        assert (result['L25'] >= result['L50']).all()
+            assert list(result.index) == [
+                (pd.Timestamp(0) + pd.Timedelta(seconds=s + 1800)).time() for s in starts]
+            for col in expected.columns:
+                assert_close(result[col], expected[col])
 
-    def test_periodic_stat_multiple_values(self, laeq1m_data):
-        """Test periodic with multiple stat parameter values."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result = periodic(
-                laeq1m_data,
-                hour1=7,
-                hour2=19,
-                column=0,
-                win=3600,
-                stat=[1, 5, 95, 99]
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        
-        # Check that custom stat columns are present
-        custom_columns = ['L1', 'L5', 'L95', 'L99']
-        for col in custom_columns:
-            assert col in result.columns
-        
-        # Check that default columns are still present
-        default_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in default_columns:
-            assert col in result.columns
-    
-        # Test exact values for first hour (07:30:00)
-        assert abs(result.iloc[0]['L1'] - 61.083233518617320) < 1e-5
-        assert abs(result.iloc[0]['L5'] - 57.040242747068610) < 1e-5
-        assert abs(result.iloc[0]['L95'] - 44.422484699326866) < 1e-5
-        assert abs(result.iloc[0]['L99'] - 41.842387768003540) < 1e-5
-        
-        # Verify ordering relationships
-        assert (result['L1'] >= result['L5']).all()
-        assert (result['L5'] >= result['L10']).all()
-        assert (result['L50'] >= result['L90']).all()
-        assert (result['L90'] >= result['L95']).all()
-        assert (result['L95'] >= result['L99']).all()
+    @pytest.mark.parametrize("start_at_midnight", [False, True],
+                            ids=['first_sample', 'midnight'])
+    def test_series_sliding(self, bruitparif_1s, start_at_midnight):
+        """1 h windows every 10 min, from the first sample or from the first
+        midnight, labelled by their centre: Leq and percentiles of the
+        samples in [start, start + 1 h), for every window that ends within
+        the data."""
+        levels = bruitparif_1s.iloc[:, 0]
+        win, step = pd.Timedelta(hours=1), pd.Timedelta(minutes=10)
+        first = levels.index[0]
+        if start_at_midnight:
+            first = first.ceil('D')
+        end = levels.index[-1] + pd.Timedelta(seconds=1)
+        starts = pd.date_range(first, end - win, freq=step)
+        result = series(bruitparif_1s, win=3600, step=600, column=0,
+                        start_at_midnight=start_at_midnight)
+        expected = pd.DataFrame([
+            window_levels(levels[(levels.index >= s) & (levels.index < s + win)])
+            for s in starts])
+
+        assert list(result.index) == list(starts + win / 2)
+        for col in expected.columns:
+            assert_close(result[col], expected[col])
+
+    @pytest.mark.parametrize("chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
+                            ids=['no_chunks', 'chunks'])
+    def test_freq_periodic_bands(self, bruitparif_bands, chunks):
+        """Each band (column names in mixed formats, unsorted) gives the
+        values of profile.periodic on its own column, under its frequency;
+        bands in ascending order."""
+        params = dict(win=3600, step=1800, stat=[5, 95])
+        result = freq_periodic(bruitparif_bands, 0, 23, chunks=chunks, **params)
+
+        assert result.columns.names == ['Indicator', 'Frequency Band']
+        assert (list(result.columns.get_level_values('Frequency Band').unique())
+                == sorted(BANDS.values()))
+        for name, band in BANDS.items():
+            expected = periodic(bruitparif_bands, 0, 23, column=name, **params)
+            pd.testing.assert_frame_equal(
+                result.xs(band, axis=1, level='Frequency Band'), expected,
+                check_names=False, check_exact=True, check_like=True)
+
+    @pytest.mark.parametrize("chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
+                            ids=['no_chunks', 'chunks'])
+    def test_freq_series_bands(self, bruitparif_bands, chunks):
+        """Each band gives the values of profile.series on its own column,
+        under its frequency; bands in ascending order."""
+        params = dict(win=3600, step=1800)
+        result = freq_series(bruitparif_bands, chunks=chunks, **params)
+
+        assert result.columns.names == ['Indicator', 'Frequency Band']
+        assert (list(result.columns.get_level_values('Frequency Band').unique())
+                == sorted(BANDS.values()))
+        for name, band in BANDS.items():
+            expected = series(bruitparif_bands, column=name, **params)
+            pd.testing.assert_frame_equal(
+                result.xs(band, axis=1, level='Frequency Band'), expected,
+                check_names=False, check_exact=True, check_like=True)
 
 
 @pytest.mark.behaviour
 class TestPeriodic:
     """Test cases for the periodic function."""
-
-    def test_periodic_basic_daytime(self, laeq1m_data):
-        """Test basic daytime periodic averaging with 1-minute data."""
-
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=6, 
-                hour2=22,
-                column=0,
-                win=3600 
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        assert all(isinstance(idx, time) for idx in result.index)
-        
-        assert (result['L10'] >= result['L50']).all()
-        assert (result['L50'] >= result['L90']).all()
-        assert result['Leq'].between(30, 90).all()
-
-    def test_periodic_nighttime(self, laeq1m_data):
-        """Test nighttime periodic averaging (hour2 < hour1)."""
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=22,
-                hour2=6,
-                column=0,
-                win=3600
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        if len(result) > 0:
-            night_hours = [22, 23, 0, 1, 2, 3, 4, 5, 6]
-            result_hours = [idx.hour for idx in result.index]
-            assert any(hour in night_hours for hour in result_hours)
 
     def test_periodic_traffic_indicators(self, laeq1s_data):
         """Test periodic with traffic noise indicators using 1s data."""
@@ -331,37 +324,6 @@ class TestPeriodic:
         for col in roughness_columns:
             assert (result[col] >= 0).all()
 
-    def test_periodic_sliding_windows(self, laeq1m_data):
-        """Test periodic with sliding windows (step < win)."""
-        with pytest.warns(UserWarning) as record:
-            result = periodic(
-                laeq1m_data,
-                hour1=9,
-                hour2=17,
-                column=0,
-                win=3600,
-                step=1800
-            )
-        
-        # Check for L10/L50 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages)
-        
-        with pytest.warns(UserWarning) as record2:
-            result_no_overlap = periodic(
-                laeq1m_data,
-                hour1=9,
-                hour2=17, 
-                column=0,
-                win=3600
-            )
-        
-        # Check for warnings in second call too
-        warning_messages2 = [str(w.message) for w in record2]
-        assert any("Computing the L10, L50" in msg for msg in warning_messages2)
-        
-        assert len(result) >= len(result_no_overlap)
-
     def test_periodic_warns_with_large_interval(self, laeq1m_data):
         """Test that periodic warns when using large time intervals for percentiles."""
         with pytest.warns(UserWarning) as record:
@@ -382,79 +344,6 @@ class TestPeriodic:
 class TestSeries:
     """Test cases for the series function."""
 
-    def test_series_basic(self, laeq1m_data):
-        """Test basic time series calculation."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result = series(
-                laeq1m_data,
-                win=1800,
-                column=0
-            )
-        
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        expected_columns = ['Leq', 'L10', 'L50', 'L90']
-        for col in expected_columns:
-            assert col in result.columns
-        
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert (result['L10'] >= result['L50']).all()
-        assert (result['L50'] >= result['L90']).all()
-        assert len(result) < len(laeq1m_data)
-
-    @pytest.mark.slow
-    def test_series_sliding_windows(self, laeq1m_data):
-        """Test series with sliding windows."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result = series(
-                laeq1m_data,
-                win=1800,
-                step=600,
-                column=0
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result_no_overlap = series(
-                laeq1m_data,
-                win=1800,
-                column=0
-            )
-        
-        assert len(result) >= len(result_no_overlap)
-
-    def test_series_start_at_midnight(self, laeq1m_data):
-        """Test series starting at midnight."""
-        win_seconds = 3600  # 1 hour window
-        
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = series(
-                laeq1m_data,
-                win=win_seconds,
-                start_at_midnight=True,
-                column=0
-            )
-        
-        if len(result) > 0:
-            first_time = result.index[0]
-            
-            data_start = laeq1m_data.index[0]
-            expected_midnight = data_start.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            
-            if data_start > expected_midnight:
-                expected_midnight += pd.Timedelta(days=1)
-            
-            expected_first_time = expected_midnight + pd.Timedelta(seconds=win_seconds/2)
-
-            assert first_time == expected_first_time
-
     def test_series_warns_with_large_interval(self, laeq1m_data):
         """Test that series warns when using large time intervals."""
         with pytest.warns(UserWarning, match="Computing the L10, L50"):
@@ -463,22 +352,6 @@ class TestSeries:
                 win=1800,
                 column=0
             )
-
-    def test_series_handles_nan_data(self, laeq1m_data):
-        """Test series handling of NaN data."""
-        test_data = laeq1m_data.copy()
-        test_data.iloc[100:110, 0] = np.nan
-        
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = series(
-                test_data,
-                win=900,
-                column=0
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
 
 
 @pytest.mark.behaviour
@@ -556,177 +429,6 @@ class TestNne:
                 win=900,
                 column=0
             )
-
-
-@pytest.mark.behaviour
-class TestFreqPeriodic:
-    """Test cases for the freq_periodic function."""
-
-    def test_freq_periodic_basic(self, sample_octave_data):
-        """Test basic frequency-domain periodic analysis."""
-        with pytest.warns(
-            UserWarning, match="Computing the L10, L50, L90"
-        ):
-            with pytest.warns(
-                RuntimeWarning, match="Mean of empty slice"
-            ):
-                result = freq_periodic(
-                    sample_octave_data,
-                    hour1=8,
-                    hour2=18,
-                    win=1800,
-                    chunks=False
-                )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert isinstance(result.columns, pd.MultiIndex)
-        
-        octave_bands = [
-            '63', '125', '250', '500', '1000', '2000', '4000', '8000'
-        ]
-        for band in octave_bands:
-            assert float(band) in result.columns.levels[1]
-
-    @pytest.mark.slow
-    def test_freq_periodic_with_chunks(self, sample_octave_data):
-        """Test frequency periodic with parallel processing."""
-        result = freq_periodic(
-            sample_octave_data,
-            hour1=6,
-            hour2=20,
-            win=1800,
-            chunks=True
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert isinstance(result.columns, pd.MultiIndex)
-
-    def test_freq_periodic_non_numeric_columns(self):
-        """Test freq_periodic with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
-        # Create test data with non-numeric frequency band column names
-        start_time = datetime(2023, 1, 1, 0, 0, 0)
-        index = pd.date_range(start=start_time, periods=360, freq='1min')  # 6 hours
-        
-        np.random.seed(42)
-        # Mix of numeric strings, frequency labels, and generic band labels
-        columns = ['63', '125 Hz', '500', '1000 Hz', '4000', '8000 Hz']
-        
-        data = {}
-        for i, col in enumerate(columns):
-            base_level = 45 + i * 2
-            variation = np.random.normal(0, 3, len(index))
-            data[col] = base_level + variation
-        
-        test_df = pd.DataFrame(data, index=index)
-        
-        # Should not raise an error due to non-numeric column names
-        with pytest.warns(UserWarning, match="Computing the L10, L50, L90"):
-            with pytest.warns(RuntimeWarning, match="Mean of empty slice"):
-                result = freq_periodic(
-                    test_df,
-                    hour1=0,
-                    hour2=23,
-                    win=1800,
-                    chunks=False
-                )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert isinstance(result.columns, pd.MultiIndex)
-        
-        # Check that numeric columns were converted to float
-        freq_bands = result.columns.get_level_values(1).unique()
-        assert 63.0 in freq_bands
-        assert 125.0 in freq_bands
-        assert 8000.0 in freq_bands
-
-
-@pytest.mark.behaviour
-class TestFreqSeries:
-    """Test cases for the freq_series function."""
-
-    def test_freq_series_basic(self, sample_octave_data):
-        """Test basic frequency-domain time series."""
-        with pytest.warns(
-            UserWarning, match="Computing the L10, L50"
-        ):
-            result = freq_series(
-                sample_octave_data,
-                win=1800,
-                chunks=False
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert isinstance(result.columns, pd.MultiIndex)
-        assert isinstance(result.index, pd.DatetimeIndex)
-        
-        octave_bands = ['63', '125', '250', '500', '1000', '2000', '4000', '8000']
-        for band in octave_bands:
-            assert float(band) in result.columns.levels[1]
-
-    def test_freq_series_sliding_windows(self, sample_octave_data):
-        """Test frequency series with sliding windows."""
-        with pytest.warns(
-            UserWarning, match="Computing the L10, L50"
-        ):
-            result = freq_series(
-                sample_octave_data,
-                win=1200,
-                step=600, 
-                chunks=False
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        with pytest.warns(
-            UserWarning, match="Computing the L10, L50"
-        ):
-            result_no_overlap = freq_series(
-                sample_octave_data,
-                win=1200,
-                chunks=False
-            )
-        
-        assert len(result) >= len(result_no_overlap)
-
-    def test_freq_series_non_numeric_columns(self):
-        """Test freq_series with non-numeric column names (e.g., '125 Hz', 'Band_1')."""
-        # Create test data with non-numeric frequency band column names
-        start_time = datetime(2023, 1, 1, 0, 0, 0)
-        index = pd.date_range(start=start_time, periods=360, freq='1min')  # 6 hours
-        
-        np.random.seed(42)
-        # Mix of numeric strings, frequency labels, and generic band labels
-        columns = ['63', '125 Hz', '500', '1000 Hz', '4000', '8 kHz']
-        
-        data = {}
-        for i, col in enumerate(columns):
-            base_level = 45 + i * 2
-            variation = np.random.normal(0, 3, len(index))
-            data[col] = base_level + variation
-        
-        test_df = pd.DataFrame(data, index=index)
-        
-        # Should not raise an error due to non-numeric column names
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
-            result = freq_series(
-                test_df,
-                win=1800,
-                step=900,
-                chunks=False
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert isinstance(result.columns, pd.MultiIndex)
-        
-        # Check that numeric columns were converted to float
-        freq_bands = result.columns.get_level_values(1).unique()
-        assert 63.0 in freq_bands
-        assert 125.0 in freq_bands
-        assert 8000.0 in freq_bands
 
 
 @pytest.mark.behaviour

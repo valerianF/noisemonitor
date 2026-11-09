@@ -89,7 +89,34 @@ class TestExternalBruitparif:
 
 @pytest.mark.internal
 class TestCalculations:
-    """Internal validation: closed-form results on synthetic signals."""
+    """Internal validation: closed-form results on synthetic signals, or
+    consistency with another noisemonitor function."""
+
+    def test_lden_default_periods(self, accra_daily, accra_days):
+        """Default periods of the EU Directive (07h-19h-23h), on each Accra
+        calendar day: Lday, Levening and Lnight are the Leq of hours 7-18,
+        19-22 and 23, 0-6, and Lden combines them with 12, 4 and 8 hours
+        and the 5 and 10 dB penalties."""
+        sites = accra_daily['ID']
+        result = pd.concat([lden(day, ACCRA_COLUMNS[site], values=True)
+                            for day, site in zip(accra_days, sites)], ignore_index=True)
+
+        def period_leq(hours):
+            return np.array([
+                equivalent_level(day.loc[day.index.hour.isin(hours), site].to_numpy())
+                for day, site in zip(accra_days, sites)])
+
+        lday = period_leq(range(7, 19))
+        levening = period_leq(range(19, 23))
+        lnight = period_leq([23, *range(7)])
+        expected = 10 * np.log10((12 * 10 ** (lday / 10)
+                                + 4 * 10 ** ((levening + 5) / 10)
+                                + 8 * 10 ** ((lnight + 10) / 10)) / 24)
+
+        assert_close(result['Lday'], lday)
+        assert_close(result['Levening'], levening)
+        assert_close(result['Lnight'], lnight)
+        assert_close(result['Lden'], expected)
 
     @pytest.mark.parametrize("missing", [False, True], ids=['complete', 'missing_second'])
     def test_harmonica_la95_window(self, missing):
@@ -354,28 +381,6 @@ class TestHourlyHarmonica:
 class TestLden:
     """Test the lden function."""
 
-    def test_lden_basic(self):
-        """Test basic lden calculation."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*3600, freq='1s')
-        
-        # Create different levels for different periods
-        data = []
-        for date in dates:
-            if 7 <= date.hour < 19:
-                data.append(65.0)
-            elif 19 <= date.hour < 23:
-                data.append(60.0)
-            else:
-                data.append(55.0)
-        
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = lden(df, 0)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert 'Lden' in result.columns
-        assert len(result) == 1
-        assert not np.isnan(result['Lden'].iloc[0])
-
     @pytest.mark.parametrize("starts", [
         {'start_day': 24},
         {'start_evening': -1},
@@ -466,39 +471,6 @@ class TestNoiseEvents:
         result = noise_events(df, 0, threshold=65.0, min_gap=2)
         
         assert result == 3
-
-
-@pytest.mark.internal
-class TestLdenCalculations:
-    """Test lden calculation accuracy with the default periods
-    (constant levels per period)."""
-
-    def test_lden_with_values(self):
-        """Test lden calculation with individual period values."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=24*3600, freq='1s')
-
-        data = []
-        for date in dates:
-            if 7 <= date.hour < 19:
-                data.append(65.0)
-            elif 19 <= date.hour < 23:
-                data.append(60.0)
-            else:
-                data.append(55.0)
-
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = lden(df, 0, values=True)
-
-        assert isinstance(result, pd.DataFrame)
-        assert 'Lden' in result.columns
-        assert 'Lday' in result.columns
-        assert 'Levening' in result.columns
-        assert 'Lnight' in result.columns
-        assert len(result) == 1
-
-        assert np.isclose(result['Lday'].iloc[0], 65.0, rtol=0.01)
-        assert np.isclose(result['Levening'].iloc[0], 60.0, rtol=0.01)
-        assert np.isclose(result['Lnight'].iloc[0], 55.0, rtol=0.01)
 
 
 if __name__ == '__main__':

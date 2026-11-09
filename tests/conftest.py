@@ -198,6 +198,22 @@ def bruitparif_hourly():
     return df
 
 
+# Band column names in mixed formats and in no particular order, and the
+# frequency (Hz) that core._parse_freq_columns gives them
+BANDS = {'1 kHz': 1000.0, '125 Hz': 125.0, '63': 63.0, '500Hz': 500.0}
+
+
+@pytest.fixture(scope="module")
+def bruitparif_bands(bruitparif_1s):
+    """Four bands built from the LAeq,1s, one per BANDS column: the series
+    rolled by a different number of hours and offset by a different level,
+    so that each band gives different values in every window."""
+    levels = bruitparif_1s.iloc[:, 0].to_numpy()
+    return pd.DataFrame({name: np.roll(levels, 3600 * (5 * k + 1)) - 2.0 * k
+                        for k, name in enumerate(BANDS)},
+                        index=bruitparif_1s.index)
+
+
 @pytest.fixture(scope="module")
 def bruitparif_span_complete(bruitparif_1s, bruitparif_hourly):
     """For each hour of bruitparif_hourly, whether its HARMONICA span (the

@@ -65,6 +65,5 @@ markers = [
     # Test categories: each test has exactly one
     "external: validation against published reference values (tests/data/external)",
     "internal: validation against values derived in the test (closed-form results on synthetic signals, or another noisemonitor function)",
-    "snapshot: comparison with values previously computed by noisemonitor (exact values): detects changes, does not validate",
     "behaviour: no reference value: output structure, options, errors, warnings, edge cases",
 ]
