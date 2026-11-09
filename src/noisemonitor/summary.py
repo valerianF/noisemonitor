@@ -41,8 +41,8 @@ def harmonica_periodic(
 
     Returns
     ----------
-    pd.DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA 
-    values.
+    pd.DataFrame: DataFrame with time index and 24 BGN, EVT, and HARMONICA
+    values. Hours of the day without data are NaN.
     """
     column = core._column_to_index(df, column)
 
@@ -50,8 +50,9 @@ def harmonica_periodic(
     temp_df = filter._days(df, day1, day2)
     harmonica_df = core.harmonica(temp_df, column, use_chunks)
 
-    # Compute the average values for each hour of the day
-    daily_avg = harmonica_df.groupby(harmonica_df.index.hour).mean()
+    # Compute the average values for each hour of the day (NaN without data)
+    daily_avg = (harmonica_df.groupby(harmonica_df.index.hour).mean()
+                .reindex(range(24)))
 
     # Create a time index for the result
     time_index = [time(hour=h) for h in range(24)]
@@ -398,7 +399,9 @@ def leq(
             warnings.warn(
                 "Computing the L10, L50, and L90 should be done with "
                 "an integration time equal to or below 1s. Results"
-                " might not be valid for this indicator.\n"
+                " might not be valid for this indicator.\n",
+                core.IntegrationTimeWarning,
+                stacklevel=2
             )
         return pd.DataFrame({
             'Leq': [np.round(core.equivalent_level(array),2)],

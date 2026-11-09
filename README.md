@@ -153,7 +153,7 @@ Compute time-varying sound level profiles: time series, daily/weekly patterns, n
 ```python
 time_series = nm.profile.series(df, win=3600, step=1200)
 weekday_profile = nm.profile.periodic(df, hour1=0, hour2=23, day1='monday', day2='friday', win=3600)
-nne_profile = nm.profile.nne(df, hour1=0, hour2=23, background_type='L50', exceedance=5)
+nne_profile = nm.profile.nne(df, hour1=0, hour2=24, background_type='L50', exceedance=5)
 ```
 
 ### `nm.display`

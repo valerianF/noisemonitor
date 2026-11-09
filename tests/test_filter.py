@@ -96,11 +96,12 @@ class TestExtremeValues:
     """Test cases for the extreme_values function."""
     
     def test_filter_extreme_values(self, laeq1m_data, capsys):
-        """Test filtering extreme values with default parameters."""
-        result = extreme_values(laeq1m_data.copy(), 
-                                min_value=40, 
-                                max_value=90)
-        
+        """Values outside [min_value, max_value] become NaN in a copy: the
+        input DataFrame is left unchanged."""
+        before = laeq1m_data.copy()
+        result = extreme_values(laeq1m_data, min_value=40, max_value=90)
+
+        pd.testing.assert_frame_equal(laeq1m_data, before)
         assert result['LEQ dB -A'].min() >= 40
         assert result['LEQ dB -A'].max() <= 90
         
@@ -182,6 +183,7 @@ class TestWeatherFlags:
         
         assert isinstance(result, pd.DataFrame)
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")  # e.g. pandas deprecations
 class TestDays:
     """Test cases for the _days function."""
     
@@ -193,7 +195,7 @@ class TestDays:
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         
-        weekdays = result.index.dayofweek
+        weekdays = result.index.day_of_week
         assert weekdays.min() >= 0  # Monday
         assert weekdays.max() <= 4  # Friday
     
@@ -204,7 +206,7 @@ class TestDays:
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         
-        weekdays = result.index.dayofweek
+        weekdays = result.index.day_of_week
         assert ((weekdays == 5) | (weekdays == 6)).all()
     
     def test_wrap_around_week(self, laeq1m_data):
@@ -214,7 +216,7 @@ class TestDays:
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
         
-        weekdays = result.index.dayofweek
+        weekdays = result.index.day_of_week
         valid_days = (weekdays >= 4) | (weekdays <= 1)
         assert valid_days.all()
     

@@ -19,6 +19,13 @@ class CoverageWarning(UserWarning):
     pass
 
 
+class IntegrationTimeWarning(UserWarning):
+    """Warning emitted when an indicator needs a finer integration time
+    (1 s or below) than the one of the data, e.g. percentiles or noise
+    events computed from LAeq,1min."""
+    pass
+
+
 def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
     """Convert string column name to integer index if needed."""
     if isinstance(column, str):

@@ -138,19 +138,6 @@ def get_historical_stations(
 
     return pd.DataFrame(stations)
 
-def flip_daterange(f):
-    def wrapper(*args, **kwargs):
-        if kwargs.get("daterange") in globals():
-            if kwargs.get("daterange")[0] > kwargs.get("daterange")[1]:
-                kwargs["daterange"] = (
-                    kwargs.get("daterange")[1],
-                    kwargs.get("daterange")[0],
-                )
-        return f(*args, **kwargs)
-
-    return wrapper
-
-@flip_daterange
 async def get_historical_data(
     station_id: int,
     daterange=(
@@ -168,7 +155,7 @@ async def get_historical_data(
     station_id: int
         the ID of the station found with get_historical_stations
     daterange: tuple of datetime
-        the dates between which the data are retrieved
+        the dates between which the data are retrieved, in either order
     timeframe: str
         selection of granularity : 'hourly' or 'daily'
 
@@ -176,7 +163,7 @@ async def get_historical_data(
     ----------
     DataFrame: All data in the range
     """
-    startdate, stopdate = pd.to_datetime(daterange)
+    startdate, stopdate = sorted(pd.to_datetime(daterange))
     months = monthlist(daterange=daterange)
     _tf = {"hourly": 1, "daily": 2}
     timeframe = _tf[timeframe]
@@ -352,9 +339,8 @@ async def merge_weather(
 
     return merged_df
 
-@flip_daterange
 def monthlist(daterange):
-    startdate, stopdate = pd.to_datetime(daterange)
+    startdate, stopdate = sorted(pd.to_datetime(daterange))
 
     def total_months(dt):
         return dt.month + 12 * dt.year

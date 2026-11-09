@@ -11,7 +11,7 @@ import noisemonitor as nm
 from noisemonitor.profile import (
     periodic, series, nne, freq_periodic, freq_series
 )
-from noisemonitor.util.core import CoverageWarning
+from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
 from tests.conftest import (
     ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, SOURCE_COVERAGE, assert_close
 )
@@ -74,9 +74,8 @@ def hour_start_peaks_data():
 
 @pytest.mark.external
 @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
-@pytest.mark.filterwarnings("ignore:Computing the L10:UserWarning")  # hourly data
+@pytest.mark.filterwarnings("ignore::noisemonitor.util.core.IntegrationTimeWarning")  # hourly data
 @pytest.mark.filterwarnings("ignore:All-NaN slice:UserWarning")  # days not kept
-@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
 class TestExternalAccra:
     """Published daily values of two Accra sites (Clark et al., 2021),
     reproducible days only."""
@@ -112,7 +111,6 @@ class TestExternalAccra:
 
 
 @pytest.mark.external
-@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
 class TestExternalBruitparif:
     """Hourly indicators computed by Bruitparif from the LAeq,1s of one
     station, over two days."""
@@ -164,13 +162,15 @@ class TestCalculations:
     """Internal validation: closed-form results on synthetic signals, or
     consistency with another noisemonitor function."""
 
-    def test_nne_windows_half_open(self, hour_start_peaks_data):
+    @pytest.mark.parametrize("hour2", [23, 24], ids=['to_23h', 'full_day'])
+    def test_nne_windows_half_open(self, hour_start_peaks_data, hour2):
         """Each window covers [start, start + win): the hh:00:00 event is
-        counted in one window only, not also in the previous one."""
-        result = nne(hour_start_peaks_data, hour1=0, hour2=23,
+        counted in one window only, not also in the previous one. The last
+        window ends at hour2, so (0, 24) gives the 24 hours of the day."""
+        result = nne(hour_start_peaks_data, hour1=0, hour2=hour2,
                     background_type=70, min_gap=0, win=3600, column=0)
 
-        assert len(result) == 23
+        assert list(result.index) == [time(h, 30) for h in range(hour2)]
         assert (result.iloc[:, 0] == 1).all()
 
     def test_periodic_tni(self, bruitparif_1s, bruitparif_hourly):
@@ -187,7 +187,6 @@ class TestCalculations:
 
         assert_close(result['TNI'], 4 * (l10 - l90) + l90 - 30)
 
-    @pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
     @pytest.mark.parametrize("step, hour2", [(0, 23), (900, 22)],
                             ids=['hourly', 'sliding'])
     @pytest.mark.parametrize("one_day", [False, True], ids=['pooled', 'one_day'])
@@ -218,6 +217,28 @@ class TestCalculations:
                 (pd.Timestamp(0) + pd.Timedelta(seconds=s + 1800)).time() for s in starts]
             for col in expected.columns:
                 assert_close(result[col], expected[col])
+
+    def test_periodic_roughness_gaps(self):
+        """Roughness from the differences between samples one interval apart
+        only: |dL| = 1 dB between every such pair, while the jumps across a
+        missing value (50/51 to 70/71 dB) and between the two days pooled in
+        the window (70/71 to 30/31 dB) are left out, so dLav = dLmax,1 =
+        dLmin,90 = 1. A window holding a single sample has no difference: NaN."""
+        start = pd.Timestamp('2023-01-02')
+        hour = pd.timedelta_range(0, periods=3600, freq='s')
+        alternating = 50.0 + np.arange(3600) % 2
+        day1 = np.where(np.arange(3600) < 1800, alternating, alternating + 20)
+        day1[1800] = np.nan
+        index = ((start + hour)
+                .append(pd.DatetimeIndex([start + pd.Timedelta(hours=1)]))
+                .append(start + pd.Timedelta(days=1) + hour))
+        df = pd.DataFrame({'LAeq': np.concatenate([day1, [60.0], alternating - 20])},
+                        index=index)
+        result = periodic(df, 0, 1, column=0, win=3600, roughness_indicators=True)
+
+        roughness = ['dLav', 'dLmax,1', 'dLmin,90']
+        assert list(result.loc[time(0, 30), roughness]) == [1.0, 1.0, 1.0]
+        assert result.loc[time(1, 30), roughness].isna().all()
 
     @pytest.mark.parametrize("start_at_midnight", [False, True],
                             ids=['first_sample', 'midnight'])
@@ -324,20 +345,12 @@ class TestPeriodic:
         for col in roughness_columns:
             assert (result[col] >= 0).all()
 
-    def test_periodic_warns_with_large_interval(self, laeq1m_data):
-        """Test that periodic warns when using large time intervals for percentiles."""
-        with pytest.warns(UserWarning) as record:
-            periodic(
-                laeq1m_data,
-                hour1=10,
-                hour2=16,
-                column=0,
-                win=3600
-            )
-        
-        # Check for L10/L50/L90 warning
-        warning_messages = [str(w.message) for w in record]
-        assert any("Computing the L10, L50, L90" in msg for msg in warning_messages)
+    @pytest.mark.parametrize("func", [periodic, nne], ids=['periodic', 'nne'])
+    def test_warns_with_large_interval(self, laeq1m_data, func):
+        """Percentiles and noise events need data at 1 s or finer: 1 min data
+        raises an IntegrationTimeWarning."""
+        with pytest.warns(IntegrationTimeWarning, match="integration time"):
+            func(laeq1m_data, hour1=10, hour2=16, column=0, win=3600)
 
 
 @pytest.mark.behaviour
@@ -346,7 +359,7 @@ class TestSeries:
 
     def test_series_warns_with_large_interval(self, laeq1m_data):
         """Test that series warns when using large time intervals."""
-        with pytest.warns(UserWarning, match="Computing the L10, L50"):
+        with pytest.warns(IntegrationTimeWarning, match="Computing the L10, L50"):
             series(
                 laeq1m_data,
                 win=1800,
@@ -359,7 +372,6 @@ class TestNne:
     """Test cases for the nne (Number of Noise Events) function."""
 
     @pytest.mark.slow
-    @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
     def test_nne_basic(self, laeq1s_data):
         """Test NNE with different background level types."""
         background_types = ['Leq', 'L50', 'L90']
@@ -381,8 +393,10 @@ class TestNne:
             assert len(result) > 0
             assert (result['Average NNEs'] >= 0).all()
 
+    @pytest.mark.filterwarnings("error::RuntimeWarning")
     def test_nne_insufficient_data(self, laeq1s_data):
-        """Test that NNE handles insufficient daily data gracefully."""
+        """Windows without data on any day are NaN, without a numpy
+        warning about an empty mean."""
         subset_data = laeq1s_data[:7200]  # 2 hours of data
         
         result = nne(
@@ -395,8 +409,10 @@ class TestNne:
             win=1800,
             column=0
         )
-        
+
         assert isinstance(result, pd.DataFrame)
+        assert result.iloc[:4].notna().all().all()  # data from 00:00 to 02:00
+        assert result.iloc[4:].isna().all().all()
 
     def test_nne_constant_threshold(self, laeq1s_data):
         """Test NNE with constant threshold value."""
@@ -450,17 +466,33 @@ class TestProfileEdgeCases:
         small_subset = laeq1m_data.iloc[:5]
         
         with pytest.warns(
-            UserWarning, match="Computing the L10, L50, and L90"
+            IntegrationTimeWarning, match="Computing the L10, L50, and L90"
         ):
             with pytest.raises(
                 ValueError, match="Insufficient data: need at least"
             ):
                 series(small_subset, win=600, column=0)
 
+    @pytest.mark.parametrize("func, hour1, hour2, kwargs", [
+        (periodic, 0, 24, {}),
+        (periodic, -1, 5, {}),
+        (periodic, 7.5, 9, {}),
+        (nne, 0, 25, {}),
+        (nne, 5, 5, {}),
+        (nne, 0, 1, {'win': 7200}),
+    ], ids=['periodic_24', 'periodic_negative', 'periodic_float', 'nne_25',
+            'nne_empty_range', 'nne_win_too_long'])
+    def test_invalid_hours(self, laeq1s_data, func, hour1, hour2, kwargs):
+        """Hours outside 0-23 for periodic (hour2 starts the last window) or
+        0-24 for nne (hour2 ends the last window), non-integer hours, and
+        ranges that hold no window raise a ValueError."""
+        with pytest.raises(ValueError, match="hour"):
+            func(laeq1s_data, hour1, hour2, column=0, **kwargs)
+
     def test_invalid_column_index(self, laeq1m_data):
         """Test with invalid column index."""
         with pytest.raises((IndexError, KeyError)):
-            with pytest.warns(UserWarning, match="Computing the L10, L50"):
+            with pytest.warns(IntegrationTimeWarning, match="Computing the L10, L50"):
                 series(laeq1m_data, win=300, column=99)
 
 

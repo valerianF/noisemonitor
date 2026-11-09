@@ -768,7 +768,7 @@ def compare_weather_daily(
             continue
         weekly_levels_dict[key] = periodic(
             subset_df,
-            1,
+            0,
             23,
             column=column,
             win=win,

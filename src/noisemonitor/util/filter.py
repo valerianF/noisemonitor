@@ -79,13 +79,16 @@ def extreme_values(
 
     Returns
     ----------
-    pd.DataFrame: DataFrame with extreme values replaced by NaN.
+    pd.DataFrame: copy of df with extreme values replaced by NaN (df is
+    left unchanged).
     """
     if column is None:
         column = 0
-    
+
     column = core._column_to_index(df, column)
     column_name = df.columns[column]
+
+    df = df.copy()
 
     initial_count = df[column_name].notna().sum()
     df[column_name] = df[column_name].apply(
@@ -214,10 +217,10 @@ def _days(
 
         if d1 <= d2:
             filtered_df = df.loc[
-                (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
+                (df.index.day_of_week >= d1) & (df.index.day_of_week <= d2)]
         else:
             filtered_df = df.loc[
-                (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+                (df.index.day_of_week >= d1) | (df.index.day_of_week <= d2)]
         
         if filtered_df.empty:
             raise ValueError(f"No data found for the specified day range "

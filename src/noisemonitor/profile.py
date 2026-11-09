@@ -32,11 +32,11 @@ def periodic(
     Parameters
     ---------- 
     hour1: int, between 0 and 23
-        hour for the starting time of the daily average.
+        hour at which the first window starts.
     hour2: int, between 0 and 23
-        hour (included) for the ending time of the daily average. 
-        If hour2 > hour1 the average will be computed outside of 
-        these hours.
+        hour at which the last window starts (included): with win=3600,
+        hour1=0 and hour2=23 give the 24 hours of the day. If
+        hour1 > hour2, the windows wrap past midnight.
     day1: Optional[str], default None
         First day of the week included in the weekly average.
     day2: Optional[str], default None
@@ -58,8 +58,11 @@ def periodic(
         equivalent levels and percentiles.
     roughness_indicators: bool, default False
         if set to True, the function will compute roughness indicators 
-        based on difference between consecutive LAeq,1s values according 
-        to (DeFrance et al., 2010).
+        based on difference between consecutive LAeq,1s values according
+        to (DeFrance et al., 2010). Only samples one sampling interval
+        apart are differenced: pairs with a missing value, split by a gap,
+        or across the junction between days pooled in a window are left
+        out. A window without any such pair gives NaN.
     stat: int, list of ints, or None, default None
         statistical level(s) to compute (between 1 and 99). If an int is provided,
         computes the corresponding percentile (e.g., stat=10 computes L10). If a list
@@ -79,12 +82,20 @@ def periodic(
     """
     column = core._column_to_index(df, column)
 
+    for name, value in {'hour1': hour1, 'hour2': hour2}.items():
+        if (isinstance(value, bool) or not isinstance(value, (int, np.integer))
+                or not 0 <= value <= 23):
+            raise ValueError(
+                f"{name} must be an integer between 0 and 23 (hour at which "
+                f"the first or last window starts), got {value!r}.")
+
     if core.get_interval(df) > 1:
-        warnings.warn(f"Computing the L10, L50, L90, traffic, "
-            "roughness noise indicators or other statistical levels " \
-            "should be done with an integration time equal to or below 1s. " \
-            "Results might not be valid for these indicators.\n")
-    
+        warnings.warn("Computing the L10, L50, L90, traffic, "
+            "roughness noise indicators or other statistical levels "
+            "should be done with an integration time equal to or below 1s. "
+            "Results might not be valid for these indicators.\n",
+            core.IntegrationTimeWarning, stacklevel=2)
+
     if step == 0:
         step = win
 
@@ -128,6 +139,9 @@ def periodic(
             'dLmax,1': np.full(NLim, np.nan),
             'dLmin,90': np.full(NLim, np.nan)
         })
+
+    if roughness_indicators:
+        interval = df.index[2] - df.index[1]
 
     times = []
 
@@ -188,10 +202,14 @@ def periodic(
             averages['NPL'][i] = Leq+ 2.56 * sigma_Leq
 
         if roughness_indicators:
-            dL = np.abs(np.diff(arr.dropna()))
-            averages['dLav'][i] = np.nanmean(dL)
-            averages['dLmax,1'][i] = np.nanmean(dL[dL >= np.percentile(dL, 99)])
-            averages['dLmin,90'][i] = np.nanmean(dL[dL <= np.percentile(dL, 10)])
+            # Differences between samples one interval apart only
+            consecutive = (arr.index[1:] - arr.index[:-1]) == interval
+            dL = np.abs(np.diff(arr.to_numpy(dtype=float)))[consecutive]
+            dL = dL[~np.isnan(dL)]
+            if dL.size:
+                averages['dLav'][i] = np.mean(dL)
+                averages['dLmax,1'][i] = np.mean(dL[dL >= np.percentile(dL, 99)])
+                averages['dLmin,90'][i] = np.mean(dL[dL <= np.percentile(dL, 10)])
 
     return pd.DataFrame(index=times, data=averages)
     
@@ -217,9 +235,11 @@ def freq_periodic(
         DataFrame with a datetime index and sound level values for each 
         frequency band.
     hour1: int, between 0 and 23
-        Hour for the starting time of the daily average.
+        Hour at which the first window starts.
     hour2: int, between 0 and 23
-        Hour (included) for the ending time of the daily average.
+        Hour at which the last window starts (included), as in
+        noisemonitor.profile.periodic. If hour1 > hour2, the windows wrap
+        past midnight.
     day1: Optional[str], default None
         First day of the week included in the weekly average.
     day2: Optional[str], default None
@@ -448,10 +468,11 @@ def nne(
     Parameters
     ----------
     hour1: int, between 0 and 23
-        hour for the starting time of the daily average.
-    hour2: int, between 0 and 23
-        hour for the ending time of the daily average. If hour1 > hour2 
-        the average will be computed outside of these hours.
+        hour at which the first window starts.
+    hour2: int, between 0 and 24
+        hour at which the last window ends (excluded): the windows cover
+        [hour1, hour2), and hour1=0, hour2=24 give the full day. If
+        hour1 > hour2, the windows wrap past midnight.
     background_type: int or str, default 'Leq'
         Type of background level indicator for computing the threshold to 
         use for defining a noise event. Can be 'Leq', 'L50', 'L90' or int 
@@ -488,20 +509,35 @@ def nne(
     window.
     """
     column = core._column_to_index(df, column)
-    
-    if core.get_interval(df) > 1:
-        warnings.warn(f"Computing the average Number of "
-            "Noise Events should be done with "
-            "an integration time equal to or below 1s. Results"
-            " might not be valid for these indicators.\n")
 
-    temp_df = filter._days(df, day1, day2)
-    temp_df = filter._hours(temp_df, hour1, hour2)
+    for name, value, last in (('hour1', hour1, 23), ('hour2', hour2, 24)):
+        if (isinstance(value, bool) or not isinstance(value, (int, np.integer))
+                or not 0 <= value <= last):
+            raise ValueError(
+                f"{name} must be an integer between 0 and {last}, "
+                f"got {value!r}.")
 
     if step == 0:
         step = win
-    
-    NLim = ((hour2-hour1)%24*3600)//step - win//step + 1
+
+    # Hours spanned by [hour1, hour2): 24 for hour1=0, hour2=24
+    span = (hour2 - hour1) % 24 or (24 if (hour1, hour2) == (0, 24) else 0)
+    NLim = (span*3600)//step - win//step + 1
+
+    if NLim < 1:
+        raise ValueError(
+            f"No window of {win} s fits between hour1={hour1} and "
+            f"hour2={hour2}.")
+
+    if core.get_interval(df) > 1:
+        warnings.warn("Computing the average Number of "
+            "Noise Events should be done with "
+            "an integration time equal to or below 1s. Results"
+            " might not be valid for these indicators.\n",
+            core.IntegrationTimeWarning, stacklevel=2)
+
+    temp_df = filter._days(df, day1, day2)
+    temp_df = filter._hours(temp_df, hour1, hour2)
 
     event_times = []
     daily_event_counts = []
@@ -557,7 +593,10 @@ def nne(
         daily_event_counts.append(day_event_counts)
 
     daily_event_counts = np.array(daily_event_counts)
-    average_event_counts = np.nanmean(daily_event_counts, axis=0)
+    with warnings.catch_warnings():
+        # Windows that failed the coverage check on every day stay NaN
+        warnings.simplefilter('ignore', category=RuntimeWarning)
+        average_event_counts = np.nanmean(daily_event_counts, axis=0)
 
     for i in range(0, NLim):
         t = hour1*3600 + i*step + win//2
@@ -617,9 +656,10 @@ def series(
     interval = core.get_interval(df)
 
     if interval > 1:
-        warnings.warn(f"Computing the L10, L50, and L90 should be done with "
+        warnings.warn("Computing the L10, L50, and L90 should be done with "
             "an integration time equal to or below 1s. Results"
-            " might not be valid for these indicators.\n")
+            " might not be valid for these indicators.\n",
+            core.IntegrationTimeWarning, stacklevel=2)
 
     step = step // interval
     win = win // interval

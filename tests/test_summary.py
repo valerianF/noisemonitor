@@ -11,7 +11,7 @@ from noisemonitor.summary import (
     harmonica_periodic, periodic, freq_periodic, lden, leq, 
     freq_indicators, nday
 )
-from noisemonitor.util.core import CoverageWarning
+from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
 from tests.conftest import (
     ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, HARMONICA_INDICATORS,
     SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close, lday_06_22
@@ -47,23 +47,22 @@ def one_loud_night_data():
 
 @pytest.mark.external
 @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
-@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
 class TestExternalAccra:
     """Published daily values of two Accra sites (Clark et al., 2021),
     reproducible days only."""
 
     @pytest.mark.slow
     @pytest.mark.parametrize("coverage", [{}, SOURCE_COVERAGE],
-                             ids=['no_check', 'coverage_check'])
+                            ids=['no_check', 'coverage_check'])
     def test_periodic(self, accra_hourly, accra_daily, accra_spans, coverage):
         """Daily Leq, Lden, Lnight, and Lday + Levening (as the source's
         LDay), calendar days, on the whole series."""
         per_site = {site: periodic(accra_hourly, freq='D', column=column,
-                                   values=True, start_at_day=False,
+                                values=True, start_at_day=False,
                                    **ACCRA_PERIODS, **coverage)
                     for site, column in ACCRA_COLUMNS.items()}
         result = pd.DataFrame([per_site[site].loc[date] for site, date
-                               in zip(accra_daily['ID'], accra_daily['date'])])
+                            in zip(accra_daily['ID'], accra_daily['date'])])
         days = [day for day, _ in accra_spans['day']]
 
         assert_close(result['Leq'], accra_daily['LAeq24hr'])
@@ -110,7 +109,6 @@ class TestExternalAccra:
 
 
 @pytest.mark.external
-@pytest.mark.filterwarnings("ignore:DatetimeIndex.dayofweek")  # raised by filter._days
 class TestExternalBruitparif:
     """Hourly indicators computed by Bruitparif from the LAeq,1s of one
     station, over two days."""
@@ -145,6 +143,30 @@ class TestExternalBruitparif:
                         expected[indicator].to_numpy()[complete])
             assert_close(result[indicator].to_numpy()[~complete],
                         expected[indicator].to_numpy()[~complete], TOL_HARMONICA)
+
+    def test_harmonica_periodic_sub_day(self, bruitparif_1s, bruitparif_hourly,
+                                        bruitparif_span_complete):
+        """A few hours of one day, from 07:50 to 14:00: hours 08 to 13 give
+        Bruitparif's values (the 10 min before 08:00 hold the first LA95
+        window), as in test_harmonica_periodic. The 07:00 hour (10 min of
+        data) is NaN with a CoverageWarning, and hours without data are NaN."""
+        day = bruitparif_hourly.index[0].normalize()
+        hours = pd.date_range(day + pd.Timedelta(hours=8), periods=6, freq='h')
+        data = bruitparif_1s.loc[day + pd.Timedelta(hours=7, minutes=50):
+                                 day + pd.Timedelta(hours=14) - pd.Timedelta(seconds=1)]
+        with pytest.warns(CoverageWarning):
+            result = harmonica_periodic(data, column=0, use_chunks=False)
+        expected = bruitparif_hourly.loc[hours, HARMONICA_INDICATORS]
+        complete = bruitparif_span_complete.loc[hours].to_numpy()
+        included = [time(h.hour) for h in hours]
+
+        assert list(result.index) == [time(h) for h in range(24)]
+        for indicator in HARMONICA_INDICATORS:
+            got = result.loc[included, indicator].to_numpy()
+            assert_close(got[complete], expected[indicator].to_numpy()[complete])
+            assert_close(got[~complete], expected[indicator].to_numpy()[~complete],
+                         TOL_HARMONICA)
+        assert result.drop(index=included).isna().all().all()
 
 
 @pytest.mark.internal
@@ -334,7 +356,7 @@ class TestFreq:
     def test_freq_indicators(self, sample_octave_data):
         """Test basic frequency indicators computation."""
         with pytest.warns(
-            UserWarning, 
+            IntegrationTimeWarning,
             match="Computing the L10, L50, and L90"
             ):
             result = freq_indicators(

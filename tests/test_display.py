@@ -15,6 +15,7 @@ from datetime import datetime
 matplotlib.use('Agg')
 
 import noisemonitor as nm
+from noisemonitor.profile import periodic
 from noisemonitor.util.display import (
     compare, freq_line, freq_map, harmonica, line, 
     line_weather, compare_weather_daily
@@ -195,6 +196,20 @@ class TestWeatherPlotFunctions:
             
         assert mock_show.call_count >= 1
         plt.close('all')
+
+    @patch('matplotlib.pyplot.show')
+    def test_compare_weather_daily_full_day(self, mock_show, sample_weather_data):
+        """Each daily profile starts at 00:00: periodic is called with hours
+        0 to 23 (hour2 is the start of the last window)."""
+        with patch('noisemonitor.util.display.periodic', wraps=periodic) as spy:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                compare_weather_daily(sample_weather_data, column=0)
+
+        assert spy.call_count > 0
+        assert all(call.args[1:3] == (0, 23) for call in spy.call_args_list)
+        plt.close('all')
+
 
 class TestKwargsSupport:
     """Test kwargs support for all display functions."""
