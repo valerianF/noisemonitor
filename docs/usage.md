@@ -36,14 +36,22 @@ df2 = nm.load(
     sep=','
 )
 
-# Separate date and time columns
+# Separate date and time columns (text, or Excel date and time cells)
 df3 = nm.load(
     'data.xlsx',
     dateindex=0,              # Separate date column
     timeindex=1,              # Separate time column
     valueindexes=2,
-    timezone='CET',           # Convert from specified timezone
     header=0
+)
+
+# Timestamps written with a UTC offset (e.g., '2026-10-25T02:00:00+01:00'),
+# converted to the local time of the measurement site
+df4 = nm.load(
+    'export_with_offsets.csv',
+    datetimeindex=0,
+    valueindexes=1,
+    timezone='Europe/Paris'   # Timezone of the measurement site
 )
 
 # Multiple columns (e.g., octave band levels, LAeq vs. LCeq, etc.)
@@ -57,6 +65,12 @@ df_freq = nm.load(
 ```
 
 **Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`. Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
+
+**Dates and times:** text is parsed with dateutil; date, time and datetime cells of Excel files are also accepted. Numeric timestamps (Unix epoch, Excel serial numbers) are not supported: convert them to dates first.
+
+**Time zones:** `timezone` applies to timestamps written with a UTC offset only, and converts them to the local time of the given timezone (without timezone information). Timestamps without offset are already local times: leave `timezone` unset. Exports spanning a change to or from daylight saving time hold two UTC offsets and need `timezone`. When daylight saving time ends, one hour of local time occurs twice: its first occurrence is kept and the second is dropped, with a warning. When it starts, the hour skipped by the clocks appears as rows without values.
+
+**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Equivalent levels (Leq, Lden) are valid at any refresh rate, e.g., from LAeq,1min or hourly values. Statistical levels (L10, L50, L90, other Ln, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on LAeq,1s: sub-second data are first averaged energetically over each second.
 
 **Note:** Reading large files with datetime parsing can be computationally intensive. Parallel processing is enabled by default (can be deactivated) to reduce loading time.
 
@@ -164,7 +178,7 @@ nm.display.line(
 
 The `noisemonitor.summary.harmonica_periodic()` function computes and plots the HARMONICA index based on Mietlicki et al. (2015). Optionally, this can be computed for specific days of the week (e.g., weekdays only).
 
-Hourly values follow the Bruitparif implementation: BGN = 0.2 (LA95eq − 30), EVT = 0.25 (LAeq − LA95eq) and HARMONICA = BGN + EVT, where LA95eq is the equivalent level of one LA95 per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean).
+Hourly values follow the Bruitparif implementation: BGN = 0.2 (LA95eq − 30), EVT = 0.25 (LAeq − LA95eq) and HARMONICA = BGN + EVT, where LA95eq is the equivalent level of one LA95 per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). The index was designed on LAeq,1s: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
 
 ```python
 # Hourly HARMONICA profile
@@ -335,7 +349,7 @@ nm.display.compare(
 
 ### Number of Noise Events (NNE)
 
-The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day.
+The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day. For noise events, data should be sampled at 1 s or finer (Brown and De Coensel used 125 ms time histories). Events are detected on the samples as given, so their number depends on the time weighting and sampling rate of the data.
 
 ```python
 # Average daily noise event profile
@@ -365,7 +379,7 @@ nm.display.line(
 
 ### Advanced indicators
 
-Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971).
+Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971). Roughness indicators are defined on the differences between consecutive LAeq,1s values: sub-second data are first averaged over each second.
 
 ```python
 # Daily profile with advanced indicators

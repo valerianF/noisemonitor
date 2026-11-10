@@ -25,12 +25,18 @@ def periodic(
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Compute daily or weekly rolling averages of the sound level, in 
-    terms of equivalent level (Leq), and percentiles (L10, L50 and L90).
+    terms of equivalent level (Leq), statistical levels (L10, L50 and 
+    L90), and optionally other indicators (e.g., Traffic Noise Index). 
     Percentiles are computed by linear interpolation between samples
     (numpy's default method).
 
+    For statistical and other percentile-based levels, data should be sampled 
+    at 1 s or finer (e.g., 100 ms) although they are computed 
+    from the samples as given, so their values depend on the integration time 
+    of the data.
+
     Parameters
-    ---------- 
+    ----------
     hour1: int, between 0 and 23
         hour at which the first window starts.
     hour2: int, between 0 and 23
@@ -45,12 +51,12 @@ def periodic(
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
     win: int, default 3600
-        window size for the averaging function, in seconds. Each window
-        covers the half-open interval [start, start + win): a timestamp
-        marks the start of its integration period.
+        window size for the averaging function, in whole seconds. Each
+        window covers the half-open interval [start, start + win): a
+        timestamp marks the start of its integration period.
     step: int, default 0
-        step size to compute a rolling average. If set to 0 (default 
-        value), the function will compute non-rolling averages.
+        step size to compute a rolling average, in whole seconds. If set to
+        0 (default value), the function will compute non-rolling averages.
     traffic_noise_indicators: bool, default False
         if set to True, the function will compute traffic noise indicators 
         Traffic Noise Index (Griffiths and Langdon, 1968) as well as the 
@@ -59,10 +65,13 @@ def periodic(
     roughness_indicators: bool, default False
         if set to True, the function will compute roughness indicators 
         based on difference between consecutive LAeq,1s values according
-        to (DeFrance et al., 2010). Only samples one sampling interval
-        apart are differenced: pairs with a missing value, split by a gap,
-        or across the junction between days pooled in a window are left
-        out. A window without any such pair gives NaN.
+        to (DeFrance et al., 2010). Sub-second data are first averaged
+        energetically over each whole second (LAeq,1s), assuming that their
+        interval divides one second (e.g., 100, 125, 250 or 500 ms). Only
+        samples one sampling interval apart are differenced: pairs with a
+        missing value, split by a gap, or across the junction between days
+        pooled in a window are left out. A window without any such pair
+        gives NaN.
     stat: int, list of ints, or None, default None
         statistical level(s) to compute (between 1 and 99). If an int is provided,
         computes the corresponding percentile (e.g., stat=10 computes L10). If a list
@@ -142,6 +151,10 @@ def periodic(
 
     if roughness_indicators:
         interval = df.index[2] - df.index[1]
+        rough_levels = None
+        if interval < pd.Timedelta(seconds=1):
+            rough_levels = core._laeq_1s(temp.iloc[:, column])
+            interval = pd.Timedelta(seconds=1)
 
     times = []
 
@@ -150,18 +163,17 @@ def periodic(
         t1 = hour1*3600 + i*step
         t2 = hour1*3600 + i*step + win
 
-        temp_slice = temp.between_time(
-            time(
-                hour=(t1//3600)%24,
-                minute=(t1%3600)//60,
-                second=(t1%3600)%60
-            ),
-            time(
-                hour=(t2//3600)%24,
-                minute=(t2%3600)//60,
-                second=(t2%3600)%60
-            ),
-            inclusive='left')
+        start = time(
+            hour=(t1//3600)%24,
+            minute=(t1%3600)//60,
+            second=(t1%3600)%60
+        )
+        end = time(
+            hour=(t2//3600)%24,
+            minute=(t2%3600)//60,
+            second=(t2%3600)%60
+        )
+        temp_slice = temp.between_time(start, end, inclusive='left')
 
         times.append(time(
             hour=(t//3600)%24, 
@@ -202,9 +214,11 @@ def periodic(
             averages['NPL'][i] = Leq+ 2.56 * sigma_Leq
 
         if roughness_indicators:
+            levels = arr if rough_levels is None else rough_levels.between_time(
+                start, end, inclusive='left')
             # Differences between samples one interval apart only
-            consecutive = (arr.index[1:] - arr.index[:-1]) == interval
-            dL = np.abs(np.diff(arr.to_numpy(dtype=float)))[consecutive]
+            consecutive = (levels.index[1:] - levels.index[:-1]) == interval
+            dL = np.abs(np.diff(levels.to_numpy(dtype=float)))[consecutive]
             dL = dL[~np.isnan(dL)]
             if dL.size:
                 averages['dLav'][i] = np.mean(dL)
@@ -227,7 +241,9 @@ def freq_periodic(
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
-    Compute weekly levels for each frequency band in the DataFrame.
+    Compute weekly levels for each frequency band in the DataFrame, as
+    noisemonitor.profile.periodic. For statistical levels, data should 
+    be sampled at 1 s or finer.
 
     Parameters
     ----------
@@ -245,11 +261,11 @@ def freq_periodic(
     day2: Optional[str], default None
         Last day of the week included in the weekly average.
     win: int, default 3600
-        Window size for the averaging function, in seconds. Each window
-        covers the half-open interval [start, start + win).
+        Window size for the averaging function, in whole seconds. Each
+        window covers the half-open interval [start, start + win).
     step: int, default 0
-        Step size to compute a sliding average. If set to 0 (default value),
-        the function will compute non-sliding averages.
+        Step size to compute a sliding average, in whole seconds. If set to
+        0 (default value), the function will compute non-sliding averages.
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         weekly levels for each frequency band.
@@ -353,17 +369,19 @@ def freq_series(
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
-    Compute time series of sound levels for each frequency band in the DataFrame.
+    Compute time series of sound levels for each frequency band in the
+    DataFrame, as noisemonitor.profile.series. For statistical levels, 
+    data should be sampled at 1 s or finer.
 
     Parameters
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and sound level values for each frequency band.
     win: int, default 3600
-        Window size for the averaging function, in seconds.
+        Window size for the averaging function, in whole seconds.
     step: int, default 0
-        Step size to compute a rolling average. If set to 0 (default value),
-        the function will compute non-rolling averages.
+        Step size to compute a rolling average, in whole seconds. If set to
+        0 (default value), the function will compute non-rolling averages.
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         the series for each frequency band.
@@ -463,7 +481,10 @@ def nne(
     average NNE using sliding windows, computing daily or weekly profiles.
     Note that this function is computationally expensive as noise NNEs are
     separately computed for each individual day and then averaged since
-    background levels are relative to each day.
+    background levels are relative to each day. For noise events, data
+    should be sampled at 1 s or finer (e.g., 125 ms). Events are detected on
+    the samples as given, so their number depends on the time weighting and
+    sampling rate of the data.
 
     Parameters
     ----------
@@ -483,11 +504,11 @@ def nne(
     min_gap: int
         Minimum time gap in seconds between successive noise events.
     win: int, default 3600
-        Window size for the averaging function, in seconds. Each window
-        covers the half-open interval [start, start + win).
+        Window size for the averaging function, in whole seconds. Each
+        window covers the half-open interval [start, start + win).
     step: int, default 0
-        Step size to compute a sliding average. If set to 0 (default value), 
-        the function will compute non-sliding averages.
+        Step size to compute a sliding average, in whole seconds. If set to
+        0 (default value), the function will compute non-sliding averages.
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
@@ -621,19 +642,23 @@ def series(
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """Sliding average of the entire sound level array, in terms of
-    equivalent level (LEQ), and percentiles (L10, L50 and L90).
+    equivalent level (LEQ), and statistical levels (L10, L50 and L90).
     Percentiles are computed by linear interpolation between samples
-    (numpy's default method).
+    (numpy's default method). For statistical levels, data should 
+    be sampled at 1 s or finer. Percentiles are computed from the 
+    samples as given, so their values depend on the integration time 
+    of the data.
 
     Parameters
     ---------- 
     win: int, default 3600
-        window size (in seconds) for the averaging function. For averages
+        window size (in whole seconds) for the averaging function. For averages
         at a daily or weekly window, we recommend using the
         daily_weekly_indicators function instead.
     step: int, default 0
-        step size (in seconds) to compute a sliding average. If set to 0
-        (default value), the function will compute non-sliding averages.
+        step size (in whole seconds) to compute a sliding average. If set
+        to 0 (default value), the function will compute non-sliding
+        averages.
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
@@ -661,8 +686,10 @@ def series(
             " might not be valid for these indicators.\n",
             core.IntegrationTimeWarning, stacklevel=2)
 
-    step = step // interval
-    win = win // interval
+    # Window and step in whole samples; the tolerance absorbs float errors
+    # of sub-second intervals (3600 // 0.1 gives 35999)
+    step = int(np.floor(step / interval + 1e-9))
+    win = int(np.floor(win / interval + 1e-9))
 
     N = len(df)
 

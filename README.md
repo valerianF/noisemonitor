@@ -115,7 +115,7 @@ nm.display.compare(
 
 ```python
 # Computa HARMONICA indexes
-harmonica = nm.summary.harmonica_periodic(df_1s) # requires 1s resolution data
+harmonica = nm.summary.harmonica_periodic(df_1s) # requires data at 1 s or finer
 nm.display.harmonica(harmonica) # Visualize
 ```
 

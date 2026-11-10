@@ -1,6 +1,6 @@
 # External test data
 
-Reference values from outside `noisemonitor`, used by the external validation tests (`TestExternalAccra` and `TestExternalBruitparif` in `tests/test_core.py`, `test_summary.py` and `test_profile.py`, marker `external`; fixtures and constants in `tests/conftest.py`). Both datasets are built by `data_parser.py` (`python tests/data/external/data_parser.py`; needs pandas, plus `acoustic-toolbox` and Python >= 3.11 for dataset 1), with the source values unchanged.
+Reference values from outside `noisemonitor`, used by the external validation tests (`TestExternalAccra` and `TestExternalBruitparif` in `tests/test_core.py`, `test_summary.py`, `test_profile.py` and `test_load.py`, marker `external`; fixtures and constants in `tests/conftest.py`). Both datasets are built by `data_parser.py` (`python tests/data/external/data_parser.py`; needs pandas, plus `acoustic-toolbox` and Python >= 3.11 for dataset 1), with the source values unchanged.
 
 ## Dataset 1: Accra (`ext_data_accra_h.csv`, `ext_data_accra_d.csv`)
 
@@ -22,12 +22,12 @@ Reference values from outside `noisemonitor`, used by the external validation te
 
 **Source:** Bruitparif (CC BY 4.0). Provided by Bruitparif on request: LAeq,1s and the hourly LAeq, L10, L50, L90, and the HARMONICA index with its BGN and EVT components (Mietlicki et al., 2015).
 
-**Tested:** hourly indicators computed from the LAeq,1s, against Bruitparif's: LAeq, L10, L50 and L90 with `core.equivalent_level` (LAeq), `summary.leq`, `profile.periodic`, `profile.series`; HARMONICA, BGN and EVT with `core.harmonica`, `summary.harmonica_periodic`. Also used by an internal check of the Traffic Noise Index of `profile.periodic`, against its formula applied to Bruitparif's hourly L10 and L90 (`TestCalculations` in `tests/test_profile.py`).
+**Tested:** hourly indicators computed from the LAeq,1s, against Bruitparif's: LAeq, L10, L50 and L90 with `core.equivalent_level` (LAeq), `summary.leq`, `profile.periodic`, `profile.series`; HARMONICA, BGN and EVT with `core.harmonica`, `summary.harmonica_periodic`. Also used by an internal check of the Traffic Noise Index of `profile.periodic`, against its formula applied to Bruitparif's hourly L10 and L90 (`TestCalculations` in `tests/test_profile.py`). Sub-second data: each LAeq,1s of the first three hours (and the 10 min before them) is split into two 0.5 s levels whose energetic mean is the LAeq,1s; LAeq and HARMONICA computed from them are checked against Bruitparif's (`bruitparif_halfsecond` in `tests/conftest.py`). End of daylight saving time: `load()` with `timezone='Europe/Paris'` on 25 October 00:00–05:00, hourly LAeq against Bruitparif's (`tests/test_load.py`).
 
-**Processing:** The source files (one week of data) were processed to contain only two days: Friday 23 and Saturday 24 October 2026:
-- `ext_data_bruitparif_s.csv.xz`: source data with LAeq,1s values compressed with xz; the tests unpack it to a temporary folder.
-- `ext_data_bruitparif_h.csv`: source data for the 48 hourly rows, all columns.
+**Processing:** The source files (one week of data) were processed to contain only two days, Friday 23 and Saturday 24 October 2026 (plus the 10 min of LAeq,1s before them), followed by the first five hours of local time of Sunday 25 October, which span the end of daylight saving time (03:00 UTC+2 → 02:00 UTC+1): the 02:00 hour occurs twice.
+- `ext_data_bruitparif_s.csv.xz`: source data with LAeq,1s values compressed with xz; the tests unpack it to a temporary folder. The tests of 23 and 24 October read its first 173,400 rows only.
+- `ext_data_bruitparif_h.csv`: source data for the 48 hourly rows of 23 and 24 October and the 6 of 25 October (both 02:00 hours), all columns.
 
-**Source conventions:** A hourly timestamp marks the start of its integration period, as in `noisemonitor`. Hourly LAeq and percentiles use the valid seconds of the hour; statistical levels are interpolated linearly between samples. HARMONICA, BGN and EVT are given in single precision.
+**Source conventions:** Timestamps are written with their UTC offset (+02:00, then +01:00 from the second 02:00 hour of 25 October). A hourly timestamp marks the start of its integration period, as in `noisemonitor`; Bruitparif gives a value for each of the two 02:00 hours of 25 October. Hourly LAeq and percentiles use the valid seconds of the hour; statistical levels are interpolated linearly between samples. HARMONICA, BGN and EVT are given in single precision.
 
 **Tolerance:** 1e-4 dB, plus 0.005 dB for `summary.leq`, which rounds to 0.01 dB. HARMONICA, BGN and EVT: 1e-4 for the 30 hours with no missing data (`noisemonitor` matches within 1e-6); 0.005 for the other 18 (within 3e-3). For `summary.harmonica_periodic`, 1e-4 applies to the hours of the day with no missing second in their span on both days.

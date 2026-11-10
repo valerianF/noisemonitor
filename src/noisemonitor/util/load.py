@@ -10,7 +10,7 @@ import sys
 import warnings
 import multiprocessing
 
-from datetime import datetime
+from datetime import date, datetime, time
 from dateutil import parser
 from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
@@ -20,6 +20,11 @@ from concurrent.futures.process import BrokenProcessPool
 _SAMPLE_ROWS = 100
 # First bytes of Excel workbooks: OLE2 (.xls) and ZIP (.xlsx).
 _EXCEL_SIGNATURES = (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1', b'PK\x03\x04')
+_MIXED_OFFSETS = (
+    "The timestamps have several UTC offsets (e.g. a change to or from "
+    "daylight saving time). Pass the timezone of the measurement site "
+    "(e.g. timezone='Europe/Paris') to convert them to local time."
+)
 
 def load(
     path: Union[str, List[str]], 
@@ -38,8 +43,10 @@ def load(
     combined in one column or across two columns, and sound level measured 
     with a sound level monitor as input (e.g., equivalent levels and/or
     third-octave levels) and return a pandas DataFrame suitable for 
-    use in the noisemonitor package. Date and time are automatically parsed 
-    with dateutil package.
+    use in the noisemonitor package. Date and time given as text are
+    automatically parsed with dateutil package; date and time cells of
+    Excel files are also accepted. Numeric timestamps (e.g. Unix epoch or
+    Excel serial numbers) are not supported and raise a ValueError.
 
     Columns with an empty header (e.g., trailing column created by a 
     separator at the end of each line) are dropped when their first 100 rows 
@@ -72,7 +79,8 @@ def load(
         sound levels values, either weighted or unweighted and integrated over 
         a period corresponding to the refresh rate of the sound level meter 
         (typically between 1 second and several minutes, though the module will 
-        work with smaller or higher refresh rates). If None, all columns are loaded.
+        work with smaller or higher refresh rates, e.g. 100 ms). If None, all
+        columns are loaded.
         Example of relevant indices: LAeq, LCeq, LZeq, LAmax, LAmin, LCpeak, etc. 
     header: int, None, default 0
         row index for datasheet header. If None, the datasheet has
@@ -82,8 +90,16 @@ def load(
     sep: str, default ','
         separator if reading .csv file(s).
     timezone: str, default None
-        when indicated, will convert the datetime index from the specified 
-        timezone to a timezone unaware format.
+        timezone of the measurement site (e.g. 'Europe/Paris'), for
+        timestamps written with a UTC offset (e.g. 
+        '2026-10-25T02:00:00+01:00'): they are converted to the local time
+        of this timezone, without timezone information. Timestamps without
+        a UTC offset are already local times: leave timezone to None. 
+        Timestamps with several UTC offsets (e.g., an export spanning a 
+        change to or from daylight saving time) require a timezone. 
+        When daylight saving time ends, one hour of local time occurs twice: 
+        only its first occurrence is kept, with a UserWarning. When it starts, 
+        the hour skipped by the clocks gives rows without values.
     use_chunks: bool, default True
         whether to process the data in chunks for large datasets.
     chunksize: int, default 10000
@@ -255,6 +271,24 @@ def load(
             dateindex,
             timezone)
 
+    if not isinstance(df.index, pd.DatetimeIndex):
+        # Chunks with different UTC offsets do not form a DatetimeIndex
+        raise ValueError(_MIXED_OFFSETS)
+    if timezone is not None:
+        local = df.index.tz_localize(None)
+        # Local times repeated when daylight saving time ends
+        repeated = local.duplicated() & ~df.index.duplicated()
+        if repeated.any():
+            warnings.warn(
+                f"{repeated.sum()} timestamps occur twice in local time "
+                f"({timezone}), when daylight saving time ends: only their "
+                "first occurrence is kept (from "
+                f"{local[repeated].min()} to {local[repeated].max()}).",
+                UserWarning,
+                stacklevel=2
+            )
+        df.index = local
+
     # Ensure the index is unique and sorted
     if not df.index.is_unique:
         df = df[~df.index.duplicated(keep='first')]
@@ -265,26 +299,28 @@ def load(
     # devices report a wrong interval for the first two data points.
     if len(df) > 2:
         interval = df.index[2] - df.index[1]
-        resample_freq = f'{int(interval.total_seconds())}s'
-        df = df.resample(resample_freq, origin=df.index[2]).asfreq()
+        df = df.resample(interval, origin=df.index[2]).asfreq()
         
     return df
 
 def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):
     """Process a chunk of data to convert it into a DataFrame suitable for
     sound level analysis. Datetime, date and time columns are given by
-    column label."""
+    column label. With a timezone, the index is returned in local time of
+    this timezone."""
     chunk = chunk.copy()
 
     if datetimeindex is not None:
         datetime_col = datetimeindex
-        if not isinstance(chunk[datetime_col].iloc[0], pd.Timestamp):
-            chunk[datetime_col] = chunk[datetime_col].map(
-                lambda a: parser.parse(a))
+        column = chunk[datetime_col]
+        if not pd.api.types.is_datetime64_any_dtype(column):
+            chunk[datetime_col] = column.map(_parse_value)
     elif all(ind is not None for ind in [dateindex, timeindex]):
         datetime_col = dateindex
-        dates = chunk[dateindex].map(lambda a: parser.parse(a).date())
-        times = chunk[timeindex].map(lambda a: parser.parse(a).time())
+        dates = chunk[dateindex].map(_parse_value).map(
+            lambda a: a.date() if isinstance(a, datetime) else a)
+        times = chunk[timeindex].map(_parse_value).map(
+            lambda a: a.time() if isinstance(a, datetime) else a)
         chunk[datetime_col] = [
             datetime.combine(d, t) for d, t in zip(dates, times)]
         chunk = chunk.drop(columns=timeindex)
@@ -294,15 +330,50 @@ def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):
 
     chunk = chunk.rename(columns={datetime_col: 'datetime'})
 
-    # Convert datetime column to avoid dtype inference
-    chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+    # UTC offsets of the timestamps (None for timestamps without offset)
+    if pd.api.types.is_datetime64_any_dtype(chunk['datetime']):
+        # A single timezone, or none, for the whole column
+        naive = chunk['datetime'].dt.tz is None
+        mixed = False
+    else:
+        offsets = set(chunk['datetime'].map(lambda a: a.utcoffset()))
+        naive = None in offsets
+        mixed = len(offsets) > 1
+
+    if timezone is None:
+        if mixed:
+            raise ValueError(_MIXED_OFFSETS)
+        # Convert datetime column to avoid dtype inference
+        chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+    else:
+        if naive:
+            raise ValueError(
+                "timezone converts timestamps written with a UTC offset "
+                "(e.g. '2026-10-25T02:00:00+01:00') to local time, but "
+                "some timestamps have none: they are already local times. "
+                "Leave timezone to None."
+            )
+        chunk['datetime'] = pd.to_datetime(
+            chunk['datetime'], utc=True).dt.tz_convert(timezone)
     chunk = chunk.set_index('datetime')
 
-    if timezone is not None:
-        chunk.index = chunk.index.tz_convert(
-            timezone).tz_localize(None)
-
     return chunk
+
+def _parse_value(value):
+    """Parse one date, time or datetime value: text is parsed with
+    dateutil, and datetime, date and time objects (e.g. Excel cells read
+    by pandas) are returned unchanged. Numbers (e.g. Unix epoch or Excel
+    serial numbers) and empty values raise a ValueError."""
+    if isinstance(value, str):
+        return parser.parse(value)
+    if isinstance(value, (datetime, date, time)):
+        return value
+    raise ValueError(
+        f"Cannot read {value!r} ({type(value).__name__}) as a date or "
+        "time. Dates and times must be text or date/time cells; numeric "
+        "timestamps (e.g. Unix epoch or Excel serial numbers) are not "
+        "supported and must be converted to dates first."
+    )
 
 def _is_excel_file(path):
     """Tell Excel workbooks from text files by their first bytes. Some

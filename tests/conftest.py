@@ -160,6 +160,10 @@ def accra_spans(accra_hourly, accra_daily):
 # External data: Bruitparif (data/external/README.md)
 
 BRUITPARIF_TZ = 'Europe/Paris'
+# Rows of the LAeq,1s file for 23 and 24 October and the 10 min before them;
+# the file goes on with 25 October 00:00-05:00, which spans the end of
+# daylight saving time (used by test_load only)
+BRUITPARIF_ROWS = 600 + 2 * 86400
 # noisemonitor output column: Bruitparif hourly column
 BRUITPARIF_LEVELS = {'Leq': 'LAeq_1h', 'L10': 'L10_1h', 'L50': 'L50_1h',
                     'L90': 'L90_1h'}
@@ -182,20 +186,49 @@ def bruitparif_1s_path(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def bruitparif_1s(bruitparif_1s_path):
-    """LAeq,1s over two days and the 10 min before them; timestamps with a
-    UTC offset in the file, converted to naive local time by load()."""
+    """LAeq,1s over two days and the 10 min before them (the first
+    BRUITPARIF_ROWS rows of the file); timestamps with a UTC offset in the
+    file, converted to naive local time by load()."""
     return nm.load(str(bruitparif_1s_path), datetimeindex=0, valueindexes=1,
-                timezone=BRUITPARIF_TZ)
+                timezone=BRUITPARIF_TZ, nrows=BRUITPARIF_ROWS)
 
 
 @pytest.fixture(scope="module")
 def bruitparif_hourly():
-    """Hourly indicators computed by Bruitparif, indexed by the start of
-    their hour in naive local time."""
+    """Hourly indicators computed by Bruitparif for 23 and 24 October,
+    indexed by the start of their hour in naive local time."""
     df = pd.read_csv(EXT_PATH / "ext_data_bruitparif_h.csv")
+    df = df[df['ts'] < '2026-10-25'].reset_index(drop=True)
     df.index = (pd.DatetimeIndex(pd.to_datetime(df.pop('ts')))
                 .tz_convert(BRUITPARIF_TZ).tz_localize(None))
     return df
+
+
+# Two 0.5 s levels whose energetic mean is the LAeq,1s L: L + 1 dB and
+# L + 10 lg(2 - 10^0.1) dB (about L - 1.30 dB)
+HALF_SECOND_OFFSETS = (1.0, 10 * np.log10(2 - 10 ** 0.1))
+# Last second of the span used at 0.5 s: the 10 min before 23 October and
+# its first three hours
+HALF_SECOND_END = '2026-10-23 02:59:59'
+
+
+@pytest.fixture(scope="module")
+def bruitparif_halfsecond(bruitparif_1s, tmp_path_factory):
+    """Sub-second data with known LAeq,1s: each LAeq,1s of Bruitparif over
+    HALF_SECOND_END and the 10 min before it, split into two 0.5 s levels
+    (HALF_SECOND_OFFSETS) whose energetic mean is the LAeq,1s (missing
+    seconds give two missing levels). Written with millisecond timestamps
+    and read by load()."""
+    levels = bruitparif_1s.iloc[:, 0].loc[:HALF_SECOND_END]
+    halves = pd.concat([
+        pd.Series(levels.to_numpy() + offset,
+                index=levels.index + pd.Timedelta(milliseconds=500 * k))
+        for k, offset in enumerate(HALF_SECOND_OFFSETS)]).sort_index()
+    path = tmp_path_factory.mktemp("halfsecond") / "halfsecond.csv"
+    halves.rename('LAeq').to_csv(path, index_label='datetime',
+                                date_format='%Y-%m-%d %H:%M:%S.%f')
+    return nm.load(str(path), datetimeindex=0, valueindexes=1,
+                use_chunks=False)
 
 
 # Band column names in mixed formats and in no particular order, and the

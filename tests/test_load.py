@@ -11,12 +11,19 @@ from pathlib import Path
 from datetime import datetime, date, time
 from unittest.mock import patch, mock_open
 
+from noisemonitor.util.core import equivalent_level
 from noisemonitor.util.load import load, _parse_data
+from tests.conftest import (
+    BRUITPARIF_ROWS, BRUITPARIF_TZ, EXT_PATH, assert_close
+)
 
-# Loading and parsing only: no acoustic reference values
-pytestmark = pytest.mark.behaviour
+# The 10 min of LAeq,1s before 25 October, and the first row at UTC+1 after
+# them (second occurrence of 02:00:00): 00:00 to 03:00 local time at UTC+2
+DST_LEAD = 600
+DST_CHANGE = DST_LEAD + 3 * 3600
 
 
+@pytest.mark.behaviour
 class TestParseData:
     """Test the _parse_data helper function."""
 
@@ -99,8 +106,11 @@ class TestParseData:
             dateindex=None,
             timezone='America/New_York'
         )
-        
-        assert result.index.tz is None
+
+        # Local time with timezone information (load() removes it)
+        assert str(result.index.tz) == 'America/New_York'
+        assert list(result.index.tz_localize(None)) == [
+            pd.Timestamp('2023-01-01 05:00'), pd.Timestamp('2023-01-01 06:00')]
         assert len(result) == 2
         assert len(result.columns) == 1
 
@@ -140,6 +150,7 @@ class TestParseData:
             )
 
 
+@pytest.mark.behaviour
 class TestLoad:
     """Test the main load function."""
 
@@ -580,6 +591,7 @@ class TestLoad:
         assert len(result) >= 100
 
 
+@pytest.mark.behaviour
 class TestLoadColumnReference:
     """Test the new column reference functionality (string vs integer indices)."""
 
@@ -874,6 +886,7 @@ class TestLoadColumnReference:
         np.testing.assert_allclose(result['LAeq'].values, [65.5, 67.2, 64.8])
 
 
+@pytest.mark.behaviour
 class TestLoadUnnamedColumnsAndDecimalComma:
     """Columns with an empty header ('Unnamed: N') and decimal commas,
     including NoiseSentry exports (tab-separated text, also with an .xls
@@ -1057,6 +1070,7 @@ class TestLoadUnnamedColumnsAndDecimalComma:
                                 [53.93857, 54.13857])
 
 
+@pytest.mark.behaviour
 class TestLoadIntegration:
     """Integration tests for load function.
     
@@ -1117,3 +1131,160 @@ class TestLoadIntegration:
 
 if __name__ == '__main__':
     pytest.main([__file__])
+
+
+@pytest.mark.behaviour
+class TestLoadTimestamps:
+    """Sub-second timestamps, Excel date and time cells, numeric timestamps,
+    and timestamps with a UTC offset."""
+
+    def setup_method(self):
+        self.temp_dir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _write_csv(self, name, index, values):
+        path = os.path.join(self.temp_dir, name)
+        pd.Series(values, index=index, name='LAeq').to_csv(
+            path, index_label='datetime')
+        return path
+
+    @pytest.mark.parametrize("freq", ['100ms', '125ms', '500ms'])
+    def test_load_subsecond(self, freq):
+        """Sub-second data with millisecond timestamps and one missing
+        sample: a regular grid at the same interval, with one NaN row."""
+        index = pd.date_range('2023-01-02 10:00:00.250', periods=20, freq=freq)
+        values = 50.0 + np.arange(20)
+        path = os.path.join(self.temp_dir, 'subsecond.csv')
+        pd.Series(values, index=index, name='LAeq').drop(index[12]).to_csv(
+            path, index_label='datetime', date_format='%Y-%m-%d %H:%M:%S.%f')
+
+        result = load(path, datetimeindex=0, valueindexes=1, use_chunks=False)
+
+        assert list(result.index) == list(index)
+        assert result['LAeq'].isna().sum() == 1
+        assert np.isnan(result.loc[index[12], 'LAeq'])
+        np.testing.assert_array_equal(result['LAeq'].drop(index[12]),
+                                    np.delete(values, 12))
+
+    @pytest.mark.parametrize("dateindex, timeindex, datetimeindex", [
+        ('date', 'time', None),
+        ('date', 'time_text', None),
+        (None, None, 'datetime'),
+    ], ids=['date_time_cells', 'date_cell_time_text', 'datetime_cells'])
+    def test_load_excel_date_time_cells(self, dateindex, timeindex, datetimeindex):
+        """Excel date, time and datetime cells (read as Timestamp and
+        datetime.time), also combined with times written as text."""
+        index = pd.date_range('2023-01-02 23:58', periods=4, freq='1min')
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['date', 'time', 'time_text', 'datetime', 'LAeq'])
+        for k, t in enumerate(index):
+            t = t.to_pydatetime()
+            ws.append([t.date(), t.time(), t.strftime('%H:%M:%S'), t, 50.0 + k])
+        path = os.path.join(self.temp_dir, 'cells.xlsx')
+        wb.save(path)
+
+        result = load(path, datetimeindex=datetimeindex, dateindex=dateindex,
+                    timeindex=timeindex, valueindexes='LAeq', use_chunks=False)
+
+        assert list(result.index) == list(index)
+        np.testing.assert_array_equal(result['LAeq'], 50.0 + np.arange(4))
+
+    @pytest.mark.parametrize("value", [1672653600, 44928.5],
+                            ids=['epoch', 'excel_serial'])
+    def test_load_numeric_timestamps_raise(self, value):
+        """Numeric timestamps (Unix epoch, Excel serial numbers) are not
+        read as dates: ValueError."""
+        path = self._write_csv('numeric.csv', [value, value + 1, value + 2],
+                            [50.0, 51.0, 52.0])
+        with pytest.raises(ValueError, match="numeric timestamps"):
+            load(path, datetimeindex=0, valueindexes=1, use_chunks=False)
+
+    def test_load_start_of_dst(self):
+        """Start of daylight saving time in Paris (31 March 2024, 02:00
+        UTC+1 -> 03:00 UTC+2), 1 min data with UTC offsets: local times
+        without timezone; the hour skipped by the clocks gives 60 NaN rows,
+        without warning."""
+        utc = pd.date_range('2024-03-30 23:00', '2024-03-31 02:59', freq='1min',
+                            tz='UTC')
+        local = utc.tz_convert('Europe/Paris')
+        path = self._write_csv('spring.csv', [t.isoformat() for t in local],
+                            np.full(len(utc), 50.0))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            result = load(path, datetimeindex=0, valueindexes=1,
+                        timezone='Europe/Paris', use_chunks=False)
+
+        assert result.index.tz is None
+        assert list(result.index) == list(pd.date_range(
+            '2024-03-31 00:00', '2024-03-31 04:59', freq='1min'))
+        skipped = ((result.index >= '2024-03-31 02:00')
+                & (result.index < '2024-03-31 03:00'))
+        assert result['LAeq'].isna().to_numpy().tolist() == skipped.tolist()
+
+    def test_load_timezone_naive_raises(self):
+        """Timestamps without UTC offset are already local times: a
+        timezone raises a ValueError."""
+        index = pd.date_range('2023-01-02 10:00', periods=5, freq='1min')
+        path = self._write_csv('naive.csv', index, np.full(5, 50.0))
+        with pytest.raises(ValueError, match="already local times"):
+            load(path, datetimeindex=0, valueindexes=1, timezone='Europe/Paris',
+                use_chunks=False)
+
+
+CHUNKS = [
+    (False, 10000),
+    pytest.param(True, 10000, marks=pytest.mark.slow),  # change in a chunk
+    pytest.param(True, DST_CHANGE, marks=pytest.mark.slow),  # between chunks
+]
+CHUNK_IDS = ['no_chunks', 'change_in_chunk', 'change_between_chunks']
+
+
+@pytest.mark.external
+class TestExternalBruitparif:
+    """End of daylight saving time in Paris (25 October 2026, 03:00 UTC+2 ->
+    02:00 UTC+1) in Bruitparif's LAeq,1s, whose timestamps carry their UTC
+    offset, from 24 October 23:50 to 25 October 04:59:59 (local time)."""
+
+    def _load(self, path, **kwargs):
+        return load(str(path), datetimeindex=0, valueindexes=1,
+                    skiprows=range(1, BRUITPARIF_ROWS - DST_LEAD + 1), **kwargs)
+
+    @pytest.mark.parametrize("use_chunks, chunksize", CHUNKS, ids=CHUNK_IDS)
+    def test_end_of_dst(self, bruitparif_1s_path, use_chunks, chunksize):
+        """Converted to local time, 02:00-02:59 occurs twice: its first
+        occurrence (UTC+2) is kept, with one UserWarning. The LAeq of each
+        local hour from 00:00 to 04:00 is Bruitparif's LAeq of that hour
+        (the UTC+2 one for 02:00)."""
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter('always')
+            result = self._load(bruitparif_1s_path, timezone=BRUITPARIF_TZ,
+                                use_chunks=use_chunks, chunksize=chunksize)
+
+        assert len([w for w in record if issubclass(w.category, UserWarning)]) == 1
+        assert result.index.tz is None
+        assert list(result.index) == list(pd.date_range(
+            '2026-10-24 23:50:00', '2026-10-25 04:59:59', freq='1s'))
+
+        hourly = pd.read_csv(EXT_PATH / "ext_data_bruitparif_h.csv")
+        hourly = hourly[hourly['ts'].str.startswith('2026-10-25')
+                        & (hourly['ts'] != '2026-10-25 02:00:00+01:00')]
+        starts = pd.to_datetime(hourly['ts'].str[:19])
+        end = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+        got = [equivalent_level(result.loc[h:h + end].iloc[:, 0].to_numpy())
+            for h in starts]
+        assert len(got) == 5
+        assert_close(got, hourly['LAeq_1h'])
+
+    @pytest.mark.parametrize("use_chunks, chunksize", CHUNKS, ids=CHUNK_IDS)
+    def test_end_of_dst_without_timezone(self, bruitparif_1s_path, use_chunks,
+                                        chunksize):
+        """Timestamps with two UTC offsets and no timezone: ValueError,
+        whether the change falls inside a chunk or between two chunks."""
+        with pytest.raises(ValueError, match="several UTC offsets"):
+            self._load(bruitparif_1s_path, use_chunks=use_chunks,
+                    chunksize=chunksize)

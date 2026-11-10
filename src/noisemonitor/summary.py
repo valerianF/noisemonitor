@@ -23,12 +23,13 @@ def harmonica_periodic(
     core.harmonica: a 10 min LA95 window with fewer than 50% of its
     expected values gives no LA95, and an hour with less than 80% of its
     expected values is NaN; NaN hours are left out of the mean, with a
-    CoverageWarning.
+    CoverageWarning. Sub-second data are first averaged over each whole
+    second (LAeq,1s), as in core.harmonica.
 
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame with a datetime index and sound level values.
+        DataFrame with a datetime index and LAeq values at 1 s or finer.
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
@@ -360,7 +361,10 @@ def leq(
     stats: bool, default True
         If set to True, the function will return L10, L50 and L90 
         together with the Leq (percentiles by linear interpolation between
-        samples, numpy's default method).
+        samples, numpy's default method). For statistical levels, data
+        should be sampled at 1 s or finer: they are computed from the
+        samples as given, so their values depend on the integration time
+        of the data.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.

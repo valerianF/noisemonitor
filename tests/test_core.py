@@ -16,6 +16,7 @@ from noisemonitor.util.core import (
     lden,
     noise_events,
     _column_to_index,
+    _laeq_1s,
     check_coverage,
     CoverageWarning
 )
@@ -86,6 +87,21 @@ class TestExternalBruitparif:
             assert_close(result.loc[~complete, indicator],
                         bruitparif_hourly.loc[~complete, indicator], TOL_HARMONICA)
 
+    def test_harmonica_subsecond(self, bruitparif_halfsecond, bruitparif_hourly,
+                                bruitparif_span_complete):
+        """Sub-second data (0.5 s levels averaging exactly to the LAeq,1s):
+        the hours covered give Bruitparif's HARMONICA, BGN and EVT, as from
+        the LAeq,1s."""
+        result = harmonica(bruitparif_halfsecond, 0, use_chunks=False)
+        hours = bruitparif_hourly.index.intersection(result.index)
+        assert len(hours) == 3
+        complete = bruitparif_span_complete.loc[hours].to_numpy()
+        for indicator in HARMONICA_INDICATORS:
+            got = result.loc[hours, indicator].to_numpy()
+            expected = bruitparif_hourly.loc[hours, indicator].to_numpy()
+            assert_close(got[complete], expected[complete])
+            assert_close(got[~complete], expected[~complete], TOL_HARMONICA)
+
 
 @pytest.mark.internal
 class TestCalculations:
@@ -147,6 +163,28 @@ class TestCalculations:
         laeq = 10 * np.log10((10 * 10 ** 9 + 3590 * 10 ** 5) / 3600)
         assert np.isclose(result['BGN'], 0.2 * (50 - 30), rtol=0, atol=1e-9)
         assert np.isclose(result['EVT'], 0.25 * (laeq - 50), rtol=0, atol=1e-9)
+
+    def test_laeq_1s(self):
+        """0.1 s levels starting mid-second, with missing values and one
+        empty second: each LAeq,1s is equivalent_level of the samples in
+        [s, s + 1 s), NaN ignored, and NaN for the empty second."""
+        rng = np.random.default_rng(0)
+        index = pd.date_range('2023-01-01 00:00:00.500', periods=100, freq='100ms')
+        values = 55 + 6 * rng.standard_normal(100)
+        values[[7, 23, 24, 61]] = np.nan
+        values[45:55] = np.nan  # the whole second 00:00:05
+        levels = pd.Series(values, index=index)
+
+        result = _laeq_1s(levels)
+
+        seconds = pd.date_range('2023-01-01 00:00:00', '2023-01-01 00:00:10', freq='s')
+        expected = [equivalent_level(levels[(index >= s)
+                                            & (index < s + pd.Timedelta(seconds=1))]
+                                    .to_numpy())
+                    for s in seconds]
+        assert list(result.index) == list(seconds)
+        assert np.isnan(result.loc['2023-01-01 00:00:05'])
+        np.testing.assert_allclose(result.to_numpy(), expected, rtol=0, atol=1e-9)
 
 
 @pytest.mark.behaviour
@@ -273,6 +311,16 @@ class TestGetInterval:
         df = pd.DataFrame({'value': [1, 2]}, index=dates)
         with pytest.raises(ValueError, match="DataFrame index must have at least three entries"):
             get_interval(df)
+
+    @pytest.mark.parametrize("freq, seconds", [
+        ('100ms', 0.1), ('500ms', 0.5), ('1500ms', 1.5), ('1D', 86400.0),
+    ])
+    def test_get_interval_not_whole_seconds(self, freq, seconds):
+        """Intervals below one second, with a fraction of a second, or of a
+        day or more: the whole interval, in seconds."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq=freq)
+        df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
+        assert get_interval(df) == seconds
 
 
 @pytest.mark.behaviour

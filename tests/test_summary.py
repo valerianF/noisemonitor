@@ -13,8 +13,9 @@ from noisemonitor.summary import (
 )
 from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, HARMONICA_INDICATORS,
-    SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close, lday_06_22
+    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, HALF_SECOND_END,
+    HARMONICA_INDICATORS, SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close,
+    lday_06_22
 )
 
 LDEN_COLUMNS = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
@@ -122,6 +123,32 @@ class TestExternalBruitparif:
             for h in bruitparif_hourly.index], ignore_index=True)
         for got, ref in BRUITPARIF_LEVELS.items():
             assert_close(result[got], bruitparif_hourly[ref], TOL_ROUNDED)
+
+    def test_leq_subsecond(self, bruitparif_halfsecond, bruitparif_hourly):
+        """Sub-second data (0.5 s levels averaging exactly to the LAeq,1s):
+        Leq of [h, h + 1) for the three hours covered, rounded."""
+        expected = bruitparif_hourly.loc[:HALF_SECOND_END, 'LAeq_1h']
+        result = pd.concat([leq(bruitparif_halfsecond, h.hour, h.hour + 1,
+                                column=0, stats=False)
+                            for h in expected.index], ignore_index=True)
+        assert len(result) == 3
+        assert_close(result['Leq'], expected, TOL_ROUNDED)
+
+    # the 10 min before the first hour form a partial hour (NaN)
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
+    def test_harmonica_periodic_subsecond(self, bruitparif_halfsecond,
+                                        bruitparif_hourly, bruitparif_span_complete):
+        """Sub-second data (0.5 s levels averaging exactly to the LAeq,1s),
+        one day: hours 00 to 02 give Bruitparif's values, as from the
+        LAeq,1s (see test_core)."""
+        result = harmonica_periodic(bruitparif_halfsecond, column=0, use_chunks=False)
+        hours = bruitparif_hourly.loc[:HALF_SECOND_END].index
+        complete = bruitparif_span_complete.loc[hours].to_numpy()
+        for indicator in HARMONICA_INDICATORS:
+            got = result.loc[[time(h.hour) for h in hours], indicator].to_numpy()
+            expected = bruitparif_hourly.loc[hours, indicator].to_numpy()
+            assert_close(got[complete], expected[complete])
+            assert_close(got[~complete], expected[~complete], TOL_HARMONICA)
 
     @pytest.mark.slow
     # the 10 min before the first day form a partial hour (NaN)

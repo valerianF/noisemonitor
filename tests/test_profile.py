@@ -13,7 +13,8 @@ from noisemonitor.profile import (
 )
 from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
 from tests.conftest import (
-    ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, SOURCE_COVERAGE, assert_close
+    ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, HALF_SECOND_END, SOURCE_COVERAGE,
+    assert_close
 )
 
 
@@ -156,6 +157,22 @@ class TestExternalBruitparif:
         for got, ref in BRUITPARIF_LEVELS.items():
             assert_close(result[got], bruitparif_hourly[ref])
 
+    def test_subsecond(self, bruitparif_halfsecond, bruitparif_hourly):
+        """Sub-second data (0.5 s levels averaging exactly to the LAeq,1s)
+        over three hours: the Leq of each 1 h window is Bruitparif's LAeq of
+        the hour, with periodic and with series starting at midnight."""
+        expected = bruitparif_hourly.loc[:HALF_SECOND_END, 'LAeq_1h']
+        assert len(expected) == 3
+
+        result = periodic(bruitparif_halfsecond, 0, 2, column=0, win=3600)
+        assert list(result.index) == [time(h, 30) for h in range(3)]
+        assert_close(result['Leq'], expected)
+
+        result = series(bruitparif_halfsecond, win=3600, column=0,
+                        start_at_midnight=True)
+        assert list(result.index) == list(expected.index + pd.Timedelta(minutes=30))
+        assert_close(result['Leq'], expected)
+
 
 @pytest.mark.internal
 class TestCalculations:
@@ -239,6 +256,37 @@ class TestCalculations:
         roughness = ['dLav', 'dLmax,1', 'dLmin,90']
         assert list(result.loc[time(0, 30), roughness]) == [1.0, 1.0, 1.0]
         assert result.loc[time(1, 30), roughness].isna().all()
+
+    def test_periodic_roughness_subsecond(self, bruitparif_halfsecond, bruitparif_1s):
+        """Roughness is defined on LAeq,1s: 0.5 s levels averaging exactly to
+        Bruitparif's LAeq,1s give the roughness of the LAeq,1s (differences
+        between the 0.5 s levels themselves would differ by several dB)."""
+        roughness = ['dLav', 'dLmax,1', 'dLmin,90']
+        kwargs = dict(column=0, win=3600, roughness_indicators=True)
+        result = periodic(bruitparif_halfsecond, 0, 2, **kwargs)
+        expected = periodic(bruitparif_1s.loc[:HALF_SECOND_END], 0, 2, **kwargs)
+
+        for col in roughness:
+            assert_close(result[col], expected[col])
+
+    @pytest.mark.parametrize("min_gap, events", [(3, 3), (0, 4)])
+    def test_nne_subsecond(self, min_gap, events):
+        """0.1 s levels over one hour, 50 dB except 70 dB over [10 s, 12 s),
+        [12.5 s, 13 s), [20 s, 20.3 s) and [40 s, 45 s), threshold 60 dB:
+        4 upward crossings, the second one 0.5 s after the end of the first,
+        so 3 events with a minimum gap of 3 s."""
+        index = pd.date_range('2023-01-02', periods=36000, freq='100ms')
+        sample = np.arange(36000)
+        loud = np.zeros(36000, bool)
+        for start, stop in [(100, 120), (125, 130), (200, 203), (400, 450)]:
+            loud |= (sample >= start) & (sample < stop)
+        df = pd.DataFrame({'LAeq': np.where(loud, 70.0, 50.0)}, index=index)
+
+        result = nne(df, 0, 1, background_type=60, min_gap=min_gap, win=3600,
+                    column=0)
+
+        assert list(result.index) == [time(0, 30)]
+        assert result.iloc[0, 0] == events
 
     @pytest.mark.parametrize("start_at_midnight", [False, True],
                             ids=['first_sample', 'midnight'])

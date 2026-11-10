@@ -70,8 +70,9 @@ def _parse_freq_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 def get_interval(df):
-    """Compute the interval in seconds between rows 2 and 3.
-    
+    """Compute the interval in seconds between rows 2 and 3, as a float
+    (e.g., 0.5 for 500 ms data, 86400 for daily data).
+
     In some datasets, the first row index may not be representative
     of the interval.
     """
@@ -80,7 +81,15 @@ def get_interval(df):
             "DataFrame index must have at least three entries "
             "to compute interval."
         )
-    return (df.index[2] - df.index[1]).seconds
+    return (df.index[2] - df.index[1]).total_seconds()
+
+def _laeq_1s(levels: pd.Series) -> pd.Series:
+    """Average sub-second levels energetically over each whole second
+    (LAeq,1s), labelled by the start of the second. NaN values are
+    ignored; a second without any value gives NaN. The sampling interval is
+    assumed to divide one second (e.g. 100, 125, 250 or 500 ms)."""
+    energy = np.power(10, levels.astype(float) / 10).resample('1s').mean()
+    return 10 * np.log10(energy)
 
 def check_coverage(
     array: np.array,
@@ -165,9 +174,13 @@ def harmonica(
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame containing the LAeq,1s values with a time or datetime index.
+        DataFrame containing LAeq values at 1 s or finer with a datetime
+        index. The index was designed on LAeq,1s: sub-second levels are 
+        first averaged energetically over each whole second (LAeq,1s), 
+        assuming that their interval divides one second (e.g., 100, 125, 
+        250 or 500 ms).
     column: int
-        Column index containing the LAeq,1s values.
+        Column index containing the LAeq values.
     use_chunks: bool default True
         whether to process the data in chunks for large datasets.
 
@@ -181,7 +194,11 @@ def harmonica(
         raise ValueError("Computing the HARMONICA indicator requires "
                     "an integration time equal to or below 1s. "
                     f"Current interval is {interval}s.")
-        
+    if interval < 1:
+        df = _laeq_1s(df.iloc[:, column]).to_frame()
+        column = 0
+        interval = 1.0
+
     results = []
     previous_data = pd.DataFrame() 
 
@@ -427,9 +444,10 @@ def noise_events(
     """Compute the Number of Noise Events (NNE) in a DataFrame slice.
     
     According to the algorithm proposed in (Brown and De Coensel, 2018).
-    Please note that this indicator is highly dependent on the refresh
-    rate of the 
-    data. Usually, NNEs are computed with LAeq,1s for traffic noise.
+    Events are detected on the sound level time series as given, at its
+    own resolution (e.g. LAeq,1s, or sub-second levels). Please note that 
+    the number of events depends on the time weighting and on the sampling 
+    rate of the data.
 
     Parameters
     ----------
