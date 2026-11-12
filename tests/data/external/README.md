@@ -1,6 +1,6 @@
 # External test data
 
-Reference values from outside `noisemonitor`, used by the external validation tests (`TestExternalAccra` and `TestExternalBruitparif` in `tests/test_core.py`, `test_summary.py`, `test_profile.py` and `test_load.py`, marker `external`; fixtures and constants in `tests/conftest.py`). Both datasets are built by `data_parser.py` (`python tests/data/external/data_parser.py`; needs pandas, plus `acoustic-toolbox` and Python >= 3.11 for dataset 1), with the source values unchanged.
+Reference values from outside `noisemonitor`, used by the external validation tests (`TestExternalAccra`, `TestExternalBruitparif`, `TestExternalBands` and `TestExternalLowFrequency` in `tests/test_core.py`, `test_summary.py`, `test_profile.py` and `test_load.py`, marker `external`; fixtures and constants in `tests/conftest.py`). Both datasets are built by `data_parser.py` (`python tests/data/external/data_parser.py`; needs pandas, plus `acoustic-toolbox` and Python >= 3.11 for dataset 1), with the source values unchanged.
 
 ## Dataset 1: Accra (`ext_data_accra_h.csv`, `ext_data_accra_d.csv`)
 
@@ -31,3 +31,15 @@ Reference values from outside `noisemonitor`, used by the external validation te
 **Source conventions:** Timestamps are written with their UTC offset (+02:00, then +01:00 from the second 02:00 hour of 25 October). A hourly timestamp marks the start of its integration period, as in `noisemonitor`; Bruitparif gives a value for each of the two 02:00 hours of 25 October. Hourly LAeq and percentiles use the valid seconds of the hour; statistical levels are interpolated linearly between samples. HARMONICA, BGN and EVT are given in single precision.
 
 **Tolerance:** 1e-4 dB, plus 0.005 dB for `summary.leq`, which rounds to 0.01 dB. HARMONICA, BGN and EVT: 1e-4 for the 30 hours with no missing data (`noisemonitor` matches within 1e-6); 0.005 for the other 18 (within 3e-3). For `summary.harmonica_periodic`, 1e-4 applies to the hours of the day with no missing second in their span on both days.
+
+## Dataset 3: Published tables (constants in `tests/conftest.py`)
+
+Values copied from published tables, without data files.
+
+**ISO 266:1997** (Acoustics - Preferred frequencies), Table 1: preferred frequencies (`ISO_266_PREFERRED`) and calculated frequencies (`ISO_266_CALCULATED`), 1.00 to 800, read in Hz and in kHz. **Tested:** the band labels of `core._parse_freq_columns` (`TestExternalBands` in `tests/test_core.py`).
+
+**Montano, W. A., & Gushiken, E. I. (2023).** Summary of "Predicting and assessing low-frequency sound using its own bandwidth". *Proceedings of Meetings on Acoustics*, 52, 040010. https://doi.org/10.1121/2.0001880. Table 2 (`MONTANO_TABLE2`): Z-weighted levels of the bands from 16 Hz to 200 Hz. **Tested:** `summary.lf_periodic`, `profile.lf_series` and `profile.lf_periodic` with `method='montano'` (`TestExternalLowFrequency` in `tests/test_summary.py` and `tests/test_profile.py`). **Source conventions:** the A- and C-weighted energetic sums of the table's levels are the values the paper gives for its Fig. 3 (CLF 68.1 dB, ALF 51.4 dB, CLF - ALF 16.7 dB, `MONTANO_FIG3C`).
+
+**Generalitat de Catalunya (2012).** Guies per a la gestió i avaluació de la contaminació acústica, 10. Motor que genera soroll a baixa freqüència (A6), Departament de Territori i Sostenibilitat, September 2012. https://mediambient.repositori.gencat.cat/bitstream/handle/20.500.14343/794/2012_10._avaluacio_baixa_frequencia.pdf?sequence=1&isAllowed=y. Tables 3 and 5 (`GENCAT_A6`, keys `'T3'` and `'T5'`): Z-weighted levels of the bands from 20 Hz to 160 Hz (energetic means of three measurements), and the guide's LAeq,20-160Hz, LCeq,20-160Hz and Lf. **Tested:** `summary.lf_periodic`, `profile.lf_series` and `profile.lf_periodic` with `method='barcelona'` (`TestExternalLowFrequency`).
+
+**Tolerance:** 0.05 dB (values published to 0.1 dB), plus 1e-4 dB.

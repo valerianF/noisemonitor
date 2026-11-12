@@ -25,7 +25,8 @@ def test_data_paths():
     base_path = Path(__file__).parent / "data" / "internal"
     return {
         "laeq1m": base_path / "test_data_laeq1m.csv",
-        "laeq1s": base_path / "test_data_laeq1s.csv"
+        "laeq1s": base_path / "test_data_laeq1s.csv.xz",
+        "third_octave": base_path / "test_data_third_octave.csv.xz"
     }
 
 
@@ -234,6 +235,94 @@ def bruitparif_halfsecond(bruitparif_1s, tmp_path_factory):
 # Band column names in mixed formats and in no particular order, and the
 # frequency (Hz) that core._parse_freq_columns gives them
 BANDS = {'1 kHz': 1000.0, '125 Hz': 125.0, '63': 63.0, '500Hz': 500.0}
+
+
+# External data: published tables for the band labels and the low-frequency
+# criteria (data/external/README.md, "Published tables")
+
+# ISO 266:1997, Table 1: preferred frequencies and calculated frequencies
+# (exact base-10 frequencies to five significant figures), in Hz or kHz
+ISO_266_PREFERRED = (
+    1.00, 1.25, 1.60, 2.00, 2.50, 3.15, 4.00, 5.00, 6.30, 8.00, 10.0, 12.5,
+    16.0, 20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100, 125, 160, 200, 250,
+    315, 400, 500, 630, 800)
+ISO_266_CALCULATED = (
+    1.0000, 1.2589, 1.5849, 1.9953, 2.5119, 3.1623, 3.9811, 5.0119, 6.3096,
+    7.9433, 10.000, 12.589, 15.849, 19.953, 25.119, 31.623, 39.811, 50.119,
+    63.096, 79.433, 100.00, 125.89, 158.49, 199.53, 251.19, 316.23, 398.11,
+    501.19, 630.96, 794.33)
+
+# Montano & Gushiken (2023), Table 2: Z-weighted levels (dB) of the bands from
+# 16 Hz to 200 Hz. Their A- and C-weighted energetic sums are the levels the
+# paper gives for Fig. 3-c, p. 8 (CLF 68.1 dB, ALF 51.4 dB, CLF - ALF
+# 16.7 dB); the 74.1 and 56.0 dB printed under the table are those of
+# Fig. 3-a.
+MONTANO_TABLE2 = {
+    'bands': (16.0, 20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0,
+            160.0, 200.0),
+    'Z': (48.0, 50.8, 53.0, 55.5, 55.7, 57.3, 58.8, 59.7, 60.1, 62.7, 59.9,
+        55.3),
+}
+MONTANO_FIG3C = {'LA': 51.4, 'LC': 68.1, 'C-A': 16.7}
+
+# Generalitat de Catalunya (2012), guide "10. Motor que genera soroll a baixa
+# freqüència" (A6), Tables 3 and 5: Z-weighted levels (dB) of the bands from
+# 20 Hz to 160 Hz from two sets of measurements, the guide's LAeq,20-160Hz,
+# LCeq,20-160Hz and their difference Lf.
+GENCAT_A6 = {
+    'T3': {'Z': (56.3, 58.8, 60.7, 61.5, 63.7, 69.1, 65.4, 59.2, 59.5, 55.6),
+        'LA': 49.6, 'LC': 71.9, 'C-A': 22.3},
+    'T5': {'Z': (57.0, 60.3, 64.8, 61.8, 64.0, 70.6, 66.6, 61.0, 59.3, 55.7),
+        'LA': 50.4, 'LC': 73.2, 'C-A': 22.8},
+}
+GENCAT_A6_BANDS = (20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0,
+                160.0)
+
+TOL_PUBLISHED = 0.05 + TOL  # values published to 0.1 dB
+
+# One-third-octave bands used by the low-frequency criteria (16 Hz to 20 kHz)
+LF_BANDS = (16.0, 20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0,
+            160.0, 200.0, 250.0, 315.0, 400.0, 500.0, 630.0, 800.0, 1000.0,
+            1250.0, 1600.0, 2000.0, 2500.0, 3150.0, 4000.0, 5000.0, 6300.0,
+            8000.0, 10000.0, 12500.0, 16000.0, 20000.0)
+
+
+# Band range (Hz, both included) of each low-frequency method
+LF_METHOD_BANDS = {'botsford': (20.0, 20000.0), 'montano': (16.0, 200.0),
+                'barcelona': (20.0, 160.0)}
+
+
+def weighted_band_sum(df, method, weighting):
+    """Energetic sum, for each row of df (columns named f'{band:g}'), of the
+    band levels plus their weighting (dict band: dB) over the bands of the
+    method, as a one-column DataFrame."""
+    f_min, f_max = LF_METHOD_BANDS[method]
+    energy = sum(np.power(10, (df[f'{band:g}'].to_numpy() + weighting[band]) / 10)
+                for band in LF_BANDS if f_min <= band <= f_max)
+    return pd.DataFrame({'L': 10 * np.log10(energy)}, index=df.index)
+
+
+def band_frame(levels, bands, index):
+    """DataFrame with one column per band, named by its frequency (e.g.
+    '31.5'), holding the given level of the band (a constant or an array) at
+    every timestamp of index."""
+    return pd.DataFrame(
+        {f'{band:g}': np.broadcast_to(level, len(index)).astype(float)
+        for band, level in zip(bands, levels)}, index=index)
+
+
+@pytest.fixture(scope="module")
+def lf_bands():
+    """Three days (from a Monday) at 1 min of one-third-octave band levels
+    from 16 Hz to 20 kHz: a spectrum falling by 1 dB per band, an offset that
+    changes every hour (the same for all bands) and random fluctuations of
+    each band and sample."""
+    index = pd.date_range('2023-01-02', periods=3 * 1440, freq='min')
+    rng = np.random.default_rng(42)
+    hourly = np.repeat(rng.normal(0, 5, 3 * 24), 60)
+    levels = [70.0 - k + hourly + rng.normal(0, 3, len(index))
+            for k in range(len(LF_BANDS))]
+    return band_frame(levels, LF_BANDS, index)
 
 
 @pytest.fixture(scope="module")

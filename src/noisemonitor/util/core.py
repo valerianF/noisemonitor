@@ -14,6 +14,55 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 
 
+# Mantissas of the preferred one-third-octave frequencies (ISO 266, Table 1)
+_PREFERRED_MANTISSAS = (1.0, 1.25, 1.6, 2.0, 2.5, 3.15, 4.0, 5.0, 6.3, 8.0)
+
+# Largest relative deviation of a frequency from the preferred frequency of a
+# one-third-octave band for the frequency to be read as that band: 1.59 %,
+# between preferred and base-2 frequencies from 20 Hz to 20 kHz (ISO 266)
+_BAND_TOLERANCE = 0.0159
+
+# Frequency weightings A and C of IEC 61672-1:2013, Table 3, in dB, by nominal
+# one-third-octave mid-band frequency in Hz.
+_A_WEIGHTING = {
+    10.0: -70.4, 12.5: -63.4, 16.0: -56.7, 20.0: -50.5, 25.0: -44.7,
+    31.5: -39.4, 40.0: -34.6, 50.0: -30.2, 63.0: -26.2, 80.0: -22.5,
+    100.0: -19.1, 125.0: -16.1, 160.0: -13.4, 200.0: -10.9, 250.0: -8.6,
+    315.0: -6.6, 400.0: -4.8, 500.0: -3.2, 630.0: -1.9, 800.0: -0.8,
+    1000.0: 0.0, 1250.0: 0.6, 1600.0: 1.0, 2000.0: 1.2, 2500.0: 1.3,
+    3150.0: 1.2, 4000.0: 1.0, 5000.0: 0.5, 6300.0: -0.1, 8000.0: -1.1,
+    10000.0: -2.5, 12500.0: -4.3, 16000.0: -6.6, 20000.0: -9.3
+}
+_C_WEIGHTING = {
+    10.0: -14.3, 12.5: -11.2, 16.0: -8.5, 20.0: -6.2, 25.0: -4.4,
+    31.5: -3.0, 40.0: -2.0, 50.0: -1.3, 63.0: -0.8, 80.0: -0.5,
+    100.0: -0.3, 125.0: -0.2, 160.0: -0.1, 200.0: 0.0, 250.0: 0.0,
+    315.0: 0.0, 400.0: 0.0, 500.0: 0.0, 630.0: 0.0, 800.0: 0.0,
+    1000.0: 0.0, 1250.0: 0.0, 1600.0: -0.1, 2000.0: -0.2, 2500.0: -0.3,
+    3150.0: -0.5, 4000.0: -0.8, 5000.0: -1.3, 6300.0: -2.0, 8000.0: -3.0,
+    10000.0: -4.4, 12500.0: -6.2, 16000.0: -8.5, 20000.0: -11.2
+}
+
+# Low-frequency criteria on the difference between the C- and A-weighted
+# levels of a range of one-third-octave bands (nominal Hz, both included).
+# Low-frequency content is flagged when the difference exceeds the threshold,
+# or reaches it when 'inclusive'.
+_LF_METHODS = {
+    # WHO (Berglund et al., 1999), after Botsford, on the whole spectrum
+    # (20 Hz to 20 kHz, as in Montano & Gushiken, 2023)
+    'botsford': {'bands': (20.0, 20000.0), 'threshold': 10.0,
+                'inclusive': False},
+    # Montano & Gushiken (2023), Equation 3, on the low-frequency range of
+    # ISO 1996-2:2017 (16 Hz to 200 Hz)
+    'montano': {'bands': (16.0, 200.0), 'threshold': 15.0,
+                'inclusive': False},
+    # Decree 176/2009 of Catalonia, Annex 3, 3.2 (also Barcelona's
+    # environmental bylaw): no significant low frequency below 20 dB
+    'barcelona': {'bands': (20.0, 160.0), 'threshold': 20.0,
+                'inclusive': True},
+}
+
+
 class CoverageWarning(UserWarning):
     """Warning emitted when data coverage is insufficient."""
     pass
@@ -32,17 +81,39 @@ def _column_to_index(df: pd.DataFrame, column: Union[int, str]) -> int:
         return df.columns.get_loc(column)
     return column
 
+
 def _parse_freq_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convert frequency column names to float values.
+    Convert frequency column names to float values (Hz), e.g. 63, '125 Hz',
+    '1.25k' or '1 kHz'.
 
-    If any string column cannot be parsed, the original dataframe
-    is returned unchanged and a warning is issued.
+    A frequency within 1.59 % of the preferred frequency of a one-third-octave
+    band (ISO 266, Table 1) is given that frequency: e.g., 31.62 (exact,
+    1000 * 10**(n/10) Hz with n = -15), 31.6 and 31.25 (base-2) all give
+    31.5. Other frequencies keep their parsed value.
+
+    If any column cannot be parsed, the original dataframe is returned
+    unchanged and a warning is issued. Two columns giving the same frequency
+    raise a ValueError.
     """
 
+    def nominal(value):
+        if value <= 0:
+            return value
+        # Band n of ISO 266 (exact frequency 1000 * 10**(n/10) Hz) and its
+        # preferred frequency, a mantissa of Table 1 times a power of ten
+        # (rounded to remove float errors, e.g. 3.15 * 10 = 31.499999...)
+        n = int(round(10 * np.log10(value / 1000)))
+        preferred = round(_PREFERRED_MANTISSAS[n % 10] * 10.0 ** (n // 10 + 3),
+                          10)
+        if abs(value - preferred) > _BAND_TOLERANCE * preferred:
+            return value
+        return preferred
+
     def parse_band(col):
-        if isinstance(col, (int, float)):
-            return float(col)
+        if isinstance(col, (int, float, np.integer, np.floating)) \
+                and not isinstance(col, bool):
+            return nominal(float(col))
 
         if isinstance(col, str):
             s = col.strip().lower().replace(" ", "")
@@ -56,18 +127,140 @@ def _parse_freq_columns(df: pd.DataFrame) -> pd.DataFrame:
                 value = float(match.group(1))
                 if match.group(2):  # 'k' present
                     value *= 1000
-                return value
+                return nominal(value)
 
         raise ValueError(f"Could not parse column name: {col}. "
                         "Frequency columns headers are left unchanged.")
 
     try:
         new_columns = pd.Index(df.columns).map(parse_band)
-        return df.rename(columns=dict(zip(df.columns, new_columns)))
-
     except ValueError as e:
         warnings.warn(str(e))
         return df
+
+    if new_columns.has_duplicates:
+        duplicated = [
+            f"{', '.join(repr(c) for c in df.columns[new_columns == band])}"
+            f" ({band:g} Hz)"
+            for band in new_columns[new_columns.duplicated()].unique()
+        ]
+        raise ValueError(
+            "Several columns give the same frequency band: "
+            + "; ".join(duplicated) + ".")
+
+    return df.set_axis(new_columns, axis=1)
+
+
+def _lf_levels(
+    df: pd.DataFrame,
+    method: Union[str, list]
+) -> pd.DataFrame:
+    """A- and C-weighted levels of each sample over the band range of each
+    low-frequency method (see _LF_METHODS), from Z-weighted one-third-octave
+    band levels. A sample is NaN for a method if any of its bands is NaN.
+
+    Returns a DataFrame with the index of df and MultiIndex columns
+    (Indicator 'LA' or 'LC', Method). Raises a ValueError for an unknown
+    method, a column name that is not a frequency, or a missing band.
+    """
+    methods = [method] if isinstance(method, str) else list(method)
+    unknown = [m for m in methods if m not in _LF_METHODS]
+    if not methods or unknown:
+        raise ValueError(
+            f"Unknown low-frequency method(s): {unknown}. Use one or several "
+            f"of {list(_LF_METHODS)}.")
+    methods = list(dict.fromkeys(methods))
+
+    with warnings.catch_warnings():
+        # A column name that is not a frequency raises below instead
+        warnings.simplefilter('ignore')
+        bands = _parse_freq_columns(df)
+        if not all(isinstance(c, float) for c in bands.columns):
+            names = [c for c in df.columns if not isinstance(
+                _parse_freq_columns(pd.DataFrame(columns=[c])).columns[0],
+                float)]
+            raise ValueError(
+                "All columns must be frequency bands (e.g. '20', '25 Hz' or "
+                f"'1.25k'); could not read {names} as frequencies.")
+
+    levels = {}
+    for m in methods:
+        f_min, f_max = _LF_METHODS[m]['bands']
+        required = [f for f in _A_WEIGHTING if f_min <= f <= f_max]
+        missing = [f for f in required if f not in bands.columns]
+        if missing:
+            raise ValueError(
+                f"The '{m}' method needs all one-third-octave bands from "
+                f"{f_min:g} Hz to {f_max:g} Hz; missing: "
+                f"{', '.join(f'{f:g}' for f in missing)} Hz.")
+        z = bands[required].to_numpy(dtype=float)
+        for indicator, weighting in (('LA', _A_WEIGHTING),
+                                    ('LC', _C_WEIGHTING)):
+            weights = np.array([weighting[f] for f in required])
+            levels[(indicator, m)] = 10 * np.log10(
+                np.sum(np.power(10, (z + weights) / 10), axis=1))
+
+    result = pd.DataFrame(levels, index=df.index)
+    result.columns.names = ['Indicator', 'Method']
+    return result
+
+
+def _lf_apply(
+    func: Callable,
+    levels: pd.DataFrame,
+    flag: bool = False,
+    **kwargs
+) -> pd.DataFrame:
+    """Low-frequency indicators from the output of _lf_levels: func, a
+    single-column function of noisemonitor returning an 'Leq' column (e.g.,
+    profile.series), is run on each level column with kwargs, giving 'LA' and
+    'LC' per window or period, then 'C-A' and, if flag, 'Lowfreq_Flag'
+    (nullable boolean, <NA> where C-A is NaN).
+
+    Statistical levels and the Lden of func are not used: their warnings
+    (IntegrationTimeWarning, numpy RuntimeWarning, CoverageWarning of the
+    Lden) are dropped, and other warnings are emitted once.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        leq = pd.concat(
+            [func(levels, column=i, **kwargs)['Leq']
+            for i in range(levels.shape[1])],
+            axis=1)
+    leq.columns = levels.columns
+
+    emitted = set()
+    for w in caught:
+        if (issubclass(w.category, (IntegrationTimeWarning, RuntimeWarning))
+                or (issubclass(w.category, CoverageWarning)
+                    and 'Lden' in str(w.message))):
+            continue
+        key = (w.category, str(w.message))
+        if key not in emitted:
+            emitted.add(key)
+            warnings.warn(w.message, stacklevel=3)
+
+    methods = levels.columns.get_level_values('Method').unique()
+    results = {}
+    for indicator in ('LA', 'LC'):
+        for m in methods:
+            results[(indicator, m)] = leq[(indicator, m)]
+    for m in methods:
+        results[('C-A', m)] = leq[('LC', m)] - leq[('LA', m)]
+    if flag:
+        for m in methods:
+            difference = results[('C-A', m)]
+            threshold = _LF_METHODS[m]['threshold']
+            if _LF_METHODS[m]['inclusive']:
+                flagged = difference >= threshold
+            else:
+                flagged = difference > threshold
+            results[('Lowfreq_Flag', m)] = (
+                flagged.astype('boolean').mask(difference.isna()))
+
+    result = pd.DataFrame(results)
+    result.columns.names = ['Indicator', 'Method']
+    return result
 
 def get_interval(df):
     """Compute the interval in seconds between rows 2 and 3, as a float

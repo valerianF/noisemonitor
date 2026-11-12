@@ -25,6 +25,8 @@ _MIXED_OFFSETS = (
     "daylight saving time). Pass the timezone of the measurement site "
     "(e.g. timezone='Europe/Paris') to convert them to local time."
 )
+# Compressions of text files (.csv, .txt), decompressed by pandas.read_csv.
+_COMPRESSIONS = ('.xz', '.gz', '.bz2', '.zip')
 
 def load(
     path: Union[str, List[str]], 
@@ -58,10 +60,12 @@ def load(
     path: str or list of str
         absolute or relative pathname (or list of pathnames) to convert as a
         sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx,
-        or .txt. Files with an .xls extension are read as Excel workbooks
-        or as text files (e.g. NoiseSentry exports), depending on their
-        content. When several files are given, they must share the same
-        format (typically, files exported by the same instrument).
+        or .txt; .csv and .txt files can be compressed (.xz, .gz, .bz2 or
+        .zip, e.g. 'data.csv.xz'). Files with an .xls extension are read as
+        Excel workbooks or as text files (e.g. NoiseSentry exports),
+        depending on their content. When several files are given, they must
+        share the same format (typically, files exported by the same
+        instrument).
     datetimeindex: int or str
         column index or column name for date and time if combined in a single 
         column. Not to be indicated if date and time are in different columns.
@@ -170,7 +174,15 @@ def load(
         usecols = None
 
     for fp in path:
-        ext = os.path.splitext(fp)[-1].lower()
+        name, ext = os.path.splitext(fp)
+        ext = ext.lower()
+        if ext in _COMPRESSIONS:
+            compression = ext
+            ext = os.path.splitext(name)[-1].lower()
+            if ext not in ['.csv', '.txt']:
+                raise ValueError(
+                    f"Unsupported file extension: {ext}{compression} "
+                    "(only .csv and .txt files can be compressed).")
 
         # Reading datasheet with pandas
         if ext == '.xls':

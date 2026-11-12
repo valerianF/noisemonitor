@@ -1,5 +1,11 @@
 """Unit tests for load module functions."""
 
+import bz2
+import gzip
+import lzma
+import shutil
+import zipfile
+
 import pytest
 import pandas as pd
 import numpy as np
@@ -11,6 +17,7 @@ from pathlib import Path
 from datetime import datetime, date, time
 from unittest.mock import patch, mock_open
 
+import noisemonitor as nm
 from noisemonitor.util.core import equivalent_level
 from noisemonitor.util.load import load, _parse_data
 from tests.conftest import (
@@ -1288,3 +1295,48 @@ class TestExternalBruitparif:
         with pytest.raises(ValueError, match="several UTC offsets"):
             self._load(bruitparif_1s_path, use_chunks=use_chunks,
                     chunksize=chunksize)
+
+
+@pytest.mark.behaviour
+class TestLoadCompressed:
+    """Compressed text files, decompressed by pandas.read_csv."""
+
+    SOURCE = Path(__file__).parent / 'data' / 'internal' / 'test_data_decimal_dot.csv'
+    ARGS = dict(datetimeindex=0, valueindexes=None, header=1, sep='\t',
+                use_chunks=False)
+
+    @pytest.mark.parametrize("suffix", ['.xz', '.gz', '.bz2', '.zip'])
+    def test_compressed_csv(self, tmp_path, suffix):
+        """A compressed copy of a .csv file loads as the file itself."""
+        path = tmp_path / f'{self.SOURCE.name}{suffix}'
+        if suffix == '.zip':
+            with zipfile.ZipFile(path, 'w') as archive:
+                archive.write(self.SOURCE, arcname=self.SOURCE.name)
+        else:
+            opener = {'.xz': lzma.open, '.gz': gzip.open, '.bz2': bz2.open}[suffix]
+            with open(self.SOURCE, 'rb') as src, opener(path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+
+        pd.testing.assert_frame_equal(load(str(path), **self.ARGS),
+                                      load(str(self.SOURCE), **self.ARGS))
+
+    def test_compressed_excel(self, tmp_path):
+        """Only .csv and .txt files can be compressed."""
+        path = tmp_path / 'data.xlsx.gz'
+        path.write_bytes(b'')
+        with pytest.raises(ValueError, match=r"Unsupported file extension: "
+                                            r"\.xlsx\.gz"):
+            load(str(path), datetimeindex=0)
+
+    @pytest.mark.slow
+    def test_third_octave_data(self, test_data_paths):
+        """The internal one-third-octave file (.csv.xz): 36 bands from 6.3 Hz
+        to 20 kHz, usable by the low-frequency criteria."""
+        df = load(str(test_data_paths['third_octave']), datetimeindex=0,
+                valueindexes=list(range(1, 37)))
+        assert df.shape[1] == 36
+        assert (df.columns[0], df.columns[-1]) == ('6.3Hz', '20KHz')
+        result = nm.summary.lf_periodic(
+            df, method=['botsford', 'montano', 'barcelona'])
+        assert len(result) == 7
+        assert not result.isna().any().any()

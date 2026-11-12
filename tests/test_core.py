@@ -18,12 +18,19 @@ from noisemonitor.util.core import (
     _column_to_index,
     _laeq_1s,
     check_coverage,
-    CoverageWarning
+    CoverageWarning,
+    _A_WEIGHTING,
+    _C_WEIGHTING,
+    _lf_apply,
+    _lf_levels,
+    _parse_freq_columns
 )
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, HARMONICA_INDICATORS, SOURCE_COVERAGE,
-    TOL_HARMONICA, assert_close, lday_06_22
+    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, HARMONICA_INDICATORS,
+    ISO_266_CALCULATED, ISO_266_PREFERRED, LF_BANDS, SOURCE_COVERAGE,
+    TOL_HARMONICA, assert_close, band_frame, lday_06_22
 )
+
 
 
 @pytest.mark.external
@@ -101,6 +108,21 @@ class TestExternalBruitparif:
             expected = bruitparif_hourly.loc[hours, indicator].to_numpy()
             assert_close(got[complete], expected[complete])
             assert_close(got[~complete], expected[~complete], TOL_HARMONICA)
+
+
+@pytest.mark.external
+class TestExternalBands:
+    """External validation of the band labels against ISO 266:1997."""
+
+    @pytest.mark.parametrize("unit, factor", [('', 1), ('k', 1000)],
+                             ids=['Hz', 'kHz'])
+    def test_parse_freq_columns_iso_266(self, unit, factor):
+        """The calculated frequencies of ISO 266, Table 1, read in Hz and in
+        kHz, are labelled with their preferred frequencies."""
+        names = [f'{f}{unit}' for f in ISO_266_CALCULATED]
+        result = _parse_freq_columns(pd.DataFrame(columns=names))
+        expected = [round(f * factor, 10) for f in ISO_266_PREFERRED]
+        assert result.columns.tolist() == expected
 
 
 @pytest.mark.internal
@@ -185,6 +207,53 @@ class TestCalculations:
         assert list(result.index) == list(seconds)
         assert np.isnan(result.loc['2023-01-01 00:00:05'])
         np.testing.assert_allclose(result.to_numpy(), expected, rtol=0, atol=1e-9)
+
+
+    @pytest.mark.parametrize("method, band", [
+        ('montano', 16.0), ('montano', 63.0), ('montano', 200.0),
+        ('barcelona', 20.0), ('barcelona', 160.0),
+        ('botsford', 31.5), ('botsford', 1000.0), ('botsford', 20000.0)])
+    def test_lf_single_band(self, method, band):
+        """With the energy in one band (60 dB, the others at -100 dB), C-A is
+        the difference of the C and A weightings of that band."""
+        index = pd.date_range('2024-01-01', periods=3, freq='s')
+        levels = [60.0 if b == band else -100.0 for b in LF_BANDS]
+        result = _lf_levels(band_frame(levels, LF_BANDS, index), method)
+        difference = result[('LC', method)] - result[('LA', method)]
+        assert_close(difference.to_numpy(),
+                    _C_WEIGHTING[band] - _A_WEIGHTING[band], 1e-6)
+
+    @pytest.mark.parametrize("method, f_min, f_max", [
+        ('montano', 16.0, 200.0), ('barcelona', 20.0, 160.0),
+        ('botsford', 20.0, 20000.0)])
+    def test_lf_flat_spectrum(self, method, f_min, f_max):
+        """For the same level in every band, LA and LC are that level plus the
+        energetic sum of the weightings over the method's bands."""
+        index = pd.date_range('2024-01-01', periods=3, freq='s')
+        flat = band_frame([60.0] * len(LF_BANDS), LF_BANDS, index)
+        result = _lf_levels(flat, method)
+        bands = [b for b in LF_BANDS if f_min <= b <= f_max]
+        for indicator, weighting in (('LA', _A_WEIGHTING),
+                                    ('LC', _C_WEIGHTING)):
+            expected = 60.0 + 10 * np.log10(
+                sum(10 ** (weighting[b] / 10) for b in bands))
+            assert_close(result[(indicator, method)].to_numpy(), expected,
+                        1e-9)
+
+    @pytest.mark.parametrize("method, la, lc, expected", [
+        ('botsford', 50.0, 60.0, False), ('botsford', 50.0, 60.5, True),
+        ('montano', 50.0, 65.0, False), ('montano', 50.0, 65.5, True),
+        ('barcelona', 50.0, 69.5, False), ('barcelona', 50.0, 70.0, True)])
+    def test_lf_flag_threshold(self, method, la, lc, expected):
+        """Botsford (> 10 dB) and Montano (> 15 dB) flag a difference above
+        their threshold; Barcelona flags 20 dB and above."""
+        levels = pd.DataFrame({('LA', method): [la], ('LC', method): [lc]})
+        levels.columns.names = ['Indicator', 'Method']
+        result = _lf_apply(
+            lambda df, column: pd.DataFrame({'Leq': df.iloc[:, column]}),
+            levels, flag=True)
+        assert result[('C-A', method)].iloc[0] == lc - la
+        assert result[('Lowfreq_Flag', method)].iloc[0] == expected
 
 
 @pytest.mark.behaviour
@@ -519,6 +588,135 @@ class TestNoiseEvents:
         result = noise_events(df, 0, threshold=65.0, min_gap=2)
         
         assert result == 3
+
+
+@pytest.mark.behaviour
+class TestParseFreqColumns:
+    """Band labels of core._parse_freq_columns."""
+
+    def test_nominal_names(self):
+        """Names of nominal bands, in any format, give their frequency."""
+        result = _parse_freq_columns(pd.DataFrame(columns=list(BANDS)))
+        assert result.columns.tolist() == list(BANDS.values())
+
+    @pytest.mark.parametrize("name, band", [
+        ('31.62', 31.5), ('31.6', 31.5), ('31.25', 31.5), (19.69, 20.0),
+        ('12.6', 12.5), ('1.6k', 1600.0), ('3.15k', 3150.0),
+        (np.float64(125.89), 125.0), (np.int64(63), 63.0), ('6.3', 6.3)])
+    def test_exact_and_rounded_names(self, name, band):
+        """Exact (base 10 or base 2) and rounded mid-band frequencies are
+        labelled with the nominal frequency of their band."""
+        result = _parse_freq_columns(pd.DataFrame(columns=[name]))
+        assert result.columns[0] == band
+
+    @pytest.mark.parametrize("name, value", [
+        ('22', 22.0), ('1059.3', 1059.3), ('0', 0.0), ('15.625', 15.625)])
+    def test_other_frequencies_unchanged(self, name, value):
+        """Frequencies more than 1.59 % from a preferred frequency (e.g.
+        one-twelfth-octave bands, or 15.625 Hz, base-2 frequency of the 16 Hz
+        band) keep their parsed value."""
+        result = _parse_freq_columns(pd.DataFrame(columns=[name]))
+        assert result.columns[0] == value
+
+    def test_same_band_raises(self):
+        """Two columns of the same band raise a ValueError naming them."""
+        with pytest.raises(ValueError,
+                        match=r"'31.5', '31.62' \(31.5 Hz\)"):
+            _parse_freq_columns(pd.DataFrame(columns=['31.5', '31.62', '63']))
+
+    def test_unparseable_name(self):
+        """A name that is not a frequency leaves the columns unchanged, with
+        a warning."""
+        df = pd.DataFrame(columns=['63', 'LAeq'])
+        with pytest.warns(UserWarning,
+                        match="Could not parse column name: LAeq"):
+            result = _parse_freq_columns(df)
+        assert result.columns.tolist() == ['63', 'LAeq']
+
+
+@pytest.mark.behaviour
+class TestLfLevels:
+    """Band selection, errors and flag of core._lf_levels and
+    core._lf_apply."""
+
+    @pytest.fixture
+    def bands(self):
+        index = pd.date_range('2024-01-01', periods=4, freq='s')
+        return band_frame([60.0] * len(LF_BANDS), LF_BANDS, index)
+
+    @pytest.mark.parametrize("method", ['din', ['montano', 'din'], []])
+    def test_unknown_method(self, bands, method):
+        with pytest.raises(ValueError, match="Unknown low-frequency method"):
+            _lf_levels(bands, method)
+
+    def test_columns(self, bands):
+        """One LA and one LC column per method, in the order given; a method
+        given twice is computed once."""
+        result = _lf_levels(bands, ['barcelona', 'montano', 'barcelona'])
+        assert result.columns.names == ['Indicator', 'Method']
+        assert result.columns.tolist() == [
+            ('LA', 'barcelona'), ('LC', 'barcelona'),
+            ('LA', 'montano'), ('LC', 'montano')]
+        assert result.index.equals(bands.index)
+
+    def test_missing_band(self, bands):
+        """A missing band of the method raises a ValueError naming it."""
+        with pytest.raises(ValueError,
+                        match=r"'montano'.*missing: 16, 160 Hz"):
+            _lf_levels(bands.drop(columns=['16', '160']), 'montano')
+
+    def test_only_method_bands_needed(self, bands):
+        """Montano and Barcelona need no band above 200 Hz; Botsford does."""
+        low = bands[[f'{b:g}' for b in LF_BANDS if b <= 200]]
+        result = _lf_levels(low, ['montano', 'barcelona'])
+        assert not result.isna().any().any()
+        with pytest.raises(ValueError, match="'botsford'.*missing: 250, "):
+            _lf_levels(low, 'botsford')
+
+    def test_exact_band_names(self, bands):
+        """Exact mid-band frequencies as names give the same levels."""
+        def exact(name):
+            x = round(10 * np.log10(float(name) / 1000))
+            return f'{1000 * 10 ** (x / 10):.5g}'
+
+        renamed = bands.rename(columns=exact)
+        assert renamed.columns[3] == '31.623'
+        pd.testing.assert_frame_equal(_lf_levels(renamed, 'montano'),
+                                    _lf_levels(bands, 'montano'))
+
+    def test_column_not_a_band(self, bands):
+        """A column that is not a band raises a ValueError naming it, without
+        the warning of _parse_freq_columns."""
+        df = bands.assign(LAeq=50.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            with pytest.raises(ValueError,
+                            match=r"could not read \['LAeq'\]"):
+                _lf_levels(df, 'montano')
+
+    def test_missing_level(self, bands):
+        """A sample with a missing band is NaN for the methods using that
+        band only."""
+        df = bands.copy()
+        df.iloc[1, df.columns.get_loc('16')] = np.nan
+        result = _lf_levels(df, ['montano', 'barcelona'])
+        for indicator in ('LA', 'LC'):
+            assert result[(indicator, 'montano')].isna().tolist() == [
+                False, True, False, False]
+            assert not result[(indicator, 'barcelona')].isna().any()
+
+    def test_flag_missing_difference(self):
+        """Lowfreq_Flag is a nullable boolean, <NA> where C-A is NaN."""
+        levels = pd.DataFrame({('LA', 'montano'): [50.0, np.nan],
+                            ('LC', 'montano'): [70.0, 70.0]})
+        levels.columns.names = ['Indicator', 'Method']
+        result = _lf_apply(
+            lambda df, column: pd.DataFrame({'Leq': df.iloc[:, column]}),
+            levels, flag=True)
+        flag = result[('Lowfreq_Flag', 'montano')]
+        assert flag.dtype == 'boolean'
+        assert flag.iloc[0]
+        assert flag.isna().tolist() == [False, True]
 
 
 if __name__ == '__main__':

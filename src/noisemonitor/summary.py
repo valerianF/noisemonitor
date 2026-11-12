@@ -204,8 +204,11 @@ def freq_periodic(
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame containing octave or third-octave frequency bands as 
-        columns.
+        DataFrame containing octave or third-octave frequency bands as
+        columns. Column names are read as frequencies (e.g.
+        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
+        mid-band frequencies (e.g. 31.62 or 31.25) are labelled with the
+        nominal frequency of their band (31.5).
     freq: str, default 'D'
         Frequency for the computation. 'D' for daily, 'W' for weekly
         (Monday to Sunday), and 'MS' for monthly (calendar months).
@@ -247,12 +250,86 @@ def freq_periodic(
     combined_results = pd.concat(results, axis=1, keys=results.keys())
 
     combined_results.columns = pd.MultiIndex.from_tuples(
-        [(indicator, band) for band in combined_results.columns.levels[0] 
+        [(indicator, band) for band in combined_results.columns.levels[0]
                         for indicator in combined_results[band].columns],
         names=["Indicator", "Frequency Band"]
     )
 
     return combined_results
+
+def lf_periodic(
+    df: pd.DataFrame,
+    freq: str = 'D',
+    method: Union[str, list] = 'montano',
+    coverage_check: bool = False,
+    coverage_threshold: float = 0.5,
+    start_day: int = 7,
+    start_at_day: bool = False
+) -> pd.DataFrame:
+    """Compute low-frequency criteria on a periodic basis: the A- and
+    C-weighted equivalent levels of a range of one-third-octave bands over
+    each day, week or month, their difference C-A, and whether it flags
+    low-frequency content.
+
+    The input levels must be Z-weighted (unweighted) one-third-octave
+    band levels, one column per band named by its frequency. Methods:
+    - 'botsford': whole spectrum, 20 Hz to 20 kHz; low-frequency content
+        when C-A > 10 dB (WHO, Berglund et al., 1999).
+    - 'montano': 16 Hz to 200 Hz, the low-frequency range of ISO 1996-2:2017;
+        low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
+        Gushiken, 2023).
+    - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
+        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
+        Barcelona's environmental bylaw).
+    Restricted to a band range, C-A depends on the shape of the spectrum
+    within the range, not on its level: it does not tell whether the low
+    frequencies are audible.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and Z-weighted one-third-octave band
+        levels as columns. Each column is named by its frequency (e.g.,
+        '20', '25 Hz' or '1.25k'; exact or base-2 mid-band frequencies
+        such as 31.62 or 31.25 are read as the nominal band, 31.5). Each
+        method needs all the bands of its range (ValueError otherwise);
+        other bands are ignored. The levels of each sample are weighted
+        and summed over the bands. A sample with a missing band is left out.
+    freq: str, default 'D'
+        frequency for the computation. 'D' for daily, 'W' for weekly
+        (Monday to Sunday), and 'MS' for monthly (calendar months). Periods
+        are labelled by their start.
+    method: str or list of str, default 'montano'
+        low-frequency criterion or criteria: 'botsford', 'montano' or
+        'barcelona'.
+    coverage_check: bool, default False
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
+    start_day: int, default 7
+        hour (0-23) at which days, weeks and months start if start_at_day
+        is True.
+    start_at_day: bool, default False
+        if True, days, weeks and months start at start_day instead of
+        midnight (see noisemonitor.summary.periodic).
+
+    Returns
+    ----------
+    pd.DataFrame: DataFrame indexed by the start of each period, with
+        MultiIndex columns (Indicator, Method): 'LA' and 'LC', the A- and
+        C-weighted equivalent levels of the method's bands, 'C-A', their
+        difference, in dB, and 'Lowfreq_Flag', True when C-A flags
+        low-frequency content (nullable boolean, <NA> where C-A is NaN).
+    """
+    levels = core._lf_levels(df, method)
+    # The Lden of summary.periodic is not used: evening and night only need
+    # to start after start_day
+    return core._lf_apply(
+        periodic, levels, flag=True, freq=freq, values=False,
+        coverage_check=coverage_check, coverage_threshold=coverage_threshold,
+        start_day=start_day, start_evening=(start_day + 1) % 24,
+        start_night=(start_day + 2) % 24, start_at_day=start_at_day)
 
 def lden(
     df: pd.DataFrame, 
@@ -438,8 +515,11 @@ def freq_indicators(
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame containing octave or third-octave frequency bands as 
-        columns.
+        DataFrame containing octave or third-octave frequency bands as
+        columns. Column names are read as frequencies (e.g.
+        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
+        mid-band frequencies (e.g. 31.62 or 31.25) are labelled with the
+        nominal frequency of their band (31.5).
     hour1 (optional): int, default 0
         Starting hour for the daily Leq average (0-24).
     hour2 (optional): int, default 24

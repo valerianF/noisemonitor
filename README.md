@@ -21,7 +21,7 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 
 ## Key Features
 
-- **Acoustic indicators** - Implements standard (Leq, Lden, L90, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, etc.)
+- **Acoustic indicators** - Implements standard (Leq, Lden, L90, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, low-frequency criteria from third-octave bands, etc.)
 - **Flexible data loading** - Support for CSV, Excel, and TXT formats with automatic datetime parsing
 - **Two analysis modes** - Summary indicators (discrete values) and profile indicators (time series)
 - **Multiprocessing support** - Fast processing of large datasets
@@ -138,13 +138,14 @@ df_filtered = nm.filter.extreme_values(df, min_value=30, max_value=100)
 ```
 
 ### `nm.summary`
-Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, histograms, etc.
+Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, low-frequency criteria, histograms, etc.
 
 ```python
 overall_lden = nm.summary.lden(df)
 daily_lden = nm.summary.periodic(df, freq='D')
 harmonica = nm.summary.harmonica_periodic(df)
 freq_summary = nm.summary.freq_periodic(df_freq, freq='D')
+lowfreq = nm.summary.lf_periodic(df_freq, freq='D', method=['botsford', 'montano'])
 ```
 
 ### `nm.profile`
@@ -154,6 +155,7 @@ Compute time-varying sound level profiles: time series, daily/weekly patterns, n
 time_series = nm.profile.series(df, win=3600, step=1200)
 weekday_profile = nm.profile.periodic(df, hour1=0, hour2=23, day1='monday', day2='friday', win=3600)
 nne_profile = nm.profile.nne(df, hour1=0, hour2=24, background_type='L50', exceedance=5)
+lowfreq_series = nm.profile.lf_series(df_freq, method='montano', win=3600)
 ```
 
 ### `nm.display`

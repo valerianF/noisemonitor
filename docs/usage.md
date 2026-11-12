@@ -20,7 +20,7 @@ import noisemonitor as nm
 
 # Basic loading
 df_1s = nm.load(
-    'tests/data/internal/test_data_laeq1s.csv', # Example dataset with 1-second LAeq data
+    'tests/data/internal/test_data_laeq1s.csv.xz', # Example dataset with 1-second LAeq data
     datetimeindex=0,      # Column index for datetime
     valueindexes=1,       # Column index for sound levels
     header=0,             # Header row index
@@ -56,15 +56,15 @@ df4 = nm.load(
 
 # Multiple columns (e.g., octave band levels, LAeq vs. LCeq, etc.)
 df_freq = nm.load(
-    'tests/data/internal/test_data_freq.csv', # Load data with octave bands levels
+    'tests/data/internal/test_data_third_octave.csv.xz', # 1-min Z-weighted one-third-octave band levels, 6.3 Hz to 20 kHz
     datetimeindex=0, # Column index for datetime
-    valueindexes=list(range(1, 9)), # Columns with octave band levels
+    valueindexes=list(range(1, 37)), # Columns with one-third-octave band levels
     header=0,
     sep=','
 )
 ```
 
-**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`. Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
+**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`; `.csv` and `.txt` files can be compressed (`.xz`, `.gz`, `.bz2`, `.zip`, e.g. `data.csv.xz`). Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
 
 **Dates and times:** text is parsed with dateutil; date, time and datetime cells of Excel files are also accepted. Numeric timestamps (Unix epoch, Excel serial numbers) are not supported: convert them to dates first.
 
@@ -204,6 +204,8 @@ nm.display.harmonica(harmonica_profile)
 
 Summary indicators (e.g., Lden and Leq) can be computed along octave or third-octave sound levels using the `noisemonitor.summary.freq_indicators()` function.
 
+Band columns are named by their frequency (e.g. `'63'`, `'125 Hz'` or `'1.25k'`). Exact or base-2 one-third-octave mid-band frequencies (e.g. 31.62 or 31.25 Hz) are labelled with the preferred frequency of their band (31.5 Hz, ISO 266).
+
 ```python
 # Summary indicators per frequency band
 freq_ind = nm.summary.freq_indicators(
@@ -213,7 +215,7 @@ freq_ind = nm.summary.freq_indicators(
 )
 
 # Visualize
-nm.display.freq_line(freq_ind, title="Frequency Levels")
+nm.display.freq_line(freq_ind, title="Frequency Levels", ylabel="Sound Level (dB)")
 ```
 
 ![Frequency Levels](images/freq_levels.png)
@@ -229,10 +231,47 @@ freq_per = nm.summary.freq_periodic(
 )
 
 # Visualize on heatmap
-nm.display.freq_map(freq_per["Leq"])
+nm.display.freq_map(freq_per["Leq"], cblabel="Sound Level (dB)")
 ```
 
-![LAeq,24h Frequency Heatmap](images/freq_heatmap.png)
+![Leq,24h Frequency Heatmap](images/freq_heatmap.png)
+
+### Low-frequency criteria
+
+The difference between the C- and A-weighted levels of a sound (C-A) indicates its low-frequency content. `noisemonitor.summary.lf_periodic()` computes it per day, week or month from Z-weighted (unweighted) one-third-octave band levels, for one or several methods:
+
+| `method` | Bands | Low-frequency content when | Reference |
+|---|---|---|---|
+| `'botsford'` | 20 Hz to 20 kHz (whole spectrum) | C-A > 10 dB | Berglund et al. (1999) |
+| `'montano'` (default) | 16 Hz to 200 Hz (low-frequency range of ISO 1996-2:2017) | C-A > 15 dB | Montano & Gushiken (2023) |
+| `'barcelona'` | 20 Hz to 160 Hz | C-A >= 20 dB | Generalitat de Catalunya (2009); Ajuntament de Barcelona (2014) |
+
+The A- and C-weighted levels are computed from the band levels of each sample (weightings of IEC 61672-1:2013), so the band columns must hold Z-weighted levels, and each method needs every band of its range (other bands are ignored; a sample with a missing band is left out). Over the whole spectrum, mid and high frequencies raise the A-weighted level and can hide strong low-frequency content (unbalanced spectra, e.g. urban noise). Restricted to a low-frequency band range, C-A describes the shape of the spectrum within that range, not its level: it does not tell whether the low frequencies are audible. DIN 45680 screens indoor measurements on the whole-spectrum C-A (`'botsford'`) with 20 dB (DIN, 1997), lowered to 15 dB in its withdrawn 2013 draft (Kubicek, 2018).
+
+```python
+lowfreq = nm.summary.lf_periodic(
+    df_freq,
+    freq='D',
+    method=['botsford', 'montano', 'barcelona']
+)
+
+lowfreq['C-A']           # Daily C-A of each method
+lowfreq['Lowfreq_Flag']  # True when the criterion of the method is met
+```
+
+Columns are pairs (indicator, method): `LA` and `LC`, the A- and C-weighted equivalent levels of the bands of the method, `C-A`, their difference, and `Lowfreq_Flag`. Output (rounded to 0.1 dB):
+```
+Indicator        LA                         LC                        C-A                   Lowfreq_Flag
+Method     botsford montano barcelona botsford montano barcelona botsford montano barcelona     botsford montano barcelona
+Period
+2025-05-05     59.1    49.9      48.1     70.1    69.8      69.2     11.0    19.9      21.2         True    True      True
+2025-05-06     59.8    49.1      47.3     68.5    67.5      67.2      8.7    18.4      19.9        False    True     False
+2025-05-07     58.6    48.8      46.8     68.6    68.1      67.6     10.0    19.3      20.8         True    True      True
+2025-05-08     59.0    49.3      47.2     69.3    68.9      68.3     10.3    19.6      21.1         True    True      True
+2025-05-09     59.5    49.6      47.5     70.4    70.2      69.6     10.9    20.6      22.1         True    True      True
+2025-05-10     58.5    48.4      46.4     68.1    67.5      67.0      9.6    19.2      20.6        False    True      True
+2025-05-11     56.3    47.5      45.4     67.2    66.9      66.3     10.9    19.4      20.9         True    True      True
+```
 
 ### Sound level distribution histogram
 
@@ -429,7 +468,8 @@ freq_series = nm.profile.freq_series(
 )
 
 # Visualize as heatmap
-nm.display.freq_map(freq_series['Leq'], title="Frequency Evolution Over Time")
+nm.display.freq_map(freq_series['Leq'], title="Frequency Evolution Over Time",
+                    cblabel="Sound Level (dB)")
 ```
 ![Frequency Bands Time Series](images/freq_series_heatmap.png)
 
@@ -444,12 +484,46 @@ freq_daily = nm.profile.freq_periodic(
 )
 
 # Visualize daily frequency patterns
-nm.display.freq_map(freq_daily['Leq'], title="Daily Frequency Profile")
+nm.display.freq_map(freq_daily['Leq'], title="Daily Frequency Profile",
+                    cblabel="Sound Level (dB)")
 ```
 
 ![Frequency Bands Daily Profile](images/freq_daily_profile.png)
 
 **Note:** being computationnaly expensive, these functions use parallel processing by default. For big datasets, we recommend using `noisemonitor.summary.freq_indicators()` over `noisemonitor.profile.freq_series()`.
+
+### Low-frequency criteria over time
+
+C-A can also be followed over time (`noisemonitor.profile.lf_series()`) or as a weekly or daily profile (`noisemonitor.profile.lf_periodic()`), with the methods of `noisemonitor.summary.lf_periodic()`.
+
+```python
+# C-A over consecutive 1 h windows
+lowfreq_series = nm.profile.lf_series(
+    df_freq,
+    method=['botsford', 'montano', 'barcelona'],
+    win=3600
+)
+
+nm.display.line(lowfreq_series['C-A'], 'botsford', 'montano', 'barcelona',
+                ylabel='C-A (dB)', threshold=15)
+```
+
+![Low-frequency criteria time series](images/lf_series.png)
+
+```python
+# Daily profile, windows pooled over the days
+lowfreq_daily = nm.profile.lf_periodic(
+    df_freq,
+    hour1=0,
+    hour2=23,
+    method=['botsford', 'montano', 'barcelona']
+)
+
+nm.display.line(lowfreq_daily['C-A'], 'botsford', 'montano', 'barcelona',
+                ylabel='C-A (dB)', threshold=15)
+```
+
+![Low-frequency criteria daily profile](images/lf_daily_profile.png)
 
 ### Custom statistical levels
 
@@ -618,9 +692,18 @@ Proportion of values filtered out: 44.80%
 
 ## References
 
+- Ajuntament de Barcelona. (2014). Modificació dels annexos del Títol IV sobre contaminació acústica de l'Ordenança de Medi Ambient de Barcelona. *Butlletí Oficial de la Província de Barcelona*, 28 April 2014 (Annex II.7). https://bop.diba.cat/anuncis/antic/022014010172
+- Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for community noise*. World Health Organization. https://www.who.int/publications/i/item/a68672
 - Brown, A. L., & De Coensel, B. (2018). A study of the performance of a generalized exceedance algorithm for detecting noise events caused by road traffic. *Applied Acoustics*, 138, 101-114. https://doi.org/10.1016/j.apacoust.2018.03.031
 - DeFrance, J., Palacino. J., & Baulac, M. (2010). Auscultation acoustique des aménagements cyclables en milieu urbain. *Proceedings of the 10ème Congrès Français d’Acoustique*, Lyon, France. https://hal.science/hal-00551186v1
+- Deutsches Institut für Normung. (1997). *DIN 45680:1997-03 Messung und Bewertung tieffrequenter Geräuschimmissionen in der Nachbarschaft*.
 - European Parliament and Council. (2002). Directive 2002/49/EC of the European Parliament and of the Council of 25 June 2002 relating to the assessment and management of environmental noise. *EUR-Lex*. http://data.europa.eu/eli/dir/2002/49/2021-07-29
+- Generalitat de Catalunya. (2009). Decret 176/2009, de 10 de novembre, pel qual s'aprova el Reglament de la Llei 16/2002, de 28 de juny, de protecció contra la contaminació acústica, i se n'adapten els annexos (Annex 3). *Diari Oficial de la Generalitat de Catalunya*, 5506. https://portaljuridic.gencat.cat/eli/es-ct/d/2009/11/10/176
 - Griffiths, I. M., & Langdon, F. J. (1968). Subjective response to road traffic noise. *Journal of Sound and Vibration*, 1, 16-32, 375-378. https://doi.org/10.1016/0022-460X(68)90191-0
+- International Electrotechnical Commission. (2013). *IEC 61672-1:2013 Electroacoustics - Sound level meters - Part 1: Specifications*.
+- International Organization for Standardization. (1997). *ISO 266:1997 Acoustics - Preferred frequencies*.
+- International Organization for Standardization. (2017). *ISO 1996-2:2017 Acoustics - Description, measurement and assessment of environmental noise - Part 2: Determination of sound pressure levels*.
+- Kubicek, R. (2018). Werden tieffrequente Anlagengeräuschimmissionen nach dem Entwurf der Neufassung der DIN 45680 (2013) strenger oder schwächer beurteilt im Vergleich zur derzeit gültigen DIN 45680 (1997)? https://laerm-luftwaermepumpen.de/wp-content/uploads/2018/09/Kubicek2.pdf
 - Mietlicki, C., Mietlicky, F., Ribeiro, C., and Gaudiber, P. (2015). The HARMONICA project, new tools to assess environmental noise and better inform the public. *Proceedings of Forum Acusticum*, Krakow, Poland. https://www.bruitparif.fr/pages/En-tete/500%20Innovation%20et%20recherche/700%20Publications%20scientifiques/2014%20-%20The%20HARMONICA%20project.pdf
+- Montano, W. A., & Gushiken, E. I. (2023). Summary of "Predicting and assessing low-frequency sound using its own bandwidth". *Proceedings of Meetings on Acoustics*, 52, 040010. https://doi.org/10.1121/2.0001880
 - Robinson, D. W. (1971). The Concept of Noise Pollution Level. *Journal of Occupational Medicine*, 13(12), 602. https://journals.lww.com/joem/toc/1971/12000

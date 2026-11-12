@@ -9,13 +9,17 @@ from datetime import time, datetime
 import noisemonitor as nm
 from noisemonitor.summary import (
     harmonica_periodic, periodic, freq_periodic, lden, leq, 
-    freq_indicators, nday
+    freq_indicators, nday, lf_periodic
 )
-from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
+from noisemonitor.util.core import (
+    CoverageWarning, IntegrationTimeWarning, _A_WEIGHTING, _C_WEIGHTING
+)
 from tests.conftest import (
-    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, HALF_SECOND_END,
-    HARMONICA_INDICATORS, SOURCE_COVERAGE, TOL_HARMONICA, TOL_ROUNDED, assert_close,
-    lday_06_22
+    ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, GENCAT_A6,
+    GENCAT_A6_BANDS, HALF_SECOND_END, HARMONICA_INDICATORS, LF_BANDS,
+    LF_METHOD_BANDS, MONTANO_FIG3C, MONTANO_TABLE2, SOURCE_COVERAGE,
+    TOL_HARMONICA, TOL_PUBLISHED, TOL_ROUNDED, assert_close, band_frame,
+    lday_06_22, weighted_band_sum
 )
 
 LDEN_COLUMNS = ['Leq', 'Lden', 'Lday', 'Levening', 'Lnight']
@@ -180,7 +184,7 @@ class TestExternalBruitparif:
         day = bruitparif_hourly.index[0].normalize()
         hours = pd.date_range(day + pd.Timedelta(hours=8), periods=6, freq='h')
         data = bruitparif_1s.loc[day + pd.Timedelta(hours=7, minutes=50):
-                                 day + pd.Timedelta(hours=14) - pd.Timedelta(seconds=1)]
+                                day + pd.Timedelta(hours=14) - pd.Timedelta(seconds=1)]
         with pytest.warns(CoverageWarning):
             result = harmonica_periodic(data, column=0, use_chunks=False)
         expected = bruitparif_hourly.loc[hours, HARMONICA_INDICATORS]
@@ -192,8 +196,37 @@ class TestExternalBruitparif:
             got = result.loc[included, indicator].to_numpy()
             assert_close(got[complete], expected[indicator].to_numpy()[complete])
             assert_close(got[~complete], expected[indicator].to_numpy()[~complete],
-                         TOL_HARMONICA)
+                        TOL_HARMONICA)
         assert result.drop(index=included).isna().all().all()
+
+
+@pytest.mark.external
+class TestExternalLowFrequency:
+    """External validation of the low-frequency criteria against published
+    worked examples (constant band levels over one day)."""
+
+    def test_montano_table2(self):
+        """Montano & Gushiken (2023), Table 2: CLF, ALF and their difference
+        as given for Fig. 3-c."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = band_frame(MONTANO_TABLE2['Z'], MONTANO_TABLE2['bands'], index)
+        result = lf_periodic(df, method='montano')
+        for indicator, value in MONTANO_FIG3C.items():
+            assert_close(result[(indicator, 'montano')].to_numpy(), value,
+                        TOL_PUBLISHED)
+        assert result[('Lowfreq_Flag', 'montano')].all()
+
+    @pytest.mark.parametrize("case", ['T3', 'T5'])
+    def test_generalitat_a6(self, case):
+        """Generalitat de Catalunya (2012), guide A6: LAeq and LCeq of the
+        bands from 20 Hz to 160 Hz, and Lf above 20 dB."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = band_frame(GENCAT_A6[case]['Z'], GENCAT_A6_BANDS, index)
+        result = lf_periodic(df, method='barcelona')
+        for indicator in ('LA', 'LC', 'C-A'):
+            assert_close(result[(indicator, 'barcelona')].to_numpy(),
+                        GENCAT_A6[case][indicator], TOL_PUBLISHED)
+        assert result[('Lowfreq_Flag', 'barcelona')].all()
 
 
 @pytest.mark.internal
@@ -337,6 +370,40 @@ class TestCalculations:
                 'Lnight': periods['Lnight']})
             pd.testing.assert_series_equal(result[band], expected, check_names=False,
                                         check_exact=True)
+
+
+    @pytest.mark.parametrize("start_at_day", [False, True],
+                            ids=['midnight', 'start_day'])
+    @pytest.mark.parametrize("freq", ['D', 'W', 'MS'])
+    def test_lf_periodic_levels(self, lf_bands, freq, start_at_day):
+        """LA and LC are the Leq of summary.periodic applied to the weighted
+        band sums of each sample, and C-A their difference."""
+        result = lf_periodic(lf_bands, freq=freq, method=list(LF_METHOD_BANDS),
+                            start_day=6, start_at_day=start_at_day)
+        for method in LF_METHOD_BANDS:
+            for indicator, weighting in (('LA', _A_WEIGHTING),
+                                        ('LC', _C_WEIGHTING)):
+                expected = periodic(
+                    weighted_band_sum(lf_bands, method, weighting), freq=freq,
+                    start_day=6, start_at_day=start_at_day)['Leq']
+                assert result.index.equals(expected.index)
+                assert_close(result[(indicator, method)].to_numpy(),
+                            expected.to_numpy(), 1e-9)
+            assert_close(result[('C-A', method)].to_numpy(),
+                        (result[('LC', method)] - result[('LA', method)])
+                        .to_numpy(), 0)
+
+    def test_lf_periodic_freq_periodic(self, lf_bands):
+        """LA and LC are the weighted sums of the band Leq of freq_periodic
+        (energetic averaging commutes with weighting and band summation)."""
+        bands = [b for b in LF_BANDS if 16 <= b <= 200]
+        leq = freq_periodic(lf_bands[[f'{b:g}' for b in bands]])['Leq']
+        result = lf_periodic(lf_bands)
+        for indicator, weighting in (('LA', _A_WEIGHTING), ('LC', _C_WEIGHTING)):
+            expected = 10 * np.log10(sum(np.power(10, (leq[b] + weighting[b]) / 10)
+                                        for b in bands))
+            assert_close(result[(indicator, 'montano')].to_numpy(),
+                        expected.to_numpy(), 1e-9)
 
 
 @pytest.mark.behaviour
@@ -599,6 +666,66 @@ class TestCoverageCheck:
         assert 'EVT' in result.columns
         
         assert isinstance(result, pd.DataFrame)
+
+@pytest.mark.behaviour
+class TestLfPeriodic:
+    """Test cases for the lf_periodic function."""
+
+    def test_columns(self, lf_bands):
+        """Columns (Indicator, Method), methods in the order given."""
+        result = lf_periodic(lf_bands, method=['barcelona', 'montano'])
+        assert result.columns.names == ['Indicator', 'Method']
+        assert result.columns.tolist() == [
+            (indicator, method)
+            for indicator in ('LA', 'LC', 'C-A', 'Lowfreq_Flag')
+            for method in ('barcelona', 'montano')]
+        assert result[('Lowfreq_Flag', 'montano')].dtype == 'boolean'
+        assert len(result) == 3
+
+    def test_default_method(self, lf_bands):
+        result = lf_periodic(lf_bands)
+        assert result.columns.get_level_values('Method').unique().tolist() == [
+            'montano']
+
+    @pytest.mark.parametrize("start_day", [0, 7, 20, 23])
+    def test_start_day(self, lf_bands, start_day):
+        """Days can start at any hour (Lden start hours do not apply)."""
+        result = lf_periodic(lf_bands, start_day=start_day, start_at_day=True)
+        assert (result.index.hour == start_day).all()
+
+    def test_coverage_check(self, lf_bands):
+        """A day below the coverage threshold is NaN, with <NA> flag, and a
+        single CoverageWarning."""
+        df = lf_bands.copy()
+        day2 = df.index.normalize() == pd.Timestamp('2023-01-03')
+        df.loc[day2 & (df.index.hour < 16)] = np.nan
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = lf_periodic(df, method=['montano', 'botsford'],
+                                coverage_check=True, coverage_threshold=0.5)
+        assert [w.category for w in caught] == [CoverageWarning]
+        assert result.loc['2023-01-03', 'LA'].isna().all()
+        assert result.loc['2023-01-03', 'Lowfreq_Flag'].isna().all()
+        assert not result.drop(index=pd.Timestamp('2023-01-03')).isna().any().any()
+
+    def test_coverage_check_lden_unused(self, lf_bands):
+        """A day missing most of its night (below the coverage of the Lden
+        night period, unused here) but with enough data for its Leq gives
+        values and no warning."""
+        df = lf_bands.copy()
+        day2 = df.index.normalize() == pd.Timestamp('2023-01-03')
+        df.loc[day2 & (df.index.hour < 6)] = np.nan
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = lf_periodic(df, coverage_check=True,
+                                coverage_threshold=0.5)
+        assert caught == []
+        assert not result.isna().any().any()
+
+    def test_invalid_frequency(self, lf_bands):
+        with pytest.raises(ValueError, match="Invalid frequency"):
+            lf_periodic(lf_bands, freq='X')
+
 
 
 if __name__ == "__main__":

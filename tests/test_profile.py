@@ -9,12 +9,15 @@ from datetime import time, datetime
 
 import noisemonitor as nm
 from noisemonitor.profile import (
-    periodic, series, nne, freq_periodic, freq_series
+    periodic, series, nne, freq_periodic, freq_series, lf_periodic, lf_series
 )
-from noisemonitor.util.core import CoverageWarning, IntegrationTimeWarning
+from noisemonitor.util.core import (
+    CoverageWarning, IntegrationTimeWarning, _A_WEIGHTING, _C_WEIGHTING
+)
 from tests.conftest import (
-    ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, HALF_SECOND_END, SOURCE_COVERAGE,
-    assert_close
+    ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, GENCAT_A6, GENCAT_A6_BANDS,
+    HALF_SECOND_END, LF_BANDS, LF_METHOD_BANDS, MONTANO_FIG3C, MONTANO_TABLE2,
+    SOURCE_COVERAGE, TOL_PUBLISHED, assert_close, band_frame, weighted_band_sum
 )
 
 
@@ -172,6 +175,44 @@ class TestExternalBruitparif:
                         start_at_midnight=True)
         assert list(result.index) == list(expected.index + pd.Timedelta(minutes=30))
         assert_close(result['Leq'], expected)
+
+
+@pytest.mark.external
+class TestExternalLowFrequency:
+    """External validation of lf_series and lf_periodic against published
+    worked examples (constant band levels over one day at 1 min)."""
+
+    @pytest.mark.parametrize("function, args", [
+        (lf_series, {'win': 3600}), (lf_periodic, {'hour1': 0, 'hour2': 23})],
+        ids=['lf_series', 'lf_periodic'])
+    def test_montano_table2(self, function, args):
+        """Montano & Gushiken (2023), Table 2: CLF, ALF and their difference
+        as given for Fig. 3-c, in every window."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = band_frame(MONTANO_TABLE2['Z'], MONTANO_TABLE2['bands'], index)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            result = function(df, method='montano', **args)
+        assert len(result) == 24
+        for indicator, value in MONTANO_FIG3C.items():
+            assert_close(result[(indicator, 'montano')].to_numpy(), value,
+                        TOL_PUBLISHED)
+
+    @pytest.mark.parametrize("function, args", [
+        (lf_series, {'win': 3600}), (lf_periodic, {'hour1': 0, 'hour2': 23})],
+        ids=['lf_series', 'lf_periodic'])
+    @pytest.mark.parametrize("case", ['T3', 'T5'])
+    def test_generalitat_a6(self, case, function, args):
+        """Generalitat de Catalunya (2012), guide A6: LAeq and LCeq of the
+        bands from 20 Hz to 160 Hz and their difference Lf, in every
+        window."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = band_frame(GENCAT_A6[case]['Z'], GENCAT_A6_BANDS, index)
+        result = function(df, method='barcelona', **args)
+        assert len(result) == 24
+        for indicator in ('LA', 'LC', 'C-A'):
+            assert_close(result[(indicator, 'barcelona')].to_numpy(),
+                        GENCAT_A6[case][indicator], TOL_PUBLISHED)
 
 
 @pytest.mark.internal
@@ -346,6 +387,58 @@ class TestCalculations:
             pd.testing.assert_frame_equal(
                 result.xs(band, axis=1, level='Frequency Band'), expected,
                 check_names=False, check_exact=True, check_like=True)
+
+
+    @pytest.mark.filterwarnings(
+        "ignore::noisemonitor.util.core.IntegrationTimeWarning")  # series
+    def test_lf_series_levels(self, lf_bands):
+        """LA and LC are the Leq of profile.series applied to the weighted
+        band sums of each sample, and C-A their difference."""
+        params = dict(win=3600, step=1800, start_at_midnight=True)
+        result = lf_series(lf_bands, method=list(LF_METHOD_BANDS), **params)
+        for method in LF_METHOD_BANDS:
+            for indicator, weighting in (('LA', _A_WEIGHTING),
+                                        ('LC', _C_WEIGHTING)):
+                expected = series(weighted_band_sum(lf_bands, method, weighting),
+                                  **params)['Leq']
+                assert result.index.equals(expected.index)
+                assert_close(result[(indicator, method)].to_numpy(),
+                            expected.to_numpy(), 1e-9)
+            assert_close(result[('C-A', method)].to_numpy(),
+                        (result[('LC', method)] - result[('LA', method)])
+                        .to_numpy(), 0)
+
+    @pytest.mark.filterwarnings(
+        "ignore::noisemonitor.util.core.IntegrationTimeWarning")  # periodic
+    def test_lf_periodic_levels(self, lf_bands):
+        """Windows pooled over the days: LA and LC are the Leq of
+        profile.periodic applied to the weighted band sums of each sample."""
+        params = dict(hour1=22, hour2=5, day1='Tuesday', day2='Wednesday',
+                    win=1800, step=900)
+        result = lf_periodic(lf_bands, method=['montano', 'barcelona'], **params)
+        for method in ('montano', 'barcelona'):
+            for indicator, weighting in (('LA', _A_WEIGHTING),
+                                        ('LC', _C_WEIGHTING)):
+                expected = periodic(weighted_band_sum(lf_bands, method, weighting),
+                                    **params)['Leq']
+                assert result.index.equals(expected.index)
+                assert_close(result[(indicator, method)].to_numpy(),
+                            expected.to_numpy(), 1e-9)
+
+    def test_lf_series_freq_series(self, lf_bands):
+        """LA and LC are the weighted sums of the band Leq of freq_series
+        (energetic averaging commutes with weighting and band summation)."""
+        bands = [b for b in LF_BANDS if 16 <= b <= 200]
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', IntegrationTimeWarning)
+            leq = freq_series(lf_bands[[f'{b:g}' for b in bands]],
+                            chunks=False)['Leq']
+        result = lf_series(lf_bands)
+        for indicator, weighting in (('LA', _A_WEIGHTING), ('LC', _C_WEIGHTING)):
+            expected = 10 * np.log10(sum(np.power(10, (leq[b] + weighting[b]) / 10)
+                                        for b in bands))
+            assert_close(result[(indicator, 'montano')].to_numpy(),
+                        expected.to_numpy(), 1e-9)
 
 
 @pytest.mark.behaviour
@@ -653,6 +746,49 @@ class TestCoverageCheck:
         if len(evening_results) > 0:
             assert evening_results['Leq'].isna().any(), \
                 "Expected some NaN values in evening hours due to insufficient coverage"
+
+@pytest.mark.behaviour
+class TestLowFrequency:
+    """Test cases for the lf_series and lf_periodic functions."""
+
+    def test_columns(self, lf_bands):
+        """Columns (Indicator, Method), methods in the order given, no flag."""
+        for result in (lf_series(lf_bands, method=['barcelona', 'montano']),
+                    lf_periodic(lf_bands, 0, 23,
+                                method=['barcelona', 'montano'])):
+            assert result.columns.names == ['Indicator', 'Method']
+            assert result.columns.tolist() == [
+                (indicator, method) for indicator in ('LA', 'LC', 'C-A')
+                for method in ('barcelona', 'montano')]
+        assert len(lf_periodic(lf_bands, 0, 23)) == 24
+        assert len(lf_series(lf_bands)) == 72
+
+    def test_no_integration_time_warning(self, lf_bands):
+        """Only Leq is computed: no warning on 1 min data."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            lf_series(lf_bands, method='botsford')
+            lf_periodic(lf_bands, 0, 23)
+        assert caught == []
+
+    def test_coverage_check(self, lf_bands):
+        """Windows below the coverage threshold are NaN, with a single
+        CoverageWarning for each call."""
+        df = lf_bands.copy()
+        df.loc[df.index.hour == 2] = np.nan
+        for function, args in ((lf_series, ()), (lf_periodic, (0, 23))):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter('always')
+                result = function(df, *args, method=['montano', 'barcelona'],
+                                coverage_check=True)
+            assert [w.category for w in caught] == [CoverageWarning]
+            assert result.isna().any(axis=1).sum() == (3 if function is lf_series
+                                                    else 1)
+
+    def test_invalid_hours(self, lf_bands):
+        with pytest.raises(ValueError, match="hour2 must be an integer"):
+            lf_periodic(lf_bands, 0, 24)
+
 
 
 if __name__ == "__main__":

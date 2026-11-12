@@ -248,8 +248,11 @@ def freq_periodic(
     Parameters
     ----------
     df: pd.DataFrame,
-        DataFrame with a datetime index and sound level values for each 
-        frequency band.
+        DataFrame with a datetime index and sound level values for each
+        frequency band. Column names are read as frequencies (e.g.,
+        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
+        mid-band frequencies (e.g., 31.62 or 31.25) are labelled with the
+        nominal frequency of their band (31.5).
     hour1: int, between 0 and 23
         Hour at which the first window starts.
     hour2: int, between 0 and 23
@@ -376,7 +379,11 @@ def freq_series(
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame with a datetime index and sound level values for each frequency band.
+        DataFrame with a datetime index and sound level values for each
+        frequency band. Column names are read as frequencies (e.g.,
+        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
+        mid-band frequencies (e.g., 31.62 or 31.25) are labelled with the
+        nominal frequency of their band (31.5).
     win: int, default 3600
         Window size for the averaging function, in whole seconds.
     step: int, default 0
@@ -460,6 +467,152 @@ def freq_series(
     )
 
     return combined_results
+
+def lf_periodic(
+    df: pd.DataFrame,
+    hour1: int,
+    hour2: int,
+    day1: Optional[str] = None,
+    day2: Optional[str] = None,
+    method: Union[str, list] = 'montano',
+    win: int = 3600,
+    step: int = 0,
+    coverage_check: bool = False,
+    coverage_threshold: float = 0.5
+) -> pd.DataFrame:
+    """Daily or weekly profile of low-frequency criteria: the A- and
+    C-weighted equivalent levels of a range of one-third-octave bands and
+    their difference C-A, in windows pooled over the days as in
+    noisemonitor.profile.periodic.
+
+    The input levels must be Z-weighted (unweighted) one-third-octave
+    band levels, one column per band named by its frequency. Methods:
+    - 'botsford': whole spectrum, 20 Hz to 20 kHz; low-frequency content
+        when C-A > 10 dB (WHO, Berglund et al., 1999).
+    - 'montano': 16 Hz to 200 Hz, the low-frequency range of ISO 1996-2:2017;
+        low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
+        Gushiken, 2023).
+    - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
+        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
+        Barcelona's environmental bylaw).
+    Restricted to a band range, C-A depends on the shape of the spectrum
+    within the range, not on its level: it does not tell whether the low
+    frequencies are audible.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and Z-weighted one-third-octave band
+        levels as columns. Each column is named by its frequency (e.g.,
+        '20', '25 Hz' or '1.25k'; exact or base-2 mid-band frequencies
+        such as 31.62 or 31.25 are read as the nominal band, 31.5). Each
+        method needs all the bands of its range (ValueError otherwise);
+        other bands are ignored. The levels of each sample are weighted
+        and summed over the bands. A sample with a missing band is left out.
+    hour1: int, between 0 and 23
+        hour at which the first window starts.
+    hour2: int, between 0 and 23
+        hour at which the last window starts (included), as in
+        noisemonitor.profile.periodic. If hour1 > hour2, the windows wrap
+        past midnight.
+    day1: Optional[str], default None
+        First day of the week included in the weekly average.
+    day2: Optional[str], default None
+        Last day of the week included in the weekly average.
+    method: str or list of str, default 'montano'
+        low-frequency criterion or criteria: 'botsford', 'montano' or
+        'barcelona'.
+    win: int, default 3600
+        window size for the averaging function, in whole seconds. Each
+        window covers the half-open interval [start, start + win).
+    step: int, default 0
+        step size to compute a rolling average, in whole seconds. If set to
+        0 (default value), the function will compute non-rolling averages.
+    coverage_check: bool, default False
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
+
+    Returns
+    ----------
+    pd.DataFrame: DataFrame with the time of day of each window and
+        MultiIndex columns (Indicator, Method): 'LA' and 'LC', the A- and
+        C-weighted equivalent levels of the method's bands, and 'C-A', their
+        difference, in dB.
+    """
+    levels = core._lf_levels(df, method)
+    return core._lf_apply(
+        periodic, levels, hour1=hour1, hour2=hour2, day1=day1, day2=day2,
+        win=win, step=step, coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold)
+
+def lf_series(
+    df: pd.DataFrame,
+    method: Union[str, list] = 'montano',
+    win: int = 3600,
+    step: int = 0,
+    start_at_midnight: bool = False,
+    coverage_check: bool = False,
+    coverage_threshold: float = 0.5
+) -> pd.DataFrame:
+    """Time series of low-frequency criteria: the A- and C-weighted
+    equivalent levels of a range of one-third-octave bands and their
+    difference C-A, over consecutive or sliding windows of the whole data,
+    as noisemonitor.profile.series.
+
+    The input levels must be Z-weighted (unweighted) one-third-octave
+    band levels, one column per band named by its frequency. Methods:
+    - 'botsford': whole spectrum, 20 Hz to 20 kHz; low-frequency content
+        when C-A > 10 dB (WHO, Berglund et al., 1999).
+    - 'montano': 16 Hz to 200 Hz, the low-frequency range of ISO 1996-2:2017;
+        low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
+        Gushiken, 2023).
+    - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
+        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
+        Barcelona's environmental bylaw).
+    Restricted to a band range, C-A depends on the shape of the spectrum
+    within the range, not on its level: it does not tell whether the low
+    frequencies are audible.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and Z-weighted one-third-octave band
+        levels as columns. Each column is named by its frequency (e.g.,
+        '20', '25 Hz' or '1.25k'; exact or base-2 mid-band frequencies
+        such as 31.62 or 31.25 are read as the nominal band, 31.5). Each
+        method needs all the bands of its range (ValueError otherwise);
+        other bands are ignored. The levels of each sample are weighted
+        and summed over the bands. A sample with a missing band is left out.
+    method: str or list of str, default 'montano'
+        low-frequency criterion or criteria: 'botsford', 'montano' or
+        'barcelona'.
+    win: int, default 3600
+        window size for the averaging function, in whole seconds.
+    step: int, default 0
+        step size to compute a sliding average, in whole seconds. If set to 0
+        (default value), the function will compute non-sliding averages.
+    start_at_midnight: bool, default False
+        if set to True, the computation will start at midnight.
+    coverage_check: bool, default False
+        if set to True, assess data coverage and automatically filter periods
+        with insufficient data coverage and emit warnings.
+    coverage_threshold: float, default 0.5
+        minimum data coverage ratio required (0.0 to 1.0).
+
+    Returns
+    ----------
+    pd.DataFrame: DataFrame with a datetime index (centre of each window) and
+        MultiIndex columns (Indicator, Method): 'LA' and 'LC', the A- and
+        C-weighted equivalent levels of the method's bands, and 'C-A', their
+        difference, in dB.
+    """
+    levels = core._lf_levels(df, method)
+    return core._lf_apply(
+        series, levels, win=win, step=step,
+        start_at_midnight=start_at_midnight, coverage_check=coverage_check,
+        coverage_threshold=coverage_threshold)
 
 def nne(
     df: pd.DataFrame,
