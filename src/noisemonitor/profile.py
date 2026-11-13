@@ -637,7 +637,11 @@ def nne(
     background levels are relative to each day. For noise events, data
     should be sampled at 1 s or finer (e.g., 125 ms). Events are detected on
     the samples as given, so their number depends on the time weighting and
-    sampling rate of the data.
+    sampling rate of the data. Each window of each day is counted as a
+    record of its own, with its own threshold: its first exceedance is an
+    event even when the window starts within it, so an exceedance spanning
+    two windows counts in both. Following exceedances are new events if
+    they start at least min_gap seconds after the end of the previous one.
 
     Parameters
     ----------
@@ -655,7 +659,8 @@ def nne(
         Exceedance value in dB to add to the background level to define the
         detection threshold, when the background level is adaptive.
     min_gap: int
-        Minimum time gap in seconds between successive noise events.
+        Minimum time gap in seconds between successive noise events: the
+        time spent at or below the threshold between two exceedances.
     win: int, default 3600
         Window size for the averaging function, in whole seconds. Each
         window covers the half-open interval [start, start + win).

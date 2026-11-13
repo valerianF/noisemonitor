@@ -17,7 +17,8 @@ from noisemonitor.util.core import (
 from tests.conftest import (
     ACCRA_COLUMNS, BANDS, BRUITPARIF_LEVELS, GENCAT_A6, GENCAT_A6_BANDS,
     HALF_SECOND_END, LF_BANDS, LF_METHOD_BANDS, MONTANO_FIG3C, MONTANO_TABLE2,
-    SOURCE_COVERAGE, TOL_PUBLISHED, assert_close, band_frame, weighted_band_sum
+    SOURCE_COVERAGE, TARTU_RECEIVERS, TOL_PUBLISHED, assert_close, band_frame,
+    tartu_parameters, weighted_band_sum
 )
 
 
@@ -215,18 +216,48 @@ class TestExternalLowFrequency:
                         GENCAT_A6[case][indicator], TOL_PUBLISHED)
 
 
+@pytest.mark.external
+class TestExternalTartu:
+    """Hourly numbers of noise events computed by Baclet and Rumpler's
+    implementation from simulated indoor levels at 1 s, at three receivers
+    over one day."""
+
+    @pytest.mark.parametrize("receiver", [
+        pytest.param(pk, marks=pytest.mark.slow) for pk in TARTU_RECEIVERS])
+    def test_nne(self, tartu_indoor, tartu_counts, receiver):
+        """1 h windows over the whole day, (0, 24), one day: the source's
+        count of each hour, exactly, for its 128 indicators (fixed, Leq, L50
+        and L90 thresholds, exceedances of 3 to 15 dB, minimum gaps of 1 to
+        30 s, window open or closed)."""
+        expected = tartu_counts.loc[receiver]
+        assert list(expected.index) == list(range(24))
+
+        mismatches = []
+        for indicator in expected.columns:
+            kwargs, window = tartu_parameters(indicator)
+            result = nne(tartu_indoor[receiver, window], 0, 24, win=3600,
+                        column=0, **kwargs)
+            assert list(result.index) == [time(h, 30) for h in range(24)]
+            mismatches += [(indicator, hour, got, ref) for hour, (got, ref)
+                        in enumerate(zip(result.iloc[:, 0], expected[indicator]))
+                        if got != ref]
+        assert not mismatches
+
+
 @pytest.mark.internal
 class TestCalculations:
     """Internal validation: closed-form results on synthetic signals, or
     consistency with another noisemonitor function."""
 
+    @pytest.mark.parametrize("min_gap", [0, 3])
     @pytest.mark.parametrize("hour2", [23, 24], ids=['to_23h', 'full_day'])
-    def test_nne_windows_half_open(self, hour_start_peaks_data, hour2):
+    def test_nne_windows_half_open(self, hour_start_peaks_data, hour2, min_gap):
         """Each window covers [start, start + win): the hh:00:00 event is
-        counted in one window only, not also in the previous one. The last
-        window ends at hour2, so (0, 24) gives the 24 hours of the day."""
+        counted in one window only, not also in the previous one, and is
+        counted whatever min_gap, as the first exceedance of its window. The
+        last window ends at hour2, so (0, 24) gives the 24 hours of the day."""
         result = nne(hour_start_peaks_data, hour1=0, hour2=hour2,
-                    background_type=70, min_gap=0, win=3600, column=0)
+                    background_type=70, min_gap=min_gap, win=3600, column=0)
 
         assert list(result.index) == [time(h, 30) for h in range(hour2)]
         assert (result.iloc[:, 0] == 1).all()

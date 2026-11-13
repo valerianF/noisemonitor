@@ -70,7 +70,7 @@ df_freq = nm.load(
 
 **Time zones:** `timezone` applies to timestamps written with a UTC offset only, and converts them to the local time of the given timezone (without timezone information). Timestamps without offset are already local times: leave `timezone` unset. Exports spanning a change to or from daylight saving time hold two UTC offsets and need `timezone`. When daylight saving time ends, one hour of local time occurs twice: its first occurrence is kept and the second is dropped, with a warning. When it starts, the hour skipped by the clocks appears as rows without values.
 
-**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Equivalent levels (Leq, Lden) are valid at any refresh rate, e.g., from LAeq,1min or hourly values. Statistical levels (L10, L50, L90, other Ln, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on LAeq,1s: sub-second data are first averaged energetically over each second.
+**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Equivalent levels ($L_{eq}$, $L_{den}$) are valid at any refresh rate, e.g., from $L_{Aeq,1min}$ or hourly values. Statistical levels ($L_{10}$, $L_{50}$, $L_{90}$, other $L_n$, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on $L_{Aeq,1s}$: sub-second data are first averaged energetically over each second.
 
 **Note:** Reading large files with datetime parsing can be computationally intensive. Parallel processing is enabled by default (can be deactivated) to reduce loading time.
 
@@ -100,7 +100,7 @@ df_filtered = nm.filter.extreme_values(
 
 The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators)) but rather return aggregate indicators.
 
-**Time convention:** a timestamp marks the start of its integration period (e.g., an LAeq,1s stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open, `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the Lden evening only. This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
+**Time convention:** a timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open, `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the $L_{den}$ evening only. This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
 
 ### Equivalent level and statistical levels
 
@@ -127,11 +127,11 @@ weekday_leq = nm.summary.leq(
 )
 ```
 
-**Note:** To be accurate, statistical levels (L10, L50, L90) require a minimum data refresh rate of 1 second. They are percentiles of the samples, computed by linear interpolation between samples (numpy's default method).
+**Note:** To be accurate, statistical levels ($L_{10}$, $L_{50}$, $L_{90}$) require a minimum data refresh rate of 1 second. They are percentiles of the samples, computed by linear interpolation between samples (numpy's default method).
 
-### Day-Evening-Night Level (Lden)
+### Day-Evening-Night Level ($L_{den}$)
 
-The `noisemonitor.summary.lden()` function computes the Day-Evening-Night Level (Lden) following the 2002 European standard (European Parliament and Council, 2002).
+The `noisemonitor.summary.lden()` function computes the Day-Evening-Night Level ($L_{den}$) following the 2002 European standard (European Parliament and Council, 2002).
 
 ```python
 # Overall Lden
@@ -153,7 +153,7 @@ weekday_lden = nm.summary.lden(
 
 ### Periodic indicators
 
-The `noisemonitor.summary.periodic()` function computes Leq and Lden (with the option to compute day, evening, and night levels) and at a periodic rate (daily, weekly, or monthly).
+The `noisemonitor.summary.periodic()` function computes $L_{eq}$ and $L_{den}$ (with the option to compute day, evening, and night levels) and at a periodic rate (daily, weekly, or monthly).
 
 ```python
 # Daily Lden and Leq for each day in the dataset
@@ -178,7 +178,7 @@ nm.display.line(
 
 The `noisemonitor.summary.harmonica_periodic()` function computes and plots the HARMONICA index based on Mietlicki et al. (2015). Optionally, this can be computed for specific days of the week (e.g., weekdays only).
 
-Hourly values follow the Bruitparif implementation: BGN = 0.2 (LA95eq − 30), EVT = 0.25 (LAeq − LA95eq) and HARMONICA = BGN + EVT, where LA95eq is the equivalent level of one LA95 per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). The index was designed on LAeq,1s: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
+Hourly values follow the Bruitparif implementation: $\mathrm{BGN} = 0.2 \, (L_{A95eq} - 30)$, $\mathrm{EVT} = 0.25 \, (L_{Aeq} - L_{A95eq})$ and $\mathrm{HARMONICA} = \mathrm{BGN} + \mathrm{EVT}$, where $L_{A95eq}$ is the equivalent level of one $L_{A95}$ per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). The index was designed on $L_{Aeq,1s}$: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
 
 ```python
 # Hourly HARMONICA profile
@@ -202,7 +202,7 @@ nm.display.harmonica(harmonica_profile)
 
 ### Frequency band analysis
 
-Summary indicators (e.g., Lden and Leq) can be computed along octave or third-octave sound levels using the `noisemonitor.summary.freq_indicators()` function.
+Summary indicators (e.g., $L_{den}$ and $L_{eq}$) can be computed along octave or third-octave sound levels using the `noisemonitor.summary.freq_indicators()` function.
 
 Band columns are named by their frequency (e.g. `'63'`, `'125 Hz'` or `'1.25k'`). Exact or base-2 one-third-octave mid-band frequencies (e.g. 31.62 or 31.25 Hz) are labelled with the preferred frequency of their band (31.5 Hz, ISO 266).
 
@@ -238,13 +238,13 @@ nm.display.freq_map(freq_per["Leq"], cblabel="Sound Level (dB)")
 
 ### Low-frequency criteria
 
-The difference between the C- and A-weighted levels of a sound (C-A) indicates its low-frequency content. `noisemonitor.summary.lf_periodic()` computes it per day, week or month from Z-weighted (unweighted) one-third-octave band levels, for one or several methods:
+The difference between the C- and A-weighted levels of a sound (C-A, $L_C - L_A$) indicates its low-frequency content. `noisemonitor.summary.lf_periodic()` computes it per day, week or month from Z-weighted (unweighted) one-third-octave band levels, for one or several methods:
 
 | `method` | Bands | Low-frequency content when | Reference |
 |---|---|---|---|
-| `'botsford'` | 20 Hz to 20 kHz (whole spectrum) | C-A > 10 dB | Berglund et al. (1999) |
-| `'montano'` (default) | 16 Hz to 200 Hz (low-frequency range of ISO 1996-2:2017) | C-A > 15 dB | Montano & Gushiken (2023) |
-| `'barcelona'` | 20 Hz to 160 Hz | C-A >= 20 dB | Generalitat de Catalunya (2009); Ajuntament de Barcelona (2014) |
+| `'botsford'` | 20 Hz to 20 kHz (whole spectrum) | $L_C - L_A > 10$ dB | Berglund et al. (1999) |
+| `'montano'` (default) | 16 Hz to 200 Hz (low-frequency range of ISO 1996-2:2017) | $L_C - L_A > 15$ dB | Montano & Gushiken (2023) |
+| `'barcelona'` | 20 Hz to 160 Hz | $L_C - L_A \geq 20$ dB | Generalitat de Catalunya (2009); Ajuntament de Barcelona (2014) |
 
 The A- and C-weighted levels are computed from the band levels of each sample (weightings of IEC 61672-1:2013), so the band columns must hold Z-weighted levels, and each method needs every band of its range (other bands are ignored; a sample with a missing band is left out). Over the whole spectrum, mid and high frequencies raise the A-weighted level and can hide strong low-frequency content (unbalanced spectra, e.g. urban noise). Restricted to a low-frequency band range, C-A describes the shape of the spectrum within that range, not its level: it does not tell whether the low frequencies are audible. DIN 45680 screens indoor measurements on the whole-spectrum C-A (`'botsford'`) with 20 dB (DIN, 1997), lowered to 15 dB in its withdrawn 2013 draft (Kubicek, 2018).
 
@@ -314,7 +314,7 @@ The `nm.profile` module computes **time-varying noise profiles** using rolling w
 
 ### Complete Time Series
 
-Compute rolling average Leq, L10, L50, and L90 across the entire dataset with the `noisemonitor.profile.series()` function.
+Compute rolling average $L_{eq}$, $L_{10}$, $L_{50}$, and $L_{90}$ across the entire dataset with the `noisemonitor.profile.series()` function.
 
 ```python
 # Hourly sliding averages with 20-minute steps
@@ -335,7 +335,7 @@ nm.display.line(
 ```
 ![Time series](images/profile_series.png)
 
-**Note:** L10, L50, and L90 are shown for the example but shouldn't be computed with refresh times above one second. 
+**Note:** $L_{10}$, $L_{50}$, and $L_{90}$ are shown for the example but shouldn't be computed with refresh times above one second. 
 
 ### Daily/Weekly Profiles
 
@@ -388,28 +388,44 @@ nm.display.compare(
 
 ### Number of Noise Events (NNE)
 
-The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day. For noise events, data should be sampled at 1 s or finer (Brown and De Coensel used 125 ms time histories). Events are detected on the samples as given, so their number depends on the time weighting and sampling rate of the data.
+The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day. For noise events, data should be sampled at 1 s or finer (Brown and De Coensel used 125 ms time histories). Events are detected on the samples as given, so their number depends on the time weighting and sampling rate of the data. Each window is counted as a record of its own, with its own threshold: its first exceedance is an event even when the window starts within it, and a following exceedance is a new event if the level stayed at or below the threshold for at least `min_gap` seconds since the previous one ended. Counts computed this way match those of Baclet and Rumpler's (2024) implementation exactly.
 
 ```python
 # Average daily noise event profile
 nne_profile = nm.profile.nne(
     df_1s,
-    hour1=23,
-    hour2=22,
-    background_type='L50',     # Use L50 as background reference
-    exceedance=5,              # Events must exceed background by 10 dB
-    min_gap=5,                 # Minimum 5 seconds between events
+    hour1=0,
+    hour2=24,                  # Whole day
+    background_type='L50',     # Threshold: L50 of each window...
+    exceedance=5,              # ...plus 5 dB
+    min_gap=5,                 # At least 5 s at or below the threshold between two events
     win=3600,
     step=1200
 )
+```
 
-# Visualize event frequency
+The threshold can follow the background level of each window (`'Leq'`, `'L50'` or `'L90'`, plus `exceedance`) or be a fixed level in dB (an int). Profiles computed with several thresholds can be compared on the same plot:
+
+```python
+import pandas as pd
+
+thresholds = {
+    'L50 + 5 dB': dict(background_type='L50', exceedance=5),
+    'L90 + 10 dB': dict(background_type='L90', exceedance=10),
+    'Leq + 3 dB': dict(background_type='Leq', exceedance=3),
+    '55 dB(A)': dict(background_type=55),
+}
+nne_profiles = pd.DataFrame({
+    label: nm.profile.nne(df_1s, hour1=0, hour2=24, min_gap=5, win=3600,
+                          step=1200, **kwargs)['Average NNEs']
+    for label, kwargs in thresholds.items()
+})
+
 nm.display.line(
-    nne_profile, 
-    'Average NNEs',
+    nne_profiles,
+    *thresholds,
     title='Noise Events Profile',
-    ylabel='Noise Events (L50 + 5dBA)',
-    fill_background=True
+    ylabel='Noise events per hour'
 )
 ```
 ![Number of Noise Events Profile](images/nne_profile.png)
@@ -418,7 +434,7 @@ nm.display.line(
 
 ### Advanced indicators
 
-Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971). Roughness indicators are defined on the differences between consecutive LAeq,1s values: sub-second data are first averaged over each second.
+Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971). Roughness indicators are defined on the differences between consecutive $L_{Aeq,1s}$ values: sub-second data are first averaged over each second.
 
 ```python
 # Daily profile with advanced indicators
@@ -505,6 +521,7 @@ lowfreq_series = nm.profile.lf_series(
 )
 
 nm.display.line(lowfreq_series['C-A'], 'botsford', 'montano', 'barcelona',
+                title='Low-Frequency Criteria Time Series',
                 ylabel='C-A (dB)', threshold=15)
 ```
 
@@ -520,6 +537,7 @@ lowfreq_daily = nm.profile.lf_periodic(
 )
 
 nm.display.line(lowfreq_daily['C-A'], 'botsford', 'montano', 'barcelona',
+                title='Low-Frequency Criteria Daily Profile',
                 ylabel='C-A (dB)', threshold=15)
 ```
 
@@ -565,7 +583,7 @@ with_coverage_leq = nm.summary.leq(
 )
 ```
 
-**Note:** A warning is raised if data coverage is not met for any of the computed periods. For Lden computation, coverage is assessed separately for each period (day, evening, and night).
+**Note:** A warning is raised if data coverage is not met for any of the computed periods. For $L_{den}$ computation, coverage is assessed separately for each period (day, evening, and night).
 
 ## Weather Integration
 
@@ -693,6 +711,7 @@ Proportion of values filtered out: 44.80%
 ## References
 
 - Ajuntament de Barcelona. (2014). Modificació dels annexos del Títol IV sobre contaminació acústica de l'Ordenança de Medi Ambient de Barcelona. *Butlletí Oficial de la Província de Barcelona*, 28 April 2014 (Annex II.7). https://bop.diba.cat/anuncis/antic/022014010172
+- Baclet, S., & Rumpler, R. (2024). Performance of a generalised algorithm for the detection of noise events from road traffic in a real urban area: A simulation study. *Applied Acoustics*, 228, 110337. https://doi.org/10.1016/j.apacoust.2024.110337
 - Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for community noise*. World Health Organization. https://www.who.int/publications/i/item/a68672
 - Brown, A. L., & De Coensel, B. (2018). A study of the performance of a generalized exceedance algorithm for detecting noise events caused by road traffic. *Applied Acoustics*, 138, 101-114. https://doi.org/10.1016/j.apacoust.2018.03.031
 - DeFrance, J., Palacino. J., & Baulac, M. (2010). Auscultation acoustique des aménagements cyclables en milieu urbain. *Proceedings of the 10ème Congrès Français d’Acoustique*, Lyon, France. https://hal.science/hal-00551186v1

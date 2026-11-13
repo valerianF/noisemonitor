@@ -21,7 +21,7 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 
 ## Key Features
 
-- **Acoustic indicators** - Implements standard (Leq, Lden, L90, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, low-frequency criteria from third-octave bands, etc.)
+- **Acoustic indicators** - Implements standard ($L_{eq}$, $L_{den}$, $L_{90}$, etc.) and research-based noise indicators (HARMONICA, Number of Noise Events, low-frequency criteria from third-octave bands, etc.)
 - **Flexible data loading** - Support for CSV, Excel, and TXT formats with automatic datetime parsing
 - **Two analysis modes** - Summary indicators (discrete values) and profile indicators (time series)
 - **Multiprocessing support** - Fast processing of large datasets
@@ -138,7 +138,7 @@ df_filtered = nm.filter.extreme_values(df, min_value=30, max_value=100)
 ```
 
 ### `nm.summary`
-Compute discrete sound level indicators: Leq, Lden, HARMONICA, frequency analysis, low-frequency criteria, histograms, etc.
+Compute discrete sound level indicators: $L_{eq}$, $L_{den}$, HARMONICA, frequency analysis, low-frequency criteria, histograms, etc.
 
 ```python
 overall_lden = nm.summary.lden(df)

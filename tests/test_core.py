@@ -566,14 +566,32 @@ class TestNoiseEvents:
         assert result == 1
 
     def test_noise_events_boundary_conditions(self):
-        """Test events at data boundaries."""
+        """Exceedances at both ends of the slice: the slice starts within the
+        first one, which is an event, and the second one ends with the slice
+        and follows 5 s at or below the threshold (>= 3 s): 2 events."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=10, freq='1s')
-        
+
         data = [75, 75, 50, 50, 50, 50, 50, 75, 75, 75]
         df = pd.DataFrame({'sound_level': data}, index=dates)
-        
+
         result = noise_events(df, 0, threshold=65.0, min_gap=3)
-        assert result == 1
+        assert result == 2
+
+    @pytest.mark.parametrize("min_gap", [1, 5, 30])
+    def test_noise_events_first_crossing(self, min_gap):
+        """The first exceedance is an event whatever its distance to the start
+        of the slice (here 2 s, shorter than min_gap = 5 or 30 s); the second
+        one, 3 s after the end of the first, is a new event only if
+        min_gap <= 3 s."""
+        dates = pd.date_range('2023-01-01 00:00:00', periods=60, freq='1s')
+
+        data = [50] * 60
+        data[2:4] = [75] * 2
+        data[7:9] = [75] * 2
+        df = pd.DataFrame({'sound_level': data}, index=dates)
+
+        result = noise_events(df, 0, threshold=65.0, min_gap=min_gap)
+        assert result == (2 if min_gap <= 3 else 1)
 
     def test_noise_events_single_point_events(self):
         """Test single-point events."""

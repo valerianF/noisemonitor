@@ -7,6 +7,7 @@ Module scope: each test module gets its own copy of the data, so a function
 that modifies its input cannot affect other modules."""
 
 import lzma
+import re
 import shutil
 from pathlib import Path
 
@@ -235,6 +236,55 @@ def bruitparif_halfsecond(bruitparif_1s, tmp_path_factory):
 # Band column names in mixed formats and in no particular order, and the
 # frequency (Hz) that core._parse_freq_columns gives them
 BANDS = {'1 kHz': 1000.0, '125 Hz': 125.0, '63': 63.0, '500Hz': 500.0}
+
+
+# External data: Tartu (data/external/README.md)
+
+TARTU_RECEIVERS = (10428, 13914, 5080)
+# Day of the traffic simulated by the source, used as the date of the series
+TARTU_DATE = '2021-10-16'
+# Indoor level (Baclet and Rumpler, 2024, Eq. 3): energetic sum of the
+# outdoor level minus the facade attenuation (window open or closed) and of
+# 35 dB of indoor noise. Seconds with no vehicle (empty) are 0 dB outdoors.
+TARTU_ATTENUATION = {'OP': 5.0, 'CL': 25.0}
+TARTU_INDOOR = 35.0
+TARTU_SILENCE = 0.0
+# Source indicator names: <threshold>E<exceedance>G<gap><window>
+TARTU_INDICATOR = re.compile(r'(T\d\d|L50|L90|LEQ)E(\d\d)G(\d\d)(OP|CL)')
+
+
+def tartu_parameters(indicator):
+    """nne arguments (background_type, exceedance, min_gap) and window of a
+    source indicator, e.g., 'L90E10G30CL' -> ('L90', 10, 30), 'CL'; a fixed
+    threshold 'T45' gives background_type=45."""
+    threshold, exceedance, gap, window = TARTU_INDICATOR.fullmatch(indicator).groups()
+    background = {'LEQ': 'Leq', 'L50': 'L50', 'L90': 'L90'}.get(threshold)
+    return dict(background_type=background or int(threshold[1:]),
+                exceedance=int(exceedance), min_gap=int(gap)), window
+
+
+@pytest.fixture(scope="module")
+def tartu_indoor():
+    """Indoor levels at 1 s over one day, for each (receiver, window), from
+    the simulated outdoor LAeq,1s."""
+    df = pd.read_csv(EXT_PATH / "ext_data_tartu_s.csv.xz")
+    index = pd.DatetimeIndex(pd.Timestamp(TARTU_DATE)
+                            + pd.to_timedelta(df['second_of_day'], unit='s'))
+    indoor = {}
+    for pk in TARTU_RECEIVERS:
+        outdoor = df[f'R{pk}'].fillna(TARTU_SILENCE).to_numpy()
+        for window, attenuation in TARTU_ATTENUATION.items():
+            level = 10 * np.log10(10 ** ((outdoor - attenuation) / 10)
+                                + 10 ** (TARTU_INDOOR / 10))
+            indoor[pk, window] = pd.DataFrame({'LAeq': level}, index=index)
+    return indoor
+
+
+@pytest.fixture(scope="module")
+def tartu_counts():
+    """Hourly numbers of noise events computed by the source: one row per
+    (receiver, hour), one column per indicator."""
+    return pd.read_csv(EXT_PATH / "ext_data_tartu_h.csv", index_col=['pk', 'hour'])
 
 
 # External data: published tables for the band labels and the low-frequency

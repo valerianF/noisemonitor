@@ -635,12 +635,20 @@ def noise_events(
     min_gap: int
 ) -> int:
     """Compute the Number of Noise Events (NNE) in a DataFrame slice.
-    
+
     According to the algorithm proposed in (Brown and De Coensel, 2018).
     Events are detected on the sound level time series as given, at its
-    own resolution (e.g. LAeq,1s, or sub-second levels). Please note that 
-    the number of events depends on the time weighting and on the sampling 
+    own resolution (e.g. LAeq,1s, or sub-second levels). Please note that
+    the number of events depends on the time weighting and on the sampling
     rate of the data.
+
+    An exceedance is a run of samples strictly above the threshold (NaN
+    values are not above it). The slice is treated as a record of its own:
+    its first exceedance is always an event, even when the slice starts
+    within it. Each following exceedance is a new event if the time from
+    the end of the previous exceedance (its first sample at or below the
+    threshold) to its first sample is at least min_gap; otherwise it
+    extends the current event (Baclet and Rumpler, 2024).
 
     Parameters
     ----------
@@ -657,24 +665,17 @@ def noise_events(
     ----------
     int: Number of noise events.
     """
-    if len(df) == 0:
+    levels = df.iloc[:, column]
+    above = levels.to_numpy(dtype=float, na_value=np.nan) > threshold
+    if not above.any():
         return 0
-        
-    events = 0
-    in_event = False
-    last_event_end = df.iloc[:, column].index[0]
 
-    for timestamp, value in df.iloc[:, column].items():
-        if value > threshold:
-            if not in_event:
-                in_event = True
-                if (timestamp - last_event_end).total_seconds() >= min_gap:
-                    events += 1
-        else:
-            if in_event:
-                in_event = False
-                last_event_end = timestamp
+    # Exceedance i covers the samples starts[i] to ends[i] - 1
+    edges = np.diff(above.astype(np.int8), prepend=0, append=0)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    gaps = (levels.index[starts[1:]] - levels.index[ends[:-1]]).total_seconds()
 
-    return events
+    return int(1 + np.count_nonzero(gaps >= min_gap))
 
 
