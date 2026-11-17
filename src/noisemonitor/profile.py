@@ -29,13 +29,21 @@ def periodic(
     Percentiles are computed by linear interpolation between samples
     (numpy's default method).
 
-    For statistical and other percentile-based levels, data should be sampled 
-    at 1 s or finer (e.g., 100 ms) although they are computed 
-    from the samples as given, so their values depend on the integration time 
+    For statistical and other percentile-based levels, data should be sampled
+    at 1 s or finer (e.g., 100 ms) although they are computed
+    from the samples as given, so their values depend on the integration time
     of the data.
+
+    Each window pools the samples of all the selected days whose time of
+    day falls in it: its levels are computed over these pooled samples, not
+    as the mean of daily values (e.g., the L90 of the 08:00-09:00 window is
+    the 10th percentile of all the samples between 08:00 and 09:00, and its
+    Leq their energetic mean).
 
     Parameters
     ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and sound level values.
     hour1: int, between 0 and 23
         hour at which the first window starts.
     hour2: int, between 0 and 23
@@ -57,14 +65,22 @@ def periodic(
         step size to compute a rolling average, in whole seconds. If set to
         0 (default value), the function will compute non-rolling averages.
     traffic_noise_indicators: bool, default False
-        if set to True, the function will compute traffic noise indicators 
-        Traffic Noise Index (Griffiths and Langdon, 1968) as well as the 
-        Noise Pollution Level (Robinson, 1971) in addition to the 
-        equivalent levels and percentiles.
+        if set to True, the function will compute traffic noise indicators
+        Traffic Noise Index (Griffiths and Langdon, 1968) as well as the
+        Noise Pollution Level (Robinson, 1971) in addition to the
+        equivalent levels and percentiles, for each window:
+        TNI = 4 (L10 - L90) + L90 - 30 and NPL = Leq + 2.56 σ, σ being the
+        standard deviation of the levels of the window (sample standard
+        deviation, n - 1). Griffiths and Langdon defined TNI on the means of
+        24 hourly L10 and L90 values; the formula being linear, their daily
+        TNI is the mean of the 24 hourly values of 1 h windows over one day.
     roughness_indicators: bool, default False
-        if set to True, the function will compute roughness indicators 
+        if set to True, the function will compute roughness indicators
         based on difference between consecutive LAeq,1s values according
-        to (DeFrance et al., 2010). Sub-second data are first averaged
+        to (DeFrance et al., 2010): from the absolute differences |dL|,
+        dLav is their mean, dLmax,1 the mean of the largest 1 % and dLmin,90
+        the mean of the lowest 90 % (percentiles by linear interpolation,
+        values at the percentile included). Sub-second data are first averaged
         energetically over each whole second (LAeq,1s), assuming that their
         interval divides one second (e.g., 100, 125, 250 or 500 ms). Only
         samples one sampling interval apart are differenced: pairs with a
@@ -235,7 +251,7 @@ def periodic(
             if dL.size:
                 averages['dLav'][i] = np.mean(dL)
                 averages['dLmax,1'][i] = np.mean(dL[dL >= np.percentile(dL, 99)])
-                averages['dLmin,90'][i] = np.mean(dL[dL <= np.percentile(dL, 10)])
+                averages['dLmin,90'][i] = np.mean(dL[dL <= np.percentile(dL, 90)])
 
     return pd.DataFrame(index=times, data=averages)
     
@@ -253,18 +269,16 @@ def freq_periodic(
     coverage_threshold: float = 0.5
 ) -> pd.DataFrame:
     """
-    Compute weekly levels for each frequency band in the DataFrame, as
-    noisemonitor.profile.periodic. For statistical levels, data should 
-    be sampled at 1 s or finer.
+    Compute daily or weekly profiles for each frequency band in the
+    DataFrame, as noisemonitor.profile.periodic. For statistical levels,
+    data should be sampled at 1 s or finer.
 
     Parameters
     ----------
-    df: pd.DataFrame,
+    df: pd.DataFrame
         DataFrame with a datetime index and sound level values for each
-        frequency band. Column names are read as frequencies (e.g.,
-        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
-        mid-band frequencies (e.g., 31.62 or 31.25) are labelled with the
-        nominal frequency of their band (31.5).
+        frequency band, columns named by their frequency as in
+        noisemonitor.summary.freq_periodic.
     hour1: int, between 0 and 23
         Hour at which the first window starts.
     hour2: int, between 0 and 23
@@ -297,7 +311,7 @@ def freq_periodic(
     Returns
     ----------
     pd.DataFrame
-        DataFrame with weekly levels for each frequency band.
+        DataFrame with the levels of each window for each frequency band.
     """
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
@@ -339,10 +353,8 @@ def freq_series(
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and sound level values for each
-        frequency band. Column names are read as frequencies (e.g.,
-        '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
-        mid-band frequencies (e.g., 31.62 or 31.25) are labelled with the
-        nominal frequency of their band (31.5).
+        frequency band, columns named by their frequency as in
+        noisemonitor.summary.freq_periodic.
     win: int, default 3600
         Window size for the averaging function, in whole seconds.
     step: int, default 0
@@ -353,7 +365,8 @@ def freq_series(
         the series for each frequency band (one after the other, with a
         RuntimeWarning, if parallel processing is unavailable).
     start_at_midnight: bool, default False
-        If set to True, the computation will start at midnight.
+        if True, the first window starts at the first midnight of the data,
+        as in noisemonitor.profile.series.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
@@ -402,32 +415,14 @@ def lf_periodic(
     """Daily or weekly profile of low-frequency criteria: the A- and
     C-weighted equivalent levels of a range of one-third-octave bands and
     their difference C-A, in windows pooled over the days as in
-    noisemonitor.profile.periodic.
-
-    The input levels must be Z-weighted (unweighted) one-third-octave
-    band levels, one column per band named by its frequency. Methods:
-    - 'botsford': whole spectrum, 20 Hz to 20 kHz; low-frequency content
-        when C-A > 10 dB (WHO, Berglund et al., 1999).
-    - 'montano': 16 Hz to 200 Hz, the low-frequency range of ISO 1996-2:2017;
-        low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
-        Gushiken, 2023).
-    - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
-        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
-        Barcelona's environmental bylaw).
-    Restricted to a band range, C-A depends on the shape of the spectrum
-    within the range, not on its level: it does not tell whether the low
-    frequencies are audible.
+    noisemonitor.profile.periodic. Input bands and methods are those of
+    noisemonitor.summary.lf_periodic (see its description).
 
     Parameters
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and Z-weighted one-third-octave band
-        levels as columns. Each column is named by its frequency (e.g.,
-        '20', '25 Hz' or '1.25k'; exact or base-2 mid-band frequencies
-        such as 31.62 or 31.25 are read as the nominal band, 31.5). Each
-        method needs all the bands of its range (ValueError otherwise);
-        other bands are ignored. The levels of each sample are weighted
-        and summed over the bands. A sample with a missing band is left out.
+        levels as columns, as in noisemonitor.summary.lf_periodic.
     hour1: int, between 0 and 23
         hour at which the first window starts.
     hour2: int, between 0 and 23
@@ -440,13 +435,12 @@ def lf_periodic(
         Last day of the week included in the weekly average.
     method: str or list of str, default 'montano'
         low-frequency criterion or criteria: 'botsford', 'montano' or
-        'barcelona'.
+        'barcelona' (see noisemonitor.summary.lf_periodic).
     win: int, default 3600
-        window size for the averaging function, in whole seconds. Each
-        window covers the half-open interval [start, start + win).
+        window size, in whole seconds, as in noisemonitor.profile.periodic.
     step: int, default 0
-        step size to compute a rolling average, in whole seconds. If set to
-        0 (default value), the function will compute non-rolling averages.
+        step size of sliding windows, in whole seconds (0: consecutive
+        windows).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
@@ -478,42 +472,25 @@ def lf_series(
     """Time series of low-frequency criteria: the A- and C-weighted
     equivalent levels of a range of one-third-octave bands and their
     difference C-A, over consecutive or sliding windows of the whole data,
-    as noisemonitor.profile.series.
-
-    The input levels must be Z-weighted (unweighted) one-third-octave
-    band levels, one column per band named by its frequency. Methods:
-    - 'botsford': whole spectrum, 20 Hz to 20 kHz; low-frequency content
-        when C-A > 10 dB (WHO, Berglund et al., 1999).
-    - 'montano': 16 Hz to 200 Hz, the low-frequency range of ISO 1996-2:2017;
-        low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
-        Gushiken, 2023).
-    - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
-        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
-        Barcelona's environmental bylaw).
-    Restricted to a band range, C-A depends on the shape of the spectrum
-    within the range, not on its level: it does not tell whether the low
-    frequencies are audible.
+    as noisemonitor.profile.series. Input bands and methods are those of
+    noisemonitor.summary.lf_periodic (see its description).
 
     Parameters
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and Z-weighted one-third-octave band
-        levels as columns. Each column is named by its frequency (e.g.,
-        '20', '25 Hz' or '1.25k'; exact or base-2 mid-band frequencies
-        such as 31.62 or 31.25 are read as the nominal band, 31.5). Each
-        method needs all the bands of its range (ValueError otherwise);
-        other bands are ignored. The levels of each sample are weighted
-        and summed over the bands. A sample with a missing band is left out.
+        levels as columns, as in noisemonitor.summary.lf_periodic.
     method: str or list of str, default 'montano'
         low-frequency criterion or criteria: 'botsford', 'montano' or
-        'barcelona'.
+        'barcelona' (see noisemonitor.summary.lf_periodic).
     win: int, default 3600
-        window size for the averaging function, in whole seconds.
+        window size, in whole seconds, as in noisemonitor.profile.series.
     step: int, default 0
-        step size to compute a sliding average, in whole seconds. If set to 0
-        (default value), the function will compute non-sliding averages.
+        step size of sliding windows, in whole seconds (0: consecutive
+        windows).
     start_at_midnight: bool, default False
-        if set to True, the computation will start at midnight.
+        if True, the first window starts at the first midnight of the data,
+        as in noisemonitor.profile.series.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.
@@ -567,6 +544,8 @@ def nne(
 
     Parameters
     ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and sound level values.
     hour1: int, between 0 and 23
         hour at which the first window starts.
     hour2: int, between 0 and 24
@@ -745,10 +724,12 @@ def series(
 
     Parameters
     ---------- 
+    df: pd.DataFrame
+        DataFrame with a datetime index and sound level values.
     win: int, default 3600
-        window size (in whole seconds) for the averaging function. For averages
-        at a daily or weekly window, we recommend using the
-        daily_weekly_indicators function instead.
+        window size (in whole seconds) for the averaging function. For daily,
+        weekly or monthly levels, we recommend using
+        noisemonitor.summary.periodic instead.
     step: int, default 0
         step size (in whole seconds) to compute a sliding average. If set
         to 0 (default value), the function will compute non-sliding

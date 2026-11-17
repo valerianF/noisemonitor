@@ -4,7 +4,7 @@ A python package for sound level data analysis.
 
 [![PyPI](https://img.shields.io/pypi/v/noisemonitor.svg)](https://pypi.python.org/pypi/noisemonitor)
 [![Conda Version](https://img.shields.io/conda/vn/conda-forge/noisemonitor.svg)](https://anaconda.org/conda-forge/noisemonitor)
-[![License](https://img.shields.io/pypi/l/noisemonitor.svg)](https://github.com/noisemonitor/noisemonitor/blob/main/LICENSE.md)
+[![License](https://img.shields.io/pypi/l/noisemonitor.svg)](https://github.com/valerianF/noisemonitor/blob/main/LICENSE)
 
 See the [Usage Guide](docs/usage.md) for detailed examples and the [API Reference](docs/api.md) for function documentation.
 
@@ -115,8 +115,13 @@ nm.display.compare(
 ![Weekly Noise Profiles](docs/images/weekly_noise_profiles.png)
 
 ```python
-# Computa HARMONICA indexes
-harmonica = nm.summary.harmonica_periodic(df_1s) # requires data at 1 s or finer
+# Load 1 s data and compute HARMONICA indexes (requires data at 1 s or finer)
+df_1s = nm.load(
+    'tests/data/internal/test_data_laeq1s.csv.xz',
+    datetimeindex=0,
+    valueindexes=1
+)
+harmonica = nm.summary.harmonica_periodic(df_1s)
 nm.display.harmonica(harmonica) # Visualize
 ```
 
@@ -173,7 +178,8 @@ Integrate Environment Canada weather data to analyze weather impact on noise.
 
 ```python
 stations = nm.weather.weathercan.get_historical_stations(coordinates=[45.5, -73.6], radius=25)
-df_weather = await nm.weather.weathercan.merge_weather(df, station_id=30165, wind_speed_flag=18,
+df_weather = await nm.weather.weathercan.merge_weather(df, station_id='702S006',  # climate ID
+                                                       wind_speed_flag=18,
                                                        timezone='America/Toronto')  # weather times are LST
 contingency = nm.weather.weathercan.contingency_weather_flags(df_weather)
 ```

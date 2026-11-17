@@ -5,6 +5,7 @@ This guide provides detailed examples for using noisemonitor's key features.
 ## Table of Contents
 - [Data Loading](#data-loading)
 - [Data Filtering](#data-filtering)
+- [Time Conventions](#time-conventions)
 - [Summary Indicators](#summary-indicators)
 - [Profile Indicators](#profile-indicators)
 - [Coverage Checking](#coverage-checking)
@@ -24,6 +25,15 @@ df_1s = nm.load(
     datetimeindex=0,      # Column index for datetime
     valueindexes=1,       # Column index for sound levels
     header=0,             # Header row index
+    sep=','
+)
+
+# Example dataset with 1-minute LAeq data over one week
+df_1m = nm.load(
+    'tests/data/internal/test_data_laeq1m.csv',
+    datetimeindex=0,
+    valueindexes=1,
+    header=0,
     sep=','
 )
 
@@ -96,11 +106,19 @@ df_filtered = nm.filter.extreme_values(
 )
 ```
 
+## Time conventions
+
+**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only fo $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
+
+**Hours:** two conventions coexist.
+- `noisemonitor.summary` functions (e.g., `leq()`, `freq_indicators()`) and `noisemonitor.profile.nne()` take `hour1` and `hour2` from 0 to 24, `hour2` being the excluded end of the period: `hour1=0, hour2=24` is the whole day.
+- `noisemonitor.profile.periodic()`, `freq_periodic()` and `lf_periodic()` take hours from 0 to 23, `hour2` being the start of the last window: `hour1=0, hour2=23` with 1 h windows is the whole day.
+
+In both cases, `hour1 > hour2` wraps past midnight (e.g., `hour1=22, hour2=6`). Similarly, `day1` and `day2` keep the days from `day1` to `day2`, wrapping past Sunday when `day1` comes later in the week (e.g., `day1='friday', day2='monday'`).
+
 ## Summary Indicators
 
 The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators)) but rather return aggregate indicators.
-
-**Time convention:** a timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open, `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the $L_{den}$ evening only. This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
 
 ### Equivalent level and statistical levels
 
@@ -173,6 +191,13 @@ nm.display.line(
 ```
 
 ![Daily Lden and Leq Levels](images/daily_leq_and_lden.png)
+
+**Calendar periods:** by default, days, weeks (Monday to Sunday) and months start at midnight, and each period is labelled by its start. The night of a calendar day then joins the end of one night (00:00 to `start_day`, 07:00 by default) and the start of the next one (`start_night`, 23:00, to 24:00). With `start_at_day=True`, periods start at `start_day` instead (e.g., 07:00 to 07:00 the next day), so that each daily $L_{den}$ holds one whole night:
+
+```python
+# Days from 07:00 to 07:00
+daily_summary = nm.summary.periodic(df_1m, freq='D', start_at_day=True)
+```
 
 ### HARMONICA indicator
 
@@ -345,12 +370,14 @@ With `start_at_midnight=True`, the first window starts at the first sample at or
 
 Compute average profiles representing daily or weekly patterns with the `noisemonitor.profile.periodic()` function.
 
+Each window pools the samples of all the selected days that fall within its time of day, and its levels are computed over these pooled samples, not as the mean of daily values. For example, over two weeks of weekdays, the $L_{90}$ of the 08:00–09:00 window is the 10th percentile of the samples from 08:00 to 09:00 of all ten days, and its $L_{eq}$ is their energetic mean.
+
 ```python
 # Weekday profile (Mon-Fri)
 weekday_profile = nm.profile.periodic(
     df_1m,
-    hour1=23, # If hour1 > hour2, profile will be computed outside those hours
-    hour2=22,
+    hour1=23, # hour1 > hour2: from the window starting at 23:00, past midnight,
+    hour2=22, # to the one starting at 22:00 (the whole day, from 23:00)
     day1='monday',   # Use day names, not numbers
     day2='friday',
     win=3600,
@@ -441,6 +468,10 @@ nm.display.line(
 ### Advanced indicators
 
 Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971). Roughness indicators are defined on the differences between consecutive $L_{Aeq,1s}$ values: sub-second data are first averaged over each second.
+
+- **Roughness:** from the absolute differences $|\delta L|$ between consecutive $L_{Aeq,1s}$ values, $\delta L_{av}$ is their mean, $\delta L_{max,1}$ the mean of the largest 1 %, and $\delta L_{min,90}$ the mean of the lowest 90 %.
+- **TNI** is computed for each window: $\mathrm{TNI} = 4\,(L_{10} - L_{90}) + L_{90} - 30$. Griffiths and Langdon (1968) defined it on the means of 24 hourly $L_{10}$ and $L_{90}$ values. Since the formula is linear, their daily TNI is the mean of the 24 hourly TNI values given by 1 h windows over one day.
+- **NPL** is also computed for each window: $\mathrm{NPL} = L_{eq} + 2.56\,\sigma$, where $\sigma$ is the standard deviation of the levels of the window (sample standard deviation, $n - 1$).
 
 ```python
 # Daily profile with advanced indicators
@@ -618,13 +649,15 @@ stations = nm.weather.weathercan.get_historical_stations(
 )
 ```
 
+Stations are identified by their Environment Canada climate ID, given in the `id` row of the result (e.g., `'702S006'` for Montréal/Pierre Elliott Trudeau International Airport).
+
 ### Merging weather data
 
 ```python
 # Merge weather data (async function)
 df_with_weather = await nm.weather.weathercan.merge_weather(
     df_1m,
-    station_id=30165,
+    station_id='702S006',       # climate ID
     wind_speed_flag=18,
     temp_range_flag=(-10, 30),
     hum_flag=90,
@@ -634,21 +667,21 @@ df_with_weather = await nm.weather.weathercan.merge_weather(
 df_with_weather.head()
 ```
 
+| datetime | LEQ dB -A | Wind Spd (km/h) | Precip. Amount (mm) | Weather | Temp (°C) | Rel Hum (%) | Wind_Spd_Flag | Rain_Flag | Snow_Flag | Temp_Flag | Rel_Hum_Flag | Rain_Flag_Roll | Snow_Flag_Roll |
+|----------|-----------|-----------------|---------------------|---------|-----------|-------------|---------------|-----------|-----------|-----------|--------------|----------------|----------------|
+| 2025-03-21 00:00:30 | 47.36 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:01:30 | 48.36 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:02:30 | 47.60 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:03:30 | 48.74 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:04:30 | 49.75 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+
+The merged DataFrame now includes weather data together with boolean flags, True when their condition is met (e.g., `Wind_Spd_Flag` for a wind speed of 18 km/h or more). This station reports no `Weather` condition, so rain and snow are inferred from the temperature here, with a warning.
+
 Environment Canada gives its hourly data in Local Standard Time (LST) all year. Weather times are converted to the local clock time of `timezone` (default `'America/Toronto'`, daylight saving time included) before merging, so that they match noise data in local time. For a station in another time zone, give its own zone (e.g., `'America/Vancouver'`); with `timezone=None`, weather times are merged in LST, which leaves weather and noise data one hour apart during daylight saving time if the noise data are in local time.
 
 Noise data at intervals of 1 h or less take the nearest hourly weather row. Coarser noise data (e.g., daily or monthly levels) take the weather of their whole period, with a warning: wind speed, temperature and humidity are averaged and flagged from these averages, precipitation is summed, and the rain and snow flags are raised if rain or snow was recorded in any hour of the period.
 
 An hour is flagged for rain or snow when it has precipitation and its `Weather` condition reports rain or snow; precipitation without a condition is then not flagged, and a warning gives the number of such hours. Some stations report no condition at all: rain and snow are then inferred from the temperature (precipitation at or above 0 °C is rain, below 0 °C snow), with a warning. Check these flags against other weather archives.
-
-| datetime | LEQ dB -A | Wind Spd (km/h) | Precip. Amount (mm) | Weather | Temp (°C) | Rel Hum (%) | Wind_Spd_Flag | Rain_Flag | Snow_Flag | Temp_Flag | Rel_Hum_Flag | Rain_Flag_Roll | Snow_Flag_Roll |
-|----------|-----------|-----------------|---------------------|---------|-----------|-------------|---------------|-----------|-----------|-----------|--------------|----------------|----------------|
-| 2025-03-21 00:00:00 | 47.36 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:01:00 | 48.36 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:02:00 | 47.60 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:03:00 | 48.74 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:04:00 | 49.75 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-
-The merged DataFrame now includes weather data together with boolean flags indicating whether inclusion criteria are fulfilled for each row (e.g., wind speed below 18 km/h).
 
 ### Weather contingency analysis
 
@@ -660,16 +693,18 @@ contingency = nm.weather.weathercan.contingency_weather_flags(
     df_with_weather
 )
 
-contingency.head()
+contingency
 ```
 
 | Condition | Leq | Lden | Diff Leq | Diff Lden | Covered data (%) |
 |-----------|-----|------|----------|-----------|------------------|
 | All Data | 50.76 | 56.10 | 0.00 | 0.00 | 100.0 |
-| Wind speed >= 18 km/h | 51.04 | 56.12 | 0.28 | 0.02 | 44.8 |
-| Rain in the last 48h | 51.37 | 56.65 | 0.61 | 0.55 | 61.9 |
-| No Flag - Wind | 50.53 | 56.14 | -0.23 | 0.04 | 55.2 |
-| No Flag - Rain | 49.54 | 55.08 | -1.22 | -1.02 | 38.1 |
+| Wind speed >= 18 km/h | 50.97 | 56.23 | 0.21 | 0.13 | 44.4 |
+| Rain in the last 48h | 51.13 | 56.36 | 0.37 | 0.26 | 76.3 |
+| No Flag - Wind | 50.59 | 56.06 | -0.17 | -0.04 | 55.6 |
+| No Flag - Rain | 49.30 | 55.15 | -1.46 | -0.95 | 23.7 |
+| Any Flag | 51.03 | 56.36 | 0.27 | 0.26 | 88.7 |
+| No Flag | 47.79 | 53.27 | -2.97 | -2.83 | 11.3 |
 
 The table ends with the rows with any of the included flags raised ('Any Flag') and with none ('No Flag'). A condition met only in some periods of the day (e.g., a flag raised only at night) has no $L_{den}$ (NaN) but keeps its $L_{eq}$.
 

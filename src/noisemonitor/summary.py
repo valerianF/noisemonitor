@@ -382,12 +382,13 @@ def lden(
     ----------
     df: pd.DataFrame
         DataFrame with a datetime index and sound level values.
-    day1 (optional): str, a day of the week in english, case-insensitive
-        first day of the week included in the Lden computation.
-    day2 (optional): str, a day of the week in english, case-insensitive
-        last (included) day of the week in the Lden computation. If day2 
-        happens later in the week than day1 the average will be computed 
-        outside of these days.
+    day1: str, optional
+        first day of the week included in the computation, in English,
+        case-insensitive (e.g., 'monday').
+    day2: str, optional
+        last day of the week included in the computation. If day1 comes
+        later in the week than day2, the days wrap past Sunday (e.g.,
+        'friday' to 'tuesday').
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
@@ -452,14 +453,15 @@ def leq(
     hour2: int, between 0 and 24
         hour for the ending time of the daily average: the
         average covers [hour1, hour2), a timestamp marking the start of
-        its integration period. If hour2 < hour1 the average will be
-        computed outside of these hours.
-    day1 (optional): str, a day of the week in english, case-insensitive
-        first day of the week included in the Lden computation.
-    day2 (optional): str, a day of the week in english, case-insensitive
-        last (included) day of the week in the Lden computation. If day2 
-        happens later in the week than day1 the average will be computed 
-        outside of these days.
+        its integration period. If hour1 > hour2, the period wraps past
+        midnight ([hour1, 24) and [0, hour2)).
+    day1: str, optional
+        first day of the week included in the computation, in English,
+        case-insensitive (e.g., 'monday').
+    day2: str, optional
+        last day of the week included in the computation. If day1 comes
+        later in the week than day2, the days wrap past Sunday (e.g.,
+        'friday' to 'tuesday').
     column: int or str, default 0
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
@@ -556,16 +558,18 @@ def freq_indicators(
         '63', '125 Hz' or '1.25k'); exact or base-2 one-third-octave
         mid-band frequencies (e.g. 31.62 or 31.25) are labelled with the
         nominal frequency of their band (31.5).
-    hour1 (optional): int, default 0
-        Starting hour for the daily Leq average (0-24).
-    hour2 (optional): int, default 24
-        Ending hour for the daily Leq average (0-24).
-    day1 (optional): str, default None
+    hour1: int, default 0
+        Starting hour of the Leq average (0-24), as in
+        noisemonitor.summary.leq.
+    hour2: int, default 24
+        Ending hour (excluded) of the Leq average (0-24). If hour1 > hour2,
+        the period wraps past midnight.
+    day1: str, optional
         First day of the week in English, case-insensitive,
         to include in the computation.
-    day2 (optional): str, default None
-        Last day of the week in English, case-insensitive,
-        to include in the computation.
+    day2: str, optional
+        Last day of the week to include in the computation (wrapping past
+        Sunday if day1 comes later in the week).
     stats: bool, default False
         If set to True, the function will include statistical
         indicators (L10, L50, L90) in addition to Leq.
@@ -671,6 +675,8 @@ def nday(
 
     Parameters
     ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index and sound level values.
     indicator: str, default 'Leq'
         Indicator to use for the computation. Options are 'Leq', 'Lden', 
         'Lday', 'Levening', and 'Lnight'.

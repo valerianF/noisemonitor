@@ -331,6 +331,15 @@ def get_interval(df):
 
     In some datasets, the first row index may not be representative
     of the interval.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        DataFrame with a datetime index of at least three rows.
+
+    Returns
+    ----------
+    float: interval between rows 2 and 3, in seconds.
     """
     if len(df.index) < 3:
         raise ValueError(

@@ -15,16 +15,16 @@ def all_data(
     end_datetime: datetime, 
     between: bool = False
 ) -> pd.DataFrame:
-    """Filter a datetime index DataFrame (typically the output of load_data())
-    between two particular dates. By setting between = True, you can filter 
-    out the times that are between the two dates.
+    """Filter a DataFrame (typically the output of noisemonitor.load()) 
+    with a datetime index between two particular dates. By setting
+    between = True, you can filter out the times that are between the two
+    dates.
 
     Parameters
-    ---------- 
+    ----------
     df: DataFrame
-        a compatible DataFrame (typically generated with functions load_data(),
-        NoiseMonitor.daily() or NoiseMonitor.weekly() ),
-        with a datetime, time or pandas.Timestamp index.
+        a DataFrame with a datetime index (e.g., the output of
+        noisemonitor.load() or noisemonitor.summary.periodic()).
     start_datetime: datetime object
         first date from which to filter the data. 
         Must be earlier than end_datetime.

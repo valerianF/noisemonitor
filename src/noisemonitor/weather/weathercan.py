@@ -139,7 +139,7 @@ def get_historical_stations(
     return pd.DataFrame(stations)
 
 async def get_historical_data(
-    station_id: int,
+    station_id: Union[int, str],
     daterange=(
         _ONE_YEAR_AGO,
         _TODAY,
@@ -152,8 +152,9 @@ async def get_historical_data(
 
     Parameters
     ----------
-    station_id: int
-        the ID of the station found with get_historical_stations
+    station_id: str
+        the climate ID of the station, as given in the 'id' row of
+        get_historical_stations (e.g., '702S006').
     daterange: tuple of datetime
         the dates between which the data are retrieved, in either order
     timeframe: str
@@ -214,7 +215,7 @@ async def get_historical_data(
 
 async def merge_weather(
     df: pd.DataFrame, 
-    station_id: int,
+    station_id: Union[int, str],
     wind_speed_flag: int = 18,
     temp_range_flag: tuple = (-10, 30),
     hum_flag: int = 90,
@@ -255,8 +256,9 @@ async def merge_weather(
     ----------
     df: DataFrame
         Input DataFrame with a datetime index.
-    station_id: int
-        The ID of the weather station.
+    station_id: str
+        The climate ID of the weather station, as given in the 'id' row of
+        get_historical_stations (e.g., '702S006').
     wind_speed_flag: int, default 18
         Threshold for wind speed flag.
     temp_range_flag: tuple, default (-10, 30)
@@ -373,6 +375,18 @@ async def merge_weather(
     return merged_df
 
 def monthlist(daterange):
+    """List the months requested from Environment Canada for a date range.
+
+    Parameters
+    ----------
+    daterange: tuple of datetime
+        the dates of the range, in either order.
+
+    Returns
+    ----------
+    list of tuple: (year, month, 1) of each month from the month of the
+        first date to the month of the last date.
+    """
     startdate, stopdate = sorted(pd.to_datetime(daterange))
 
     def total_months(dt):

@@ -34,8 +34,8 @@ def compare(
     Parameters
     ---------- 
     dfs: list of DataFrames
-        list of compatible DataFrames (typically generated with functions 
-        load_data(), NoiseMonitor.daily() or NoiseMonitor.weekly() ),
+        list of DataFrames (e.g., outputs of noisemonitor.load(),
+        noisemonitor.summary.periodic() or noisemonitor.profile functions),
         with a datetime, time or pandas.Timestamp index.
     labels: list of str
         list of labels for each DataFrame.
@@ -247,9 +247,9 @@ def harmonica(
     """
     # Raise an error if the DataFrame length is not 24
     if len(df) != 24:
-        raise ValueError("The input DataFrame must contain daily HARMONICA "
-                        "indexes computed with the daily_weekly_harmonica "
-                        "function.")
+        raise ValueError("The input DataFrame must contain the 24 hourly "
+                        "HARMONICA indexes computed with the "
+                        "summary.harmonica_periodic function.")
 
 
     figsize = kwargs.pop('figsize', (10, 5))
@@ -331,8 +331,8 @@ def line(
     Parameters
     ---------- 
     df: DataFrame
-        a compatible DataFrame (typically generated with functions load_data(),
-        NoiseMonitor.daily() or NoiseMonitor.weekly() ),
+        a DataFrame (e.g., the output of noisemonitor.load(),
+        noisemonitor.summary.periodic() or a noisemonitor.profile function),
         with a datetime, time or pandas.Timestamp index.
     *args: str
         column name(s) to be plotted.
@@ -462,9 +462,9 @@ def nday(
     show: bool = True,
     **kwargs
 ) -> None:
-    """Plots a histogram from the output of noisemonitor.indicators.nday() 
-    function with the number of days under a certain decibel range 
-    and a color coding corresponding to the indicated thresholds.
+    """Plots a histogram from the output of the noisemonitor.summary.nday()
+    function with the number of days (or weeks, or months) in each decibel
+    range and a color coding corresponding to the indicated thresholds.
 
     Parameters
     ----------
@@ -580,17 +580,19 @@ def line_weather(
     column: Union[int, str], default 0
         The column name or index for sound levels. If None, the first column
         will be used.
-    window_size: int, optional
-        The window size for rolling average. If None, no rolling average is applied.
-    show_wind_spd_flag: bool, default True
+    win: int, optional
+        window size in seconds: levels are averaged over consecutive
+        windows (noisemonitor.profile.series). If None, the samples are
+        plotted as they are.
+    include_wind_flag: bool, default True
         Whether to show the Wind Speed Flag.
-    show_rain_flag: bool, default True
+    include_rain_flag: bool, default True
         Whether to show the Rain Flag.
-    show_rel_hum_flag: bool, default True
-        Whether to show the Relative Humidity Flag.
-    show_temp_flag: bool, default False
+    include_temp_flag: bool, default False
         Whether to show the Temperature Flag.
-    show_snow_flag: bool, default True
+    include_rel_hum_flag: bool, default False
+        Whether to show the Relative Humidity Flag.
+    include_snow_flag: bool, default False
         Whether to show the Snow Flag.
     coverage_check: bool, default False
         Whether to check data coverage when computing levels.

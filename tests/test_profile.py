@@ -317,7 +317,7 @@ class TestCalculations:
         assert_close(result['TNI'], 4 * (l10 - l90) + l90 - 30)
 
     def test_periodic_npl(self):
-        """NPL = Leq + 2.56 σ (Robinson, 1969), σ the standard deviation of
+        """NPL = Leq + 2.56 σ (Robinson, 1971), σ the standard deviation of
         the levels of the window (sample, n - 1): 1 h windows of 1 s levels
         alternating 40 and 60 dB give Leq = 10 lg((10^4 + 10^6) / 2) and
         σ = 10 √(3600 / 3599)."""
@@ -329,6 +329,25 @@ class TestCalculations:
         leq = 10 * np.log10((10 ** 4 + 10 ** 6) / 2)
         assert len(result) == 2
         assert_close(result['NPL'], leq + 25.6 * np.sqrt(3600 / 3599), 1e-9)
+
+    def test_periodic_roughness_definitions(self):
+        """Roughness (Defrance et al., 2010) of one hour of 1 s levels whose
+        3599 differences are, in absolute value, 360 of 0 dB, 3202 of 2 dB
+        and 37 of 20 dB: dLav is their mean, dLmax,1 the mean of the largest
+        1 % (the 20 dB ones) and dLmin,90 the mean of the lowest 90 % (the
+        0 and 2 dB ones), 2 × 3202 / 3562 dB."""
+        steps = np.repeat([0.0, 2.0, 20.0], [360, 3202, 37])
+        signs = np.where(np.arange(steps.size) % 2, -1.0, 1.0)
+        levels = 50.0 + np.concatenate([[0.0], np.cumsum(steps * signs)])
+        df = pd.DataFrame({'LAeq': levels},
+                        index=pd.date_range('2023-01-02', periods=3600, freq='s'))
+
+        result = periodic(df, 0, 0, column=0, win=3600, roughness_indicators=True)
+
+        assert len(result) == 1
+        assert_close(result['dLav'], (2 * 3202 + 20 * 37) / 3599, 1e-12)
+        assert_close(result['dLmax,1'], 20.0, 1e-12)
+        assert_close(result['dLmin,90'], 2 * 3202 / 3562, 1e-12)
 
     @pytest.mark.parametrize("step, hour2", [(0, 23), (900, 22)],
                             ids=['hourly', 'sliding'])

@@ -116,9 +116,9 @@ def load(
 
     Returns
     ---------- 
-    DataFrame: dataframe formatted for sound level analysis when associated
-    with a LevelMonitor class. Contains a datetime (or pandas Timestamp) array
-    as index and corresponding equivalent sound level as first column.
+    DataFrame: dataframe for sound level analysis with noisemonitor
+    functions: a DatetimeIndex on a regular time grid (missing samples are
+    rows of NaN) and the selected sound level columns.
     """
 
     # Check for conflicting parameters
