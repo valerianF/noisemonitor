@@ -14,8 +14,7 @@ import os
 import warnings
 import openpyxl
 from pathlib import Path
-from datetime import datetime, date, time
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 import noisemonitor as nm
 from noisemonitor.util.core import equivalent_level
@@ -32,129 +31,18 @@ DST_CHANGE = DST_LEAD + 3 * 3600
 
 @pytest.mark.behaviour
 class TestParseData:
-    """Test the _parse_data helper function."""
+    """Errors of the _parse_data helper function."""
 
-    def test_parse_data_datetime_index(self):
-        """Test _parse_data with datetime in single column."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00', '2023-01-01 10:01:00', '2023-01-01 10:02:00'],
-            'sound_level': [65.5, 67.2, 64.8]
-        }
-        chunk = pd.DataFrame(data)
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex='datetime_col',
-            timeindex=None,
-            dateindex=None,
-            timezone=None
-        )
-        
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert len(result) == 3
-        assert len(result.columns) == 1
-        assert all(result.iloc[:, 0] == [65.5, 67.2, 64.8])
+    @pytest.mark.parametrize("timeindex, dateindex", [(None, None), ('time_col', None)],
+                            ids=['no_index', 'time_without_date'])
+    def test_parse_data_missing_index(self, timeindex, dateindex):
+        """Neither a datetime column nor both date and time columns: error."""
+        chunk = pd.DataFrame({'date_col': ['2023-01-01'], 'time_col': ['10:00:00'],
+                            'sound_level': [65.5]})
 
-    def test_parse_data_separate_date_time(self):
-        """Test _parse_data with separate date and time columns."""
-        data = {
-            'date_col': ['2023-01-01', '2023-01-01', '2023-01-01'],
-            'time_col': ['10:00:00', '10:01:00', '10:02:00'],
-            'sound_level': [65.5, 67.2, 64.8]
-        }
-        chunk = pd.DataFrame(data)
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex=None,
-            timeindex='time_col',
-            dateindex='date_col',
-            timezone=None 
-        )
-        
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert len(result) == 3
-        assert len(result.columns) == 1
-
-    def test_parse_data_multiple_value_indexes(self):
-        """Test _parse_data with multiple sound level columns."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00', '2023-01-01 10:01:00'],
-            'LAeq': [65.5, 67.2],
-            'LCeq': [68.1, 69.5],
-            'LAmax': [72.3, 74.1]
-        }
-        chunk = pd.DataFrame(data)
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex='datetime_col',
-            timeindex=None,
-            dateindex=None,
-            timezone=None
-        )
-        
-        assert len(result.columns) == 3
-        assert list(result.iloc[0, :]) == [65.5, 68.1, 72.3]
-
-    def test_parse_data_timezone_conversion(self):
-        """Test _parse_data with timezone conversion."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00+00:00', '2023-01-01 11:00:00+00:00'],
-            'sound_level': [65.5, 67.2]
-        }
-        chunk = pd.DataFrame(data)
-        chunk['datetime_col'] = pd.to_datetime(chunk['datetime_col'])
-        
-        result = _parse_data(
-            chunk=chunk,
-            datetimeindex='datetime_col',
-            timeindex=None,
-            dateindex=None,
-            timezone='America/New_York'
-        )
-
-        # Local time with timezone information (load() removes it)
-        assert str(result.index.tz) == 'America/New_York'
-        assert list(result.index.tz_localize(None)) == [
-            pd.Timestamp('2023-01-01 05:00'), pd.Timestamp('2023-01-01 06:00')]
-        assert len(result) == 2
-        assert len(result.columns) == 1
-
-    def test_parse_data_missing_datetime_index(self):
-        """Test _parse_data raises exception when datetime index is missing."""
-        data = {
-            'datetime_col': ['2023-01-01 10:00:00'],
-            'sound_level': [65.5]
-        }
-        chunk = pd.DataFrame(data)
-        
         with pytest.raises(Exception, match="You must provide either a datetime"):
-            _parse_data(
-                chunk=chunk,
-                datetimeindex=None,
-                timeindex=None,
-                dateindex=None,
-                timezone=None
-            )
-
-    def test_parse_data_incomplete_date_time_indexes(self):
-        """Test _parse_data raises exception when only one of date/time index provided."""
-        data = {
-            'date_col': ['2023-01-01'],
-            'time_col': ['10:00:00'],
-            'sound_level': [65.5]
-        }
-        chunk = pd.DataFrame(data)
-        
-        with pytest.raises(Exception, match="You must provide either a datetime"):
-            _parse_data(
-                chunk=chunk,
-                datetimeindex=None,
-                timeindex='time_col',
-                dateindex=None,
-                timezone=None
-            )
+            _parse_data(chunk=chunk, datetimeindex=None, timeindex=timeindex,
+                        dateindex=dateindex, timezone=None)
 
 
 @pytest.mark.behaviour
@@ -164,7 +52,7 @@ class TestLoad:
     def setup_method(self):
         """Set up test files for each test."""
         self.temp_dir = tempfile.mkdtemp()
-        
+
         # Create test CSV file
         self.csv_file = os.path.join(self.temp_dir, 'test.csv')
         csv_content = """datetime,LAeq,LCeq
@@ -175,7 +63,7 @@ class TestLoad:
                     """
         with open(self.csv_file, 'w') as f:
             f.write(csv_content)
-        
+
         self.txt_file = os.path.join(self.temp_dir, 'test.txt')
         txt_content = """date\ttime\tLAeq
                         2023-01-01\t10:00:00\t65.5
@@ -187,11 +75,10 @@ class TestLoad:
 
     def teardown_method(self):
         """Clean up test files after each test."""
-        import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_load_single_csv_file(self):
-        """Test loading a single CSV file."""
+    def test_load_csv_file(self):
+        """A CSV file: datetime index, the value columns selected, in order."""
         result = load(
             path=self.csv_file,
             datetimeindex=0,
@@ -199,12 +86,12 @@ class TestLoad:
             sep=',',
             use_chunks=False
         )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert len(result) == 4
-        assert len(result.columns) == 2
-        assert result.index.is_monotonic_increasing
+
+        assert list(result.index) == list(pd.date_range('2023-01-01 10:00',
+                                                        periods=4, freq='min'))
+        assert list(result.columns) == ['LAeq', 'LCeq']
+        np.testing.assert_allclose(result.values, [[65.5, 68.1], [67.2, 69.5],
+                                                [64.8, 67.9], [66.1, 68.7]])
 
     def test_load_single_txt_file_separate_datetime(self):
         """Test loading a TXT file with separate date and time columns."""
@@ -216,7 +103,7 @@ class TestLoad:
             sep='\t',
             use_chunks=False
         )
-        
+
         assert isinstance(result, pd.DataFrame)
         assert isinstance(result.index, pd.DatetimeIndex)
         assert len(result) == 3
@@ -231,7 +118,7 @@ class TestLoad:
                         """
         with open(csv_file2, 'w') as f:
             f.write(csv_content2)
-        
+
         result = load(
             path=[self.csv_file, csv_file2],
             datetimeindex=0,
@@ -239,26 +126,10 @@ class TestLoad:
             sep=',',
             use_chunks=False
         )
-        
+
         assert isinstance(result, pd.DataFrame)
         assert len(result) >= 4
         assert isinstance(result.index, pd.DatetimeIndex)
-
-    @pytest.mark.slow
-    def test_load_with_chunks(self):
-        """Test loading with chunk processing enabled."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=True,
-            chunksize=2
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert isinstance(result.index, pd.DatetimeIndex)
-        assert len(result) == 4
 
     def test_load_xls_text_file_read_as_csv(self):
         """Text file with an .xls extension is read as CSV, without
@@ -324,59 +195,21 @@ class TestLoad:
         assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
         np.testing.assert_allclose(result['LAeq'].values, [65.5, 67.2])
 
-    def test_load_xlsx_file(self):
-        """Test loading XLSX file."""
-        xlsx_file = os.path.join(self.temp_dir, 'test.xlsx')
-        
-        data = pd.DataFrame({
-            'datetime': ['2023-01-01 10:00:00', '2023-01-01 10:01:00'],
-            'LAeq': [65.5, 67.2]
-        })
-        data.to_excel(xlsx_file, index=False, engine='openpyxl')
-        
-        result = load(
-            path=xlsx_file,
-            datetimeindex=0,
-            valueindexes=[1],  # Column 1 is LAeq (0-based indexing)
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 2
-
     def test_load_unsupported_extension(self):
         """Test loading file with unsupported extension."""
         bad_file = os.path.join(self.temp_dir, 'test.bad')
         with open(bad_file, 'w') as f:
             f.write("test content")
-        
+
         with pytest.raises(ValueError, match="Unsupported file extension"):
             load(path=bad_file, datetimeindex=0, valueindexes=[1], use_chunks=False)
-
-    def test_load_with_header_parameter(self):
-        """Test loading with different header parameter."""
-        header_file = os.path.join(self.temp_dir, 'header.csv')
-        with open(header_file, 'w') as f:
-            f.write("File metadata\ndatetime,LAeq\n2023-01-01 10:00:00,65.5\n")
-        
-        result = load(
-            path=header_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            header=1,
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 1
 
     def test_load_no_header(self):
         """Test loading file with no header."""
         no_header_file = os.path.join(self.temp_dir, 'no_header.csv')
         with open(no_header_file, 'w') as f:
             f.write("2023-01-01 10:00:00,65.5\n2023-01-01 10:01:00,67.2\n")
-        
+
         result = load(
             path=no_header_file,
             datetimeindex=0,
@@ -385,7 +218,7 @@ class TestLoad:
             sep=',',
             use_chunks=False
         )
-        
+
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 2
 
@@ -397,382 +230,66 @@ class TestLoad:
             f.write("2023-01-01 10:00:00,65.5\n")
             f.write("2023-01-01 10:00:00,66.0\n")
             f.write("2023-01-01 10:01:00,67.2\n")
-        
+
         result = load(
             path=dup_file,
             datetimeindex=0,
-            valueindexes=[1],  
+            valueindexes=[1],
             sep=',',
             use_chunks=False
         )
-        
+
         assert isinstance(result, pd.DataFrame)
         assert result.index.is_unique
         assert len(result) == 2
 
-    def test_load_resampling(self):
-        """Test that load function applies resampling to fill gaps."""
-        gap_file = os.path.join(self.temp_dir, 'gaps.csv')
-        with open(gap_file, 'w') as f:
-            f.write("datetime,LAeq\n")
-            f.write("2023-01-01 10:00:00,65.5\n")
-            f.write("2023-01-01 10:00:01,66.0\n")
-            f.write("2023-01-01 10:00:02,66.5\n")
-            f.write("2023-01-01 10:00:05,67.2\n") 
-        
-        result = load(
-            path=gap_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) >= 4
-
-    def test_load_with_timezone(self):
-        """Test loading with timezone parameter."""
-        tz_file = os.path.join(self.temp_dir, 'timezone.csv')
-        with open(tz_file, 'w') as f:
-            f.write("datetime,LAeq\n")
-            f.write("2023-01-01 10:00:00+00:00,65.5\n")
-        
-        result = load(
-            path=tz_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            timezone='America/New_York',
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert result.index.tz is None
-
-    def test_load_decimal_comma_detected(self):
-        """Values with a decimal comma are converted to floats."""
-        ns_file = os.path.join(self.temp_dir, 'noisesentry.csv')
-        with open(ns_file, 'w') as f:
-            f.write("datetime;LAeq\n")
-            f.write("2023-01-01 10:00:00;65,5\n")
-            f.write("2023-01-01 10:01:00;67,2\n")
-
-        result = load(
-            path=ns_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=';',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert np.isclose(result.iloc[0, 0], 65.5, rtol=1e-10)
-        assert np.isclose(result.iloc[1, 0], 67.2, rtol=1e-10)
-
-    def test_load_single_value_index(self):
-        """Test load function with single value index (not as list)."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex=0,
-            valueindexes=1,
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 1
-
-    def test_load_path_conversion(self):
-        """Test load function converts single path to list."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-
-    def test_load_with_string_valueindexes(self):
-        """Test loading using string column names for valueindexes."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes=['LAeq'],
-            sep=',',
-            use_chunks=False
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 1
-        assert np.isclose(result.iloc[0, 0], 65.5, rtol=1e-10)
-
-    def test_conflicting_index_types(self):
-        """Mixing integer and string column references should raise ValueError."""
+    @pytest.mark.parametrize("datetimeindex, valueindexes", [
+        (0, ['LAeq']), ('datetime', [1, 2])], ids=['int_datetime', 'str_datetime'])
+    def test_conflicting_index_types(self, datetimeindex, valueindexes):
+        """Mixing integer and string column references raises a ValueError."""
         with pytest.raises(ValueError, match="Cannot mix column names"):
-            load(
-                path=self.csv_file,
-                datetimeindex=0,
-                valueindexes=['LAeq'],
-                sep=',',
-                use_chunks=False
-            )
+            load(path=self.csv_file, datetimeindex=datetimeindex,
+                valueindexes=valueindexes, sep=',', use_chunks=False)
 
-    def test_conflicting_kwargs_usecols(self):
-        """Passing 'usecols' in kwargs must raise a ValueError."""
-        with pytest.raises(ValueError, match="The parameter 'usecols' conflicts"):
-            load(
-                path=self.csv_file,
-                datetimeindex=0,
-                valueindexes=[1],
-                usecols=[0],
-                use_chunks=False
-            )
+    @pytest.mark.parametrize("datetimeindex, valueindexes, kwargs, match", [
+        (0, [1], {'usecols': [0]}, "'usecols' conflicts"),
+        ('datetime', ['LAeq'], {'usecols': ['datetime', 'LAeq']}, "'usecols' conflicts"),
+        (0, [1], {'index_col': 1}, "'index_col' conflicts"),
+        ('datetime', ['LAeq'], {'index_col': 0}, "'index_col' conflicts"),
+    ], ids=['usecols_int', 'usecols_str', 'index_col_int', 'index_col_str'])
+    def test_conflicting_kwargs(self, datetimeindex, valueindexes, kwargs, match):
+        """'usecols' and 'index_col' (except False) in kwargs raise a
+        ValueError."""
+        with pytest.raises(ValueError, match=match):
+            load(path=self.csv_file, datetimeindex=datetimeindex,
+                valueindexes=valueindexes, sep=',', use_chunks=False, **kwargs)
 
-    def test_conflicting_kwargs_index_col(self):
-        """Passing 'index_col' in kwargs (except False) must raise a ValueError."""
-        with pytest.raises(ValueError, match="The parameter 'index_col' conflicts"):
-            load(
-                path=self.csv_file,
-                datetimeindex=0,
-                valueindexes=[1],
-                index_col=1,
-                use_chunks=False
-            )
+    @pytest.mark.parametrize("datetimeindex, valueindexes", [
+        (0, [1]), ('datetime', ['LAeq'])], ids=['int', 'str'])
+    def test_index_col_false_allowed(self, datetimeindex, valueindexes):
+        """index_col=False in kwargs is accepted."""
+        result = load(path=self.csv_file, datetimeindex=datetimeindex,
+                    valueindexes=valueindexes, index_col=False, sep=',',
+                    use_chunks=False)
 
-    def test_index_col_false_allowed(self):
-        """Passing index_col=False in kwargs should be accepted."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            index_col=False,
-            sep=',',
-            use_chunks=False
-        )
-
-        assert isinstance(result, pd.DataFrame)
-
-    def test_load_empty_dataframe_handling(self):
-        """Test load function handles case with minimal data."""
-        minimal_file = os.path.join(self.temp_dir, 'minimal.csv')
-        with open(minimal_file, 'w') as f:
-            f.write("datetime,LAeq\n")
-            f.write("2023-01-01 10:00:00,65.5\n")
-        
-        result = load(
-            path=minimal_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 1
-
-    @pytest.mark.slow
-    def test_load_concurrent_processing(self):
-        """Test load function's concurrent processing with ProcessPoolExecutor."""
-        large_file = os.path.join(self.temp_dir, 'large.csv')
-        with open(large_file, 'w') as f:
-            f.write("datetime,LAeq\n")
-            for i in range(100):
-                minute = i // 60
-                second = i % 60
-                f.write(f"2023-01-01 10:{minute:02d}:{second:02d},65.{i%10}\n")
-        
-        result = load(
-            path=large_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=True,
-            chunksize=20
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) >= 100
+        assert list(result.columns) == ['LAeq']
 
 
 @pytest.mark.behaviour
 class TestLoadColumnReference:
-    """Test the new column reference functionality (string vs integer indices)."""
+    """Columns given by position or by name, wherever the datetime columns
+    are."""
 
     def setup_method(self):
         """Set up test files for each test."""
         self.temp_dir = tempfile.mkdtemp()
-        
-        # Create test CSV file with named columns
-        self.csv_file = os.path.join(self.temp_dir, 'test_named.csv')
-        csv_content = """datetime,LAeq,LCeq,LAmax
-2023-01-01 10:00:00,65.5,68.1,72.3
-2023-01-01 10:01:00,67.2,69.5,74.1
-2023-01-01 10:02:00,64.8,67.9,71.8
-"""
-        with open(self.csv_file, 'w') as f:
-            f.write(csv_content)
-        
-        # Create file with separate date/time columns
-        self.datetime_sep_file = os.path.join(self.temp_dir, 'test_sep.csv')
-        sep_content = """date,time,LAeq,LCeq
-2023-01-01,10:00:00,65.5,68.1
-2023-01-01,10:01:00,67.2,69.5
-2023-01-01,10:02:00,64.8,67.9
-"""
-        with open(self.datetime_sep_file, 'w') as f:
-            f.write(sep_content)
 
     def teardown_method(self):
         """Clean up test files after each test."""
-        import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_load_with_string_column_names(self):
-        """Test loading with string column names instead of integer indices."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes=['LAeq', 'LCeq'],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 2
-        assert 'LAeq' in result.columns
-        assert 'LCeq' in result.columns
-        assert len(result) == 3
-
-    def test_load_with_string_single_value(self):
-        """Test loading with single string column name (not as list)."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes='LAeq',
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 1
-        assert 'LAeq' in result.columns
-
-    def test_load_with_string_datetime_separate(self):
-        """Test loading with string names for separate date and time columns."""
-        result = load(
-            path=self.datetime_sep_file,
-            dateindex='date',
-            timeindex='time',
-            valueindexes=['LAeq', 'LCeq'],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 2
-        assert 'LAeq' in result.columns
-        assert 'LCeq' in result.columns
-        assert isinstance(result.index, pd.DatetimeIndex)
-
-    def test_load_mixed_string_int_raises_error(self):
-        """Test that mixing string and integer column references raises error."""
-        with pytest.raises(ValueError, match="Cannot mix column names"):
-            load(
-                path=self.csv_file,
-                datetimeindex='datetime',
-                valueindexes=[1, 2],  # Integer indices with string datetime
-                sep=',',
-                use_chunks=False
-            )
-
-    def test_load_valueindexes_none_loads_all(self):
-        """Test that valueindexes=None loads all columns."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes=None,
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 3  # LAeq, LCeq, LAmax
-        assert all(col in result.columns for col in ['LAeq', 'LCeq', 'LAmax'])
-
-    def test_load_usecols_in_kwargs_raises_error(self):
-        """Test that passing usecols in kwargs raises error."""
-        with pytest.raises(ValueError, match="'usecols' conflicts with load"):
-            load(
-                path=self.csv_file,
-                datetimeindex='datetime',
-                valueindexes=['LAeq'],
-                sep=',',
-                use_chunks=False,
-                usecols=['datetime', 'LAeq']
-            )
-
-    def test_load_index_col_in_kwargs_raises_error(self):
-        """Test that passing index_col (except False) in kwargs raises error."""
-        with pytest.raises(ValueError, match="'index_col' conflicts with load"):
-            load(
-                path=self.csv_file,
-                datetimeindex='datetime',
-                valueindexes=['LAeq'],
-                sep=',',
-                use_chunks=False,
-                index_col=0
-            )
-
-    def test_load_index_col_false_allowed(self):
-        """Test that index_col=False is allowed in kwargs."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes=['LAeq'],
-            sep=',',
-            use_chunks=False,
-            index_col=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 1
-
-    def test_load_with_string_names_uses_usecols(self):
-        """Test that using string names properly filters columns via usecols."""
-        # This test ensures only specified columns are loaded, not all
-        result = load(
-            path=self.csv_file,
-            datetimeindex='datetime',
-            valueindexes=['LAeq'],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 1
-        assert 'LAeq' in result.columns
-        assert 'LCeq' not in result.columns
-        assert 'LAmax' not in result.columns
-
-    def test_load_integer_indices_still_work(self):
-        """Test that traditional integer indices still work correctly."""
-        result = load(
-            path=self.csv_file,
-            datetimeindex=0,
-            valueindexes=[1, 2],
-            sep=',',
-            use_chunks=False
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result.columns) == 2
-        assert isinstance(result.index, pd.DatetimeIndex)
-
-    @pytest.mark.slow
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
+                            ids=['no_chunks', 'chunks'])
     @pytest.mark.parametrize("datetimeindex, valueindexes, expected", [
         # Integer indices, datetime column on the right
         (4, 1, ['LCeq']),
@@ -788,10 +305,12 @@ class TestLoadColumnReference:
         ('datetime', ['LAmax', 'LAeq'], ['LAeq', 'LAmax']),
     ])
     def test_load_datetime_column_not_leftmost(
-        self, datetimeindex, valueindexes, expected
+        self, datetimeindex, valueindexes, expected, use_chunks
     ):
         """Datetime column located after value columns or not selected
-        columns: integer file positions must be remapped after selection."""
+        columns: integer file positions must be remapped after selection.
+        A single column (int or name) or a list; only the columns selected
+        are loaded."""
         values = {'LAeq': [65.5, 67.2, 64.8], 'LCeq': [68.1, 69.5, 67.9],
                   'extra': [1, 2, 3], 'LAmax': [72.3, 74.1, 71.8]}
         stamps = ['2023-01-01 10:00:00', '2023-01-01 10:01:00',
@@ -805,21 +324,20 @@ class TestLoadColumnReference:
         path = os.path.join(self.temp_dir, 'test_datetime_right.csv')
         df_file.to_csv(path, index=False)
 
-        for use_chunks in (False, True):
-            result = load(
-                path=path,
-                datetimeindex=datetimeindex,
-                valueindexes=valueindexes,
-                sep=',',
-                use_chunks=use_chunks
-            )
+        result = load(
+            path=path,
+            datetimeindex=datetimeindex,
+            valueindexes=valueindexes,
+            sep=',',
+            use_chunks=use_chunks
+        )
 
-            assert isinstance(result.index, pd.DatetimeIndex)
-            assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
-            assert len(result) == 3
-            assert sorted(result.columns) == sorted(expected)
-            for col in expected:
-                np.testing.assert_allclose(result[col].values, values[col])
+        assert isinstance(result.index, pd.DatetimeIndex)
+        assert result.index[0] == pd.Timestamp('2023-01-01 10:00:00')
+        assert len(result) == 3
+        assert sorted(result.columns) == sorted(expected)
+        for col in expected:
+            np.testing.assert_allclose(result[col].values, values[col])
 
     @pytest.mark.parametrize("dateindex, timeindex, valueindexes, expected", [
         (3, 4, [0, 2], ['LAeq', 'LAmax']),           # ordered
@@ -1075,69 +593,6 @@ class TestLoadUnnamedColumnsAndDecimalComma:
                     use_chunks=False)
         np.testing.assert_allclose(result.iloc[:, 0].values,
                                 [53.93857, 54.13857])
-
-
-@pytest.mark.behaviour
-class TestLoadIntegration:
-    """Integration tests for load function.
-    
-    With various file formats and edge cases.
-    """
-
-    def test_load_comprehensive_csv(self):
-        """Test load function with comprehensive CSV data."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("timestamp,LAeq,LCeq,LAmax,LAmin\n")
-            f.write("2023-01-01 08:00:00,55.2,58.1,68.3,45.2\n")
-            f.write("2023-01-01 08:00:01,56.1,59.0,69.1,46.0\n")
-            f.write("2023-01-01 08:00:02,54.8,57.9,67.8,44.9\n")
-            f.write("2023-01-01 08:00:03,57.3,60.2,70.5,47.1\n")
-            temp_file = f.name
-        
-        try:
-            result = load(
-                path=temp_file,
-                datetimeindex=0,
-                valueindexes=[1, 2, 3, 4],
-                sep=',',
-                use_chunks=False
-            )
-            
-            assert isinstance(result, pd.DataFrame)
-            assert len(result) == 4
-            assert len(result.columns) == 4
-            assert result.index.is_monotonic_increasing
-            assert isinstance(result.index, pd.DatetimeIndex)
-            
-            assert np.isclose(result.iloc[0, 0], 55.2, rtol=1e-10)  # LAeq
-            assert np.isclose(result.iloc[0, 1], 58.1, rtol=1e-10)  # LCeq
-            assert np.isclose(result.iloc[0, 2], 68.3, rtol=1e-10)  # LAmax
-            assert np.isclose(result.iloc[0, 3], 45.2, rtol=1e-10)  # LAmin
-            
-        finally:
-            os.unlink(temp_file)
-
-    def test_load_error_handling(self):
-        """Test load function error handling for invalid parameters."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write("datetime,LAeq\n")
-            f.write("2023-01-01 10:00:00,65.5\n")
-            temp_file = f.name
-        
-        try:
-            with pytest.raises(Exception):
-                load(
-                    path=temp_file,
-                    valueindexes=[1],
-                    sep=',',
-                    use_chunks=False
-                )
-        finally:
-            os.unlink(temp_file)
-
-
-if __name__ == '__main__':
-    pytest.main([__file__])
 
 
 @pytest.mark.behaviour

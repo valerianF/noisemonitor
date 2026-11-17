@@ -97,7 +97,9 @@ def extreme_values(
 
     filtered_count = df[column_name].notna().sum()
     filtered_out = initial_count - filtered_count
-    proportion_filtered = (filtered_out / initial_count) * 100
+    # A column without any value has nothing to filter out
+    proportion_filtered = (
+        (filtered_out / initial_count) * 100 if initial_count else 0.0)
 
     print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
 
@@ -161,7 +163,9 @@ def weather_flags(
 
     filtered_count = df[column_name].notna().sum()
     filtered_out = initial_count - filtered_count
-    proportion_filtered = (filtered_out / initial_count) * 100
+    # A column without any value has nothing to filter out
+    proportion_filtered = (
+        (filtered_out / initial_count) * 100 if initial_count else 0.0)
 
     print(f"Proportion of values filtered out: "
         f"{proportion_filtered:.2f}%")

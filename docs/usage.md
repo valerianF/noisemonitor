@@ -178,7 +178,7 @@ nm.display.line(
 
 The `noisemonitor.summary.harmonica_periodic()` function computes and plots the HARMONICA index based on Mietlicki et al. (2015). Optionally, this can be computed for specific days of the week (e.g., weekdays only).
 
-Hourly values follow the Bruitparif implementation: $\mathrm{BGN} = 0.2 \, (L_{A95eq} - 30)$, $\mathrm{EVT} = 0.25 \, (L_{Aeq} - L_{A95eq})$ and $\mathrm{HARMONICA} = \mathrm{BGN} + \mathrm{EVT}$, where $L_{A95eq}$ is the equivalent level of one $L_{A95}$ per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). The index was designed on $L_{Aeq,1s}$: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
+Hourly values follow the Bruitparif implementation: $\mathrm{BGN} = 0.2 \, (L_{A95eq} - 30)$, $\mathrm{EVT} = 0.25 \, (L_{Aeq} - L_{A95eq})$ and $\mathrm{HARMONICA} = \mathrm{BGN} + \mathrm{EVT}$, where $L_{A95eq}$ is the equivalent level of one $L_{A95}$ per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). With `day1` and `day2`, only the hourly values of the selected days are averaged, but the 10 minutes before each selected day are still used for the $L_{A95}$ of its first seconds, as for any other hour. The index was designed on $L_{Aeq,1s}$: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
 
 ```python
 # Hourly HARMONICA profile
@@ -283,11 +283,13 @@ histogram, bins = nm.summary.nday(
     df_1m,
     indicator='Lden', # Other options:  'Leq', 'Lday', 'Levening', and 'Lnight'
     bins=[50, 55, 60, 65, 70],  # Bin boundaries
-    freq='D',                    # Daily ('D') or weekly ('W')
+    freq='D',                    # Daily ('D'), weekly ('W') or monthly ('MS')
     column=0
 )
 histogram.head()
 ```
+
+The count column is named after `freq`: 'Number of Days', 'Number of Weeks' or 'Number of Months'.
 |   |	Decibel Range |	Number of Days |
 |---|-----------------|----------------|
 | 0	| [-inf, 50.0)    |	0              |
@@ -334,6 +336,8 @@ nm.display.line(
     )
 ```
 ![Time series](images/profile_series.png)
+
+With `start_at_midnight=True`, the first window starts at the first sample at or after the first midnight of the data. If less than one full window of data follows that midnight, a `ValueError` is raised.
 
 **Note:** $L_{10}$, $L_{50}$, and $L_{90}$ are shown for the example but shouldn't be computed with refresh times above one second. 
 
@@ -389,6 +393,8 @@ nm.display.compare(
 ### Number of Noise Events (NNE)
 
 The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day. For noise events, data should be sampled at 1 s or finer (Brown and De Coensel used 125 ms time histories). Events are detected on the samples as given, so their number depends on the time weighting and sampling rate of the data. Each window is counted as a record of its own, with its own threshold: its first exceedance is an event even when the window starts within it, and a following exceedance is a new event if the level stayed at or below the threshold for at least `min_gap` seconds since the previous one ended. Counts computed this way match those of Baclet and Rumpler's (2024) implementation exactly.
+
+Each day is one record from `hour1` to `hour2`. When `hour1 > hour2`, the record runs past midnight, so that a night is a single continuous record (e.g., `hour1=22, hour2=6` runs from 22:00 to 06:00 the next day). `day1` and `day2` select the day on which the record starts: `day1=day2='friday'` with `hour1=22, hour2=6` gives the night from Friday 22:00 to Saturday 06:00. A window without any data has no count and is left out of the average, with a `CoverageWarning`. With the coverage check (on by default for NNEs, 80%), the samples of a window missing because the data start or end within it count as missing.
 
 ```python
 # Average daily noise event profile
@@ -585,6 +591,10 @@ with_coverage_leq = nm.summary.leq(
 
 **Note:** A warning is raised if data coverage is not met for any of the computed periods. For $L_{den}$ computation, coverage is assessed separately for each period (day, evening, and night).
 
+Coverage counts the samples present in the data, so gaps should be NaN rows (as `nm.load()` gives them). For the daily, weekly or monthly periods of `nm.summary.periodic()` (and so `nday()` and `freq_periodic()`) and the windows of `nm.profile.nne()`, the samples missing because the data start or end within a period also count as missing: a first or last period only partly covered by the data is filtered out like any other period with gaps.
+
+Whatever `coverage_check`, a window or period without any value (all NaN, or no sample) returns NaN with a single `CoverageWarning` per call, in `nm.summary.leq()` and in `nm.profile.periodic()`, `series()` and `nne()`.
+
 ## Weather Integration
 
 The `nm.weather.weathercan` module integrates historical weather data from Environment Canada.
@@ -618,10 +628,17 @@ df_with_weather = await nm.weather.weathercan.merge_weather(
     wind_speed_flag=18,
     temp_range_flag=(-10, 30),
     hum_flag=90,
-    rolling_window_hours=48
+    rolling_window_hours=48,
+    timezone='America/Toronto'  # time zone of the noise data (Montréal)
 )
 df_with_weather.head()
 ```
+
+Environment Canada gives its hourly data in Local Standard Time (LST) all year. Weather times are converted to the local clock time of `timezone` (default `'America/Toronto'`, daylight saving time included) before merging, so that they match noise data in local time. For a station in another time zone, give its own zone (e.g., `'America/Vancouver'`); with `timezone=None`, weather times are merged in LST, which leaves weather and noise data one hour apart during daylight saving time if the noise data are in local time.
+
+Noise data at intervals of 1 h or less take the nearest hourly weather row. Coarser noise data (e.g., daily or monthly levels) take the weather of their whole period, with a warning: wind speed, temperature and humidity are averaged and flagged from these averages, precipitation is summed, and the rain and snow flags are raised if rain or snow was recorded in any hour of the period.
+
+An hour is flagged for rain or snow when it has precipitation and its `Weather` condition reports rain or snow; precipitation without a condition is then not flagged, and a warning gives the number of such hours. Some stations report no condition at all: rain and snow are then inferred from the temperature (precipitation at or above 0 °C is rain, below 0 °C snow), with a warning. Check these flags against other weather archives.
 
 | datetime | LEQ dB -A | Wind Spd (km/h) | Precip. Amount (mm) | Weather | Temp (°C) | Rel Hum (%) | Wind_Spd_Flag | Rain_Flag | Snow_Flag | Temp_Flag | Rel_Hum_Flag | Rain_Flag_Roll | Snow_Flag_Roll |
 |----------|-----------|-----------------|---------------------|---------|-----------|-------------|---------------|-----------|-----------|-----------|--------------|----------------|----------------|
@@ -653,6 +670,8 @@ contingency.head()
 | Rain in the last 48h | 51.37 | 56.65 | 0.61 | 0.55 | 61.9 |
 | No Flag - Wind | 50.53 | 56.14 | -0.23 | 0.04 | 55.2 |
 | No Flag - Rain | 49.54 | 55.08 | -1.22 | -1.02 | 38.1 |
+
+The table ends with the rows with any of the included flags raised ('Any Flag') and with none ('No Flag'). A condition met only in some periods of the day (e.g., a flag raised only at night) has no $L_{den}$ (NaN) but keeps its $L_{eq}$.
 
 **Note:** Sound level differences below 1 dB are generally considered negligible.
 

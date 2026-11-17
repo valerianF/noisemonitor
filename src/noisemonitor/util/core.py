@@ -10,7 +10,7 @@ import re
 from datetime import time
 from typing import Union, Callable, Tuple, Optional, Dict
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
 
@@ -262,6 +262,69 @@ def _lf_apply(
     result.columns.names = ['Indicator', 'Method']
     return result
 
+def _map_bands(
+    func: Callable,
+    df: pd.DataFrame,
+    chunks: bool,
+    coverage_check: bool,
+    **kwargs
+) -> Dict:
+    """Run func, a single-column function of noisemonitor (e.g.,
+    profile.periodic), on each column of df as a one-column DataFrame, with
+    coverage_check and kwargs. Return the results by column label.
+
+    With chunks, the columns are processed in parallel, each worker receiving
+    its own column only; if parallel processing is unavailable, they are
+    processed one after the other, with a RuntimeWarning. In both cases, the
+    warnings of each column are recorded (worker processes cannot emit
+    them) and emitted here, once per category, with the first message.
+    """
+    bands = {col: df.iloc[:, [i]] for i, col in enumerate(df.columns)}
+    outputs = None
+
+    if chunks:
+        try:
+            with ProcessPoolExecutor() as executor:
+                futures = {
+                    col: executor.submit(_record_warnings, func, band, column=0,
+                                        coverage_check=coverage_check, **kwargs)
+                    for col, band in bands.items()
+                }
+                outputs = {col: future.result()
+                        for col, future in futures.items()}
+        except (BrokenProcessPool, RuntimeError, OSError) as e:
+            # If multiprocessing fails (e.g., in testing environments),
+            # fall back to single-threaded processing
+            warnings.warn(
+                f"Parallel processing unavailable ({type(e).__name__}), "
+                "using single-threaded processing instead.",
+                RuntimeWarning,
+                stacklevel=3
+            )
+
+    if outputs is None:
+        outputs = {col: _record_warnings(func, band, column=0,
+                                        coverage_check=coverage_check, **kwargs)
+                for col, band in bands.items()}
+
+    emitted = set()
+    for _, caught in outputs.values():
+        for category, message in caught:
+            if category not in emitted:
+                warnings.warn(message, category, stacklevel=3)
+                emitted.add(category)
+
+    return {col: result for col, (result, _) in outputs.items()}
+
+def _record_warnings(func: Callable, *args, **kwargs) -> Tuple:
+    """Run func(*args, **kwargs) and return its result with the warnings it
+    emitted, as a list of (category, message) pairs, so that a worker
+    process can hand them back to the parent."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        result = func(*args, **kwargs)
+    return result, [(w.category, str(w.message)) for w in caught]
+
 def get_interval(df):
     """Compute the interval in seconds between rows 2 and 3, as a float
     (e.g., 0.5 for 500 ms data, 86400 for daily data).
@@ -305,18 +368,16 @@ def check_coverage(
     
     Returns
     -------
-    bool: True if coverage meets threshold, False otherwise
+    bool: True if coverage meets threshold, False otherwise (always False
+    for an empty array)
     """
-    if len(array) == 0:
-        return False
-    
-    valid_mask = ~np.isnan(array)
-    valid_count = np.sum(valid_mask)
     total_count = len(array)
-    coverage_ratio = valid_count / total_count
-    
-    passes_threshold = bool(coverage_ratio >= threshold)
-    
+    if total_count == 0:
+        passes_threshold = False
+    else:
+        valid_count = np.sum(~np.isnan(array))
+        passes_threshold = bool(valid_count / total_count >= threshold)
+
     if emit_warning and not passes_threshold:
         warnings.warn(
             f"Insufficient data coverage detected: "
@@ -410,8 +471,8 @@ def harmonica(
                     ))
                     previous_data = group
 
-                for future in as_completed(futures):
-                    results.append(future.result())
+                # In submission order, so that the hours stay in time order
+                results = [future.result() for future in futures]
         except (BrokenProcessPool, RuntimeError, OSError) as e:
             # If multiprocessing fails (e.g., in testing environments),
             # fall back to single-threaded processing

@@ -4,7 +4,6 @@ import warnings
 
 from datetime import time
 from typing import Optional, Union
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from .util import filter
 from .util import core
@@ -79,12 +78,15 @@ def periodic(
         DataFrame with column names like 'L10', 'L5', etc.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Coverage counts
+        the samples present in the data: days outside the data range are
+        not counted as missing. Windows without any value (all NaN, or no
+        sample) are NaN in any case, with a CoverageWarning.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
-    ---------- 
+    ----------
     DataFrame: dataframe containing time index and daily averaged
         Leq, L10, L50 and L90 at the corresponding columns
 
@@ -157,6 +159,7 @@ def periodic(
             interval = pd.Timedelta(seconds=1)
 
     times = []
+    coverage_warning_issued = False
 
     for i in range(0, NLim):
         t = hour1*3600 + i*step + win//2
@@ -187,11 +190,20 @@ def periodic(
             passes_threshold = core.check_coverage(
                 arr,
                 coverage_threshold,
-                emit_warning = True
+                emit_warning = not coverage_warning_issued
             )
 
             if not passes_threshold:
+                coverage_warning_issued = True
                 continue
+
+        # A window without any value (all NaN, or no sample) stays NaN
+        if not arr.notna().any():
+            if not coverage_warning_issued:
+                warnings.warn("No data in some windows: they return NaN.",
+                            core.CoverageWarning, stacklevel=2)
+                coverage_warning_issued = True
+            continue
 
         averages['Leq'][i] = core.equivalent_level(arr)
         averages['L10'][i] = np.nanpercentile(arr, 90)
@@ -271,7 +283,8 @@ def freq_periodic(
         0 (default value), the function will compute non-sliding averages.
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
-        weekly levels for each frequency band.
+        weekly levels for each frequency band (one after the other, with a
+        RuntimeWarning, if parallel processing is unavailable).
     stat: Optional[Union[int, list]], default None
         statistical level(s) to compute (between 1 and 99). If provided,
         computes the corresponding percentile(s) (e.g., stat=5 computes L5).
@@ -288,65 +301,11 @@ def freq_periodic(
     """
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
-    
-    if chunks:
-        results = {}
-        with ProcessPoolExecutor() as executor:
-            futures = {
-                executor.submit(
-                    periodic,
-                    df,
-                    hour1,
-                    hour2,
-                    day1,
-                    day2,
-                    df.columns.get_loc(col),
-                    win,
-                    step,
-                    False,
-                    False,
-                    stat,
-                    coverage_check,
-                    coverage_threshold
-                ): col
-                for col in df.columns
-            }
-            has_nans = False
-            for future in as_completed(futures):
-                col = futures[future]
-                result_df = future.result()
-                results[col] = result_df
-                # Check for NaNs during collection if coverage_check is enabled
-                if coverage_check and not has_nans:
-                    has_nans = result_df.isna().any().any()
-        
-        # Emit a single warning at parent level if coverage_check found issues
-        if coverage_check and has_nans:
-            warnings.warn(
-                "Insufficient data coverage detected. "
-                "Some periods will be filtered and return NaN.",
-                core.CoverageWarning,
-                stacklevel=2
-            )
-    else:
-        results = {
-            col: periodic(
-                df,
-                hour1,
-                hour2,
-                day1,
-                day2,
-                df.columns.get_loc(col),
-                win,
-                step,
-                False,
-                False,
-                stat,
-                coverage_check,
-                coverage_threshold
-            )
-            for col in df.columns
-        }
+
+    results = core._map_bands(
+        periodic, df, chunks, coverage_check, hour1=hour1, hour2=hour2,
+        day1=day1, day2=day2, win=win, step=step, stat=stat,
+        coverage_threshold=coverage_threshold)
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
     combined_results.columns = pd.MultiIndex.from_tuples(
@@ -391,7 +350,8 @@ def freq_series(
         0 (default value), the function will compute non-rolling averages.
     chunks: bool, default True
         If set to True, the function will use parallel processing to compute
-        the series for each frequency band.
+        the series for each frequency band (one after the other, with a
+        RuntimeWarning, if parallel processing is unavailable).
     start_at_midnight: bool, default False
         If set to True, the computation will start at midnight.
     coverage_check: bool, default False
@@ -408,51 +368,10 @@ def freq_series(
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
 
-    if chunks:
-        results = {}
-        with ProcessPoolExecutor() as executor:
-            futures = {
-                executor.submit(
-                    series,
-                    df,
-                    win,
-                    step,
-                    df.columns.get_loc(col),
-                    start_at_midnight,
-                    coverage_check,
-                    coverage_threshold
-                ): col
-                for col in df.columns
-            }
-            has_nans = False
-            for future in as_completed(futures):
-                col = futures[future]
-                result_df = future.result()
-                results[col] = result_df
-                # Check for NaNs during collection if coverage_check is enabled
-                if coverage_check and not has_nans:
-                    has_nans = result_df.isna().any().any()
-        
-        if coverage_check and has_nans:
-            warnings.warn(
-                "Insufficient data coverage detected. "
-                "Some periods will be filtered and return NaN.",
-                core.CoverageWarning,
-                stacklevel=2
-            )
-    else:
-        results = {
-            col: series(
-                df,
-                win,
-                step,
-                df.columns.get_loc(col),
-                start_at_midnight,
-                coverage_check,
-                coverage_threshold
-            )
-            for col in df.columns
-        }
+    results = core._map_bands(
+        series, df, chunks, coverage_check, win=win, step=step,
+        start_at_midnight=start_at_midnight,
+        coverage_threshold=coverage_threshold)
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
     combined_results.columns = pd.MultiIndex.from_tuples(
@@ -637,7 +556,10 @@ def nne(
     background levels are relative to each day. For noise events, data
     should be sampled at 1 s or finer (e.g., 125 ms). Events are detected on
     the samples as given, so their number depends on the time weighting and
-    sampling rate of the data. Each window of each day is counted as a
+    sampling rate of the data. The days are taken from hour1, so that windows
+    past midnight belong to the night that starts at hour1 and hold
+    contiguous data (e.g., a 22-06 window on Mondays will run
+    from Mondays 22h to Tuesdays 6h). Each window of each day is counted as a
     record of its own, with its own threshold: its first exceedance is an
     event even when the window starts within it, so an exceedance spanning
     two windows counts in both. Following exceedances are new events if
@@ -671,14 +593,19 @@ def nne(
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
     day1: Optional[str], default None
-        First day of the week to include in the calculation.
+        First day of the week to include in the calculation: the day at
+        whose hour1 the windows start (e.g., with hour1=22, hour2=6 and
+        day1=day2='friday', the night from Friday 22:00 to Saturday 06:00).
     day2: Optional[str], default None
-        Last day of the week to include in the calculation.
+        Last day of the week to include in the calculation, as day1.
     coverage_check: bool, default True
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings. We recommand to use
         coverage checks for NNEs computation, as gaps in data significantly affect
-        the counts of noise events.
+        the counts of noise events. Samples of a window missing from the
+        data (window cut by the start or end of the data) count as missing.
+        Windows without any value (all NaN, or no sample) have no count in
+        any case (left out of the average), with a CoverageWarning.
     coverage_threshold: float, default 0.8
         minimum data coverage ratio required (0.0 to 1.0).
 
@@ -708,6 +635,9 @@ def nne(
             f"No window of {win} s fits between hour1={hour1} and "
             f"hour2={hour2}.")
 
+    # Samples in a full window, on the time grid of the data
+    window_count = int(round(win / core.get_interval(df)))
+
     if core.get_interval(df) > 1:
         warnings.warn("Computing the average Number of "
             "Noise Events should be done with "
@@ -715,46 +645,52 @@ def nne(
             " might not be valid for these indicators.\n",
             core.IntegrationTimeWarning, stacklevel=2)
 
-    temp_df = filter._days(df, day1, day2)
-    temp_df = filter._hours(temp_df, hour1, hour2)
+    # Each record runs from hour1 on its day over the span, past midnight if
+    # needed: shifted back by hour1, its samples fall on the date it starts,
+    # which day1 and day2 select, within [0, span) of that date
+    shifted = df.set_axis(df.index - pd.Timedelta(hours=hour1), axis=0)
+    shifted = filter._days(shifted, day1, day2)
+    record_days = shifted.index.normalize()
+    shifted = shifted[shifted.index - record_days < pd.Timedelta(hours=span)]
 
     event_times = []
     daily_event_counts = []
 
     coverage_warning_issued = False
 
-    for day, group in temp_df.groupby(temp_df.index.date):
+    for day, group in shifted.groupby(shifted.index.normalize()):
 
         day_event_counts = np.full(NLim, np.nan)
+        starts = day + pd.to_timedelta(np.arange(NLim) * step, unit='s')
+        lower = group.index.searchsorted(starts)
+        upper = group.index.searchsorted(starts + pd.Timedelta(seconds=win))
 
         for i in range(0, NLim):
-            t1 = hour1*3600 + i*step
-            t2 = hour1*3600 + i*step + win
-
-            temp = group.between_time(
-                time(
-                    hour=(t1//3600)%24,
-                    minute=(t1%3600)//60,
-                    second=(t1%3600)%60
-                ),
-                time(
-                    hour=(t2//3600)%24,
-                    minute=(t2%3600)//60,
-                    second=(t2%3600)%60
-                ),
-                inclusive='left')
+            # Window [start, start + win) of this record
+            temp = group.iloc[lower[i]:upper[i]]
 
             arr = temp.iloc[:, column]
 
             if coverage_check:
+                # Samples missing from the data (window cut by the start or
+                # end of the data) count as NaN
+                missing = np.full(max(window_count - len(arr), 0), np.nan)
                 passes_threshold = core.check_coverage(
-                    arr,
+                    np.concatenate([arr.to_numpy(dtype=float), missing]),
                     coverage_threshold,
                     emit_warning = not coverage_warning_issued
                 )
                 if not passes_threshold:
                     coverage_warning_issued = True
                     continue
+
+            # A window without any value (all NaN, or no sample) has no count
+            if not arr.notna().any():
+                if not coverage_warning_issued:
+                    warnings.warn("No data in some windows: they return NaN.",
+                                core.CoverageWarning, stacklevel=2)
+                    coverage_warning_issued = True
+                continue
 
             if background_type == 'Leq':
                 threshold = (core.equivalent_level(arr) + exceedance)
@@ -821,15 +757,18 @@ def series(
         column index (int) or column name (str) to use for calculations. 
         If None, the first column of the DataFrame will be used.
     start_at_midnight: bool, default False
-        if set to True, the computation will start at midnight.
+        if set to True, the first window starts at the first sample at or
+        after the first midnight of the data (ValueError if fewer than one
+        window of samples follow it).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Windows without
+        any value (all NaN) are NaN in any case, with a CoverageWarning.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
-    ---------- 
+    ----------
     DataFrame: dataframe containing datetime index and averaged
         Leq, L10, L50 and L90 at the corresponding columns
 
@@ -864,12 +803,17 @@ def series(
             hour=0, minute=0, second=0, microsecond=0)
         if df.index[0] > start_time:
             start_time += pd.Timedelta(days=1)
-        start_index = df.index.get_indexer(
-            [start_time], method='nearest')[0]
+        # First sample at or after midnight
+        start_index = df.index.searchsorted(start_time)
+        if N - start_index < win:
+            raise ValueError(
+                f"Insufficient data after midnight ({start_time}): need at "
+                f"least {win} samples, got {N - start_index}"
+            )
     else:
         start_index = 0
 
-    NLim = max((N - start_index - win) // step + 1, 1)
+    NLim = (N - start_index - win) // step + 1
 
     overallmean = np.full(NLim, np.nan)
     overallL10 = np.full(NLim, np.nan)
@@ -877,7 +821,6 @@ def series(
     overallL90 = np.full(NLim, np.nan)
     overalltime = []
 
-    nan_warning_issued = False
     coverage_warning_issued = False
 
     for i in range(0, NLim):
@@ -904,17 +847,18 @@ def series(
                 coverage_warning_issued = True
                 continue
 
-        overallmean[i] = core.equivalent_level(arr)
+        # A window without any value stays NaN
+        if not arr.notna().any():
+            if not coverage_warning_issued:
+                warnings.warn("No data in some windows: they return NaN.",
+                            core.CoverageWarning, stacklevel=2)
+                coverage_warning_issued = True
+            continue
 
-        if np.isnan(arr).all():
-            if not nan_warning_issued:
-                warnings.warn(f"All-NaN slice(s) encountered. "
-                            "Check for gaps in the data.")
-                nan_warning_issued = True
-        else:
-            overallL10[i] = np.nanpercentile(arr, 90)
-            overallL50[i] = np.nanpercentile(arr, 50)
-            overallL90[i] = np.nanpercentile(arr, 10)
+        overallmean[i] = core.equivalent_level(arr)
+        overallL10[i] = np.nanpercentile(arr, 90)
+        overallL50[i] = np.nanpercentile(arr, 50)
+        overallL90[i] = np.nanpercentile(arr, 10)
 
     meandf = pd.DataFrame(
         index=overalltime,

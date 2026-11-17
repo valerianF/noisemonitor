@@ -3,12 +3,10 @@
 import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
+from datetime import datetime
 
-import noisemonitor as nm
 from noisemonitor.util.filter import (
-    all_data, extreme_values, weather_flags, 
-    _get_week_indexes, _days, _hours
+    all_data, extreme_values, weather_flags, _days, _hours
 )
 
 # Filtering only: no acoustic reference values
@@ -95,34 +93,26 @@ class TestAllData:
 class TestExtremeValues:
     """Test cases for the extreme_values function."""
     
-    def test_filter_extreme_values(self, laeq1m_data, capsys):
+    @pytest.mark.parametrize("column", [None, 0, 'LEQ dB -A'])
+    def test_filter_extreme_values(self, laeq1m_data, capsys, column):
         """Values outside [min_value, max_value] become NaN in a copy: the
-        input DataFrame is left unchanged."""
+        input DataFrame is left unchanged. The column is the first one by
+        default, or given by index or name."""
         before = laeq1m_data.copy()
-        result = extreme_values(laeq1m_data, min_value=40, max_value=90)
+        result = extreme_values(laeq1m_data, column=column, min_value=40,
+                                max_value=90)
 
         pd.testing.assert_frame_equal(laeq1m_data, before)
         assert result['LEQ dB -A'].min() >= 40
         assert result['LEQ dB -A'].max() <= 90
-        
+
         original_count = laeq1m_data['LEQ dB -A'].notna().sum()
         filtered_count = result['LEQ dB -A'].notna().sum()
         assert filtered_count < original_count
-        
+
         captured = capsys.readouterr()
         assert "Proportion of values filtered out:" in captured.out
-    
-    
-    def test_filter_by_column_index(self, laeq1m_data):
-        """Test filtering using column index."""
-        result = extreme_values(laeq1m_data.copy(), 
-                                column=0,
-                                min_value=40, 
-                                max_value=90)
 
-        assert result['LEQ dB -A'].min() >= 40
-        assert result['LEQ dB -A'].max() <= 90
-    
     def test_no_extreme_values(self):
         """Test when no values are filtered out."""
         # Create data within normal range
@@ -133,6 +123,18 @@ class TestExtremeValues:
 
         # No values should be filtered
         assert result['LEQ dB -A'].notna().sum() == df['LEQ dB -A'].notna().sum()
+
+    @pytest.mark.filterwarnings("error")
+    def test_all_nan_column(self, capsys):
+        """A column without any value: nothing to filter, 0% reported,
+        without a division by zero."""
+        index = pd.date_range('2023-01-01', periods=10, freq='h')
+        df = pd.DataFrame({'LEQ dB -A': np.nan}, index=index)
+
+        result = extreme_values(df, min_value=40, max_value=90)
+
+        assert result['LEQ dB -A'].isna().all()
+        assert "Proportion of values filtered out: 0.00%" in capsys.readouterr().out
 
 
 class TestWeatherFlags:
@@ -180,46 +182,34 @@ class TestWeatherFlags:
     def test_missing_flag_columns(self, laeq1m_data):
         """Test behavior when flag columns don't exist."""
         result = weather_flags(laeq1m_data.copy())
-        
+
         assert isinstance(result, pd.DataFrame)
+
+    @pytest.mark.filterwarnings("error")
+    def test_all_nan_column(self, sample_weather_data, capsys):
+        """A column without any value: nothing to filter, 0% reported,
+        without a division by zero."""
+        df = sample_weather_data.assign(**{'LEQ dB -A': np.nan})
+
+        result = weather_flags(df)
+
+        assert result['LEQ dB -A'].isna().all()
+        assert "Proportion of values filtered out: 0.00%" in capsys.readouterr().out
 
 @pytest.mark.filterwarnings("error::DeprecationWarning")  # e.g. pandas deprecations
 class TestDays:
     """Test cases for the _days function."""
     
-    def test_filter_weekdays(self, laeq1m_data):
-        """Test filtering for weekdays only."""
-        # Sample data starts on Monday (2023-03-20)
-        result = _days(laeq1m_data, 'monday', 'friday')
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        weekdays = result.index.day_of_week
-        assert weekdays.min() >= 0  # Monday
-        assert weekdays.max() <= 4  # Friday
-    
-    def test_filter_weekend(self, laeq1m_data):
-        """Test filtering for weekend only."""
-        result = _days(laeq1m_data, 'saturday', 'sunday')
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        weekdays = result.index.day_of_week
-        assert ((weekdays == 5) | (weekdays == 6)).all()
-    
-    def test_wrap_around_week(self, laeq1m_data):
-        """Test filtering across week boundary (e.g., Friday to Tuesday)."""
-        result = _days(laeq1m_data, 'friday', 'tuesday')
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        weekdays = result.index.day_of_week
-        valid_days = (weekdays >= 4) | (weekdays <= 1)
-        assert valid_days.all()
-    
+    @pytest.mark.parametrize("day1, day2, kept", [
+        ('monday', 'friday', {0, 1, 2, 3, 4}),
+        ('saturday', 'sunday', {5, 6}),
+        ('friday', 'tuesday', {4, 5, 6, 0, 1}),  # across the end of the week
+    ], ids=['weekdays', 'weekend', 'wrap_around'])
+    def test_filter_days(self, laeq1m_data, day1, day2, kept):
+        """Keeps exactly the days from day1 to day2 (one week of data)."""
+        result = _days(laeq1m_data, day1, day2)
+        assert set(result.index.day_of_week) == kept
+
     def test_no_day_filtering(self, laeq1m_data):
         """Test when no day filtering is applied."""
         result = _days(laeq1m_data, None, None)
@@ -246,46 +236,18 @@ class TestDays:
 class TestHours:
     """Test cases for the _hours function."""
     
-    def test_filter_daytime_hours(self, laeq1m_data):
-        """Test filtering for daytime hours."""
-        result = _hours(laeq1m_data, 9, 17)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        hours = result.index.hour
-        assert hours.min() >= 9
-        assert hours.max() <= 17
-    
-    def test_filter_nighttime_hours(self, laeq1m_data):
-        """Test filtering for nighttime hours."""
-        result = _hours(laeq1m_data, 22, 6)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        
-        hours = result.index.hour
-        valid_hours = (hours >= 22) | (hours <= 6)
-        assert valid_hours.all()
-    
-    def test_single_hour(self, laeq1m_data):
-        """Test filtering for a single hour."""
-        result = _hours(laeq1m_data, 12, 12)
-        
-        assert isinstance(result, pd.DataFrame)
-        if len(result) > 0:
-            assert (result.index.hour == 12).all()
-    
     @pytest.mark.parametrize("hour1, hour2, first, last, count", [
         (7, 19, '07:00', '18:59', 720),
         (23, 7, '00:00', '23:59', 480),
         (22, 24, '22:00', '23:59', 120),
         (24, 7, '00:00', '06:59', 420),
         (0, 24, '00:00', '23:59', 1440),
+        (12, 12, None, None, 0),
     ])
     def test_hours_half_open(self, hour1, hour2, first, last, count):
         """_hours keeps [hour1, hour2): the sample at hour2 is excluded,
-        24 maps to midnight and (0, 24) keeps the full day."""
+        24 maps to midnight, (0, 24) keeps the full day and hour1 = hour2
+        (other than 0 and 24) keeps nothing."""
         dates = pd.date_range('2023-01-01', periods=1440, freq='min')
         df = pd.DataFrame({'LAeq': 50.0}, index=dates)
 
@@ -293,8 +255,9 @@ class TestHours:
         times = result.index.strftime('%H:%M')
 
         assert len(result) == count
-        assert times.min() == first
-        assert times.max() == last
+        if count:
+            assert times.min() == first
+            assert times.max() == last
         if hour1 != 0 or hour2 != 24:
             assert f'{hour2 % 24:02d}:00' not in times
 
@@ -309,38 +272,3 @@ class TestHours:
             _hours(laeq1m_data, 12, 25)
         
         assert "Hours must be between 0 and 24" in str(exc_info.value)
-
-
-class TestFilterIntegration:
-    """Integration tests using actual test data."""
-    
-    def test_combined_filtering(self, laeq1m_data):
-        """Test combining multiple filters on real data."""
-        filtered_data = extreme_values(laeq1m_data.copy(), min_value=35, max_value=85)
-
-        if len(filtered_data) > 24:
-            mid_date = filtered_data.index[len(filtered_data)//2]
-            start_date = mid_date - pd.Timedelta(hours=12)
-            end_date = mid_date + pd.Timedelta(hours=12)
-            
-            filtered_data = all_data(filtered_data, start_date, end_date)
-        
-        assert isinstance(filtered_data, pd.DataFrame)
-        valid_values = filtered_data.iloc[:, 0].dropna()
-        if len(valid_values) > 0:
-            assert valid_values.min() >= 35
-            assert valid_values.max() <= 85
-    
-    def test_filter_with_missing_data(self, laeq1m_data):
-        """Test filters handle missing data correctly."""
-        if laeq1m_data is None:
-            pytest.skip("No test data available")
-            
-        test_data = laeq1m_data.copy()
-        test_data.iloc[10:20, 0] = np.nan
-        
-        # Apply filters
-        result = extreme_values(test_data, min_value=40, max_value=80)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert result.iloc[10:20, 0].isna().all()

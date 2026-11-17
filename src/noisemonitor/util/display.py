@@ -474,7 +474,8 @@ def nday(
     bins: list of int
         List of decibel values to define the bins.
     freq: str, default 'D'
-        Frequency for the label. 'D' for daily and 'W' for weekly.
+        Frequency for the label. 'D' for daily, 'W' for weekly and 'MS'
+        for monthly.
     thresholds: list of int, default [55, 60, 65]
         Thresholds for color coding. 
     title: str, optional
@@ -529,7 +530,9 @@ def nday(
     elif freq == 'D':
         plt.ylabel('Number of Days')
     elif freq == 'W':
-            plt.ylabel('Number of Weeks')   
+        plt.ylabel('Number of Weeks')
+    elif freq == 'MS':
+        plt.ylabel('Number of Months')
 
     # Set custom x-tick labels
     ytick_labels = [f'<{bins[0]}'] + \
@@ -758,8 +761,10 @@ def compare_weather_daily(
         subsets[f'No {flag}'] = df[~df[flag]]
         subsets[flag] = df[df[flag]]
 
-    subsets['All Flags'] = df[df[list(_active_flags.keys())].any(axis=1)]
-    subsets['Neither Flags'] = df[~df[list(_active_flags.keys())].any(axis=1)]
+    # Rows with at least one active flag raised, and rows with none
+    any_flag = df[list(_active_flags.keys())].any(axis=1)
+    subsets['Any Flag'] = df[any_flag]
+    subsets['No Flag'] = df[~any_flag]
 
     weekly_levels_dict = {}
     for key, subset_df in subsets.items():
@@ -822,13 +827,13 @@ def _get_datetime_index(df: pd.DataFrame) -> np.ndarray:
     x: array-like
         Array of datetime objects for plotting.
     """
-    if isinstance(df.index[0], pd.Timestamp):
-        return df.index.to_pydatetime()
+    # pd.Timestamp is a subclass of datetime
+    if isinstance(df.index[0], datetime):
+        return pd.DatetimeIndex(df.index).to_pydatetime()
     elif isinstance(df.index[0], time):
         return _convert_datetime_index(df)
-    elif not isinstance(df.index[0], datetime):
-        raise TypeError(f'DataFrame index must be of type datetime, \
-                        time or pd.Timestamp not {type(df.index[0])}')
+    raise TypeError(f'DataFrame index must be of type datetime, '
+                    f'time or pd.Timestamp not {type(df.index[0])}')
     
 def _format_time_axis(ax, x, df) -> None:
     """
@@ -849,14 +854,16 @@ def _format_time_axis(ax, x, df) -> None:
     """
     if any(isinstance(df.index[0], t) for t in [pd.Timestamp, datetime]):
         ax.figure.autofmt_xdate()
-        if (x[-1] - x[0]).days < 7:
+        span = x[-1] - x[0]
+        if span.days < 7:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %I%p'))
         elif (x[1] - x[0]).days < 15:
+            # Data at intervals under 15 days (e.g., hourly or daily values)
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         else:
-            # Calculate total span in months to determine appropriate interval
-            total_days = (x[-1] - x[0]).days
-            total_months = total_days / 30.44  # Average days per month
+            # Data at intervals of 15 days or more (e.g., monthly values):
+            # month labels, at an interval set by the span in months
+            total_months = span.days / 30.44  # Average days per month
             
             # Set interval based on total span
             if total_months <= 24:  # Up to 2 years: show every 3 months

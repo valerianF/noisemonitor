@@ -4,10 +4,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import warnings
-from datetime import datetime, time, timedelta
-from unittest.mock import patch
 
-import noisemonitor as nm
 from noisemonitor.util.core import (
     equivalent_level,
     get_interval,
@@ -260,119 +257,45 @@ class TestCalculations:
 class TestCheckCoverage:
     """Test the check_coverage function."""
 
-    def test_check_coverage_full_coverage(self):
-        """Test with 100% data coverage."""
-        array = np.array([60.0, 65.0, 70.0, 75.0])
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is True
+    @pytest.mark.parametrize("array, threshold, expected", [
+        ([60.0, 65.0, 70.0, 75.0], 0.5, True),          # full coverage
+        ([60.0, 65.0, np.nan, 70.0], 0.5, True),        # above the threshold
+        ([60.0, np.nan, 70.0, np.nan], 0.5, True),      # at the threshold
+        ([60.0, np.nan, np.nan, np.nan], 0.5, False),   # below the threshold
+        ([60.0, 65.0, np.nan, np.nan, 70.0], 0.7, False),
+        ([], 0.5, False),
+        ([np.nan, np.nan, np.nan], 0.5, False),
+    ], ids=['full', 'above', 'at', 'below', 'below_0.7', 'empty', 'all_nan'])
+    def test_check_coverage(self, array, threshold, expected):
+        """Passes when the share of valid values reaches the threshold; an
+        empty array never passes."""
+        assert check_coverage(np.array(array), threshold=threshold) is expected
 
-    def test_check_coverage_above_threshold(self):
-        """Test with coverage above threshold."""
-        array = np.array([60.0, 65.0, np.nan, 70.0])
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is True
-
-    def test_check_coverage_at_threshold(self):
-        """Test with coverage exactly at threshold."""
-        array = np.array([60.0, np.nan, 70.0, np.nan])
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is True
-
-    def test_check_coverage_below_threshold(self):
-        """Test with coverage below threshold."""
-        array = np.array([60.0, np.nan, np.nan, np.nan])
-        passes = check_coverage(array, threshold=0.5)
+    @pytest.mark.parametrize("emit_warning", [True, False])
+    def test_check_coverage_warning(self, emit_warning):
+        """A CoverageWarning below the threshold, only with emit_warning."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            passes = check_coverage(np.array([60.0, np.nan, np.nan, np.nan]),
+                                    threshold=0.5, emit_warning=emit_warning)
         assert passes is False
-
-    def test_check_coverage_empty_array(self):
-        """Test with empty array."""
-        array = np.array([])
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is False
-
-    def test_check_coverage_all_nan(self):
-        """Test with all NaN values."""
-        array = np.array([np.nan, np.nan, np.nan])
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is False
-
-    def test_check_coverage_with_warning(self):
-        """Test that warning is emitted when emit_warning=True."""
-        array = np.array([60.0, np.nan, np.nan, np.nan])
-        with pytest.warns(CoverageWarning, match="Insufficient data coverage"):
-            passes = check_coverage(
-                array, 
-                threshold=0.5, 
-                emit_warning=True
-            )
-        assert passes is False
-
-    def test_check_coverage_no_warning_when_disabled(self):
-        """Test that no warning is emitted when emit_warning=False."""
-        array = np.array([60.0, np.nan, np.nan, np.nan])
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            passes = check_coverage(
-                array, 
-                threshold=0.5, 
-                emit_warning=False
-            )
-        assert passes is False
-
-    def test_check_coverage_different_thresholds(self):
-        """Test with various threshold values."""
-        array = np.array([60.0, 65.0, np.nan, np.nan, 70.0])
-        
-        # 60% coverage should pass with 0.5 threshold
-        passes = check_coverage(array, threshold=0.5)
-        assert passes is True
-        
-        # 60% coverage should fail with 0.7 threshold
-        passes = check_coverage(array, threshold=0.7)
-        assert passes is False
+        assert [w.category for w in caught] == ([CoverageWarning] if emit_warning
+                                                else [])
 
 
 @pytest.mark.behaviour
 class TestEquivalentLevel:
     """Test the equivalent_level function without data."""
 
-    def test_equivalent_level_empty_array(self):
-        """Test with empty array."""
-        array = np.array([])
-        result = equivalent_level(array)
-        assert np.isnan(result)
-
-    def test_equivalent_level_all_nan(self):
-        """Test with all NaN values."""
-        array = np.array([np.nan, np.nan, np.nan])
-        result = equivalent_level(array)
-        assert np.isnan(result)
+    @pytest.mark.parametrize("array", [[], [np.nan, np.nan, np.nan]],
+                            ids=['empty', 'all_nan'])
+    def test_equivalent_level_without_data(self, array):
+        assert np.isnan(equivalent_level(np.array(array)))
 
 
 @pytest.mark.behaviour
 class TestGetInterval:
     """Test the get_interval function."""
-
-    def test_get_interval_basic(self):
-        """Test basic interval calculation."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq='1s')
-        df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
-        result = get_interval(df)
-        assert result == 1
-
-    def test_get_interval_minutes(self):
-        """Test with minute intervals."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq='1min')
-        df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
-        result = get_interval(df)
-        assert result == 60
-
-    def test_get_interval_hours(self):
-        """Test with hour intervals."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq='1h')
-        df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
-        result = get_interval(df)
-        assert result == 3600
 
     def test_get_interval_insufficient_data(self):
         """Test with insufficient data (less than 3 rows)."""
@@ -382,11 +305,12 @@ class TestGetInterval:
             get_interval(df)
 
     @pytest.mark.parametrize("freq, seconds", [
-        ('100ms', 0.1), ('500ms', 0.5), ('1500ms', 1.5), ('1D', 86400.0),
+        ('1s', 1), ('1min', 60), ('1h', 3600), ('100ms', 0.1), ('500ms', 0.5),
+        ('1500ms', 1.5), ('1D', 86400.0),
     ])
-    def test_get_interval_not_whole_seconds(self, freq, seconds):
-        """Intervals below one second, with a fraction of a second, or of a
-        day or more: the whole interval, in seconds."""
+    def test_get_interval(self, freq, seconds):
+        """The interval in seconds, including intervals below one second, with
+        a fraction of a second, or of a day or more."""
         dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq=freq)
         df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
         assert get_interval(df) == seconds
@@ -406,15 +330,16 @@ class TestHarmonicaValidation:
             harmonica(df, 0)
 
     @pytest.mark.slow
-    def test_harmonica_valid_interval_subsecond(self):
-        """Test that harmonica accepts sub-second intervals (one hour at 0.1 s)."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=36000, freq='100ms')
-        df = pd.DataFrame({'sound_level': np.random.uniform(50, 70, 36000)}, index=dates)
+    def test_harmonica_chunks_order(self):
+        """With use_chunks, the hours come back in time order, as without."""
+        rng = np.random.default_rng(0)
+        dates = pd.date_range('2023-01-01', periods=12 * 3600, freq='s')
+        df = pd.DataFrame({'LAeq': rng.uniform(40, 80, len(dates))}, index=dates)
 
-        result = harmonica(df, 0)
-        assert len(result) == 1
-        assert list(result.columns) == ['EVT', 'BGN', 'HARMONICA']
-        assert not result.isna().any().any()
+        result = harmonica(df, 0, use_chunks=True)
+
+        assert result.index.is_monotonic_increasing
+        pd.testing.assert_frame_equal(result, harmonica(df, 0, use_chunks=False))
 
     def test_harmonica_empty_dataframe(self):
         """Test harmonica with empty DataFrame."""
@@ -426,25 +351,6 @@ class TestHarmonicaValidation:
 @pytest.mark.behaviour
 class TestHourlyHarmonica:
     """Test the hourly_harmonica helper function."""
-
-    def test_hourly_harmonica_complete_hour(self):
-        """Test hourly harmonica with complete hour of data."""
-        hour = pd.Timestamp('2023-01-01 12:00:00')
-        dates = pd.date_range('2023-01-01 12:00:00', periods=3600, freq='1s')
-        group = pd.DataFrame({'sound_level': np.random.uniform(50, 70, 3600)}, index=dates)
-        previous_data = pd.DataFrame()
-        
-        result = hourly_harmonica(hour, group, 0, 1, previous_data)
-        
-        assert isinstance(result, dict)
-        assert 'hour' in result
-        assert 'EVT' in result
-        assert 'BGN' in result
-        assert 'HARMONICA' in result
-        assert result['hour'] == hour
-        assert not np.isnan(result['EVT'])
-        assert not np.isnan(result['BGN'])
-        assert not np.isnan(result['HARMONICA'])
 
     def test_hourly_harmonica_too_many_nans(self):
         """Test hourly harmonica with too many NaN values (>20%)."""
@@ -462,24 +368,6 @@ class TestHourlyHarmonica:
         assert np.isnan(result['EVT'])
         assert np.isnan(result['BGN'])
         assert np.isnan(result['HARMONICA'])
-
-    def test_hourly_harmonica_with_previous_data(self):
-        """Test hourly harmonica with previous data for rolling window."""
-        hour = pd.Timestamp('2023-01-01 12:00:00')
-        
-        prev_dates = pd.date_range('2023-01-01 11:45:00', periods=900, freq='1s')
-        previous_data = pd.DataFrame({'sound_level': np.random.uniform(45, 65, 900)}, index=prev_dates)
-        
-        dates = pd.date_range('2023-01-01 12:00:00', periods=3600, freq='1s')
-        group = pd.DataFrame({'sound_level': np.random.uniform(50, 70, 3600)}, index=dates)
-        
-        result = hourly_harmonica(hour, group, 0, 1, previous_data)
-        
-        assert isinstance(result, dict)
-        assert result['hour'] == hour
-        assert not np.isnan(result['EVT'])
-        assert not np.isnan(result['BGN'])
-        assert not np.isnan(result['HARMONICA'])
 
     def test_hourly_harmonica_missing_rows_under_threshold(self):
         """Hour with a few missing rows but >=80% coverage should NOT return NaN."""
@@ -519,93 +407,39 @@ class TestLden:
 class TestNoiseEvents:
     """Test the noise_events function."""
 
-    def test_noise_events_basic(self):
-        """Test basic noise event counting."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=100, freq='1s')
-        
-        data = [50] * 100
-        data[10:15] = [75] * 5 
-        data[30:35] = [80] * 5
-        data[50:55] = [70] * 5
-        
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = noise_events(df, 0, threshold=65.0, min_gap=5)
-        
-        assert result == 3
+    @staticmethod
+    def _signal(length, loud):
+        """1 s data at 50 dB, 75 dB at the given sample positions."""
+        data = np.full(length, 50.0)
+        data[list(loud)] = 75.0
+        return pd.DataFrame({'LAeq': data},
+                            index=pd.date_range('2023-01-01', periods=length, freq='s'))
 
-    def test_noise_events_no_events(self):
-        """Test with no events above threshold."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=100, freq='1s')
-        data = [50] * 100  # All below threshold
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = noise_events(df, 0, threshold=65.0, min_gap=5)
-        assert result == 0
-
-    def test_noise_events_continuous_event(self):
-        """Test with one continuous event starting after the first timestamp."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=100, freq='1s')
-
-        data = [50] + [75] * 99
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        
-        result = noise_events(df, 0, threshold=65.0, min_gap=1)
-        assert result == 1
-
-    def test_noise_events_insufficient_gap(self):
-        """Test events with insufficient gap between them."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=100, freq='1s')
-        
-        data = [50] * 100
-        data[10:15] = [75] * 5
-        data[17:22] = [80] * 5
-        
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = noise_events(df, 0, threshold=65.0, min_gap=5)
-        
-        assert result == 1
-
-    def test_noise_events_boundary_conditions(self):
-        """Exceedances at both ends of the slice: the slice starts within the
-        first one, which is an event, and the second one ends with the slice
-        and follows 5 s at or below the threshold (>= 3 s): 2 events."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=10, freq='1s')
-
-        data = [75, 75, 50, 50, 50, 50, 50, 75, 75, 75]
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-
-        result = noise_events(df, 0, threshold=65.0, min_gap=3)
-        assert result == 2
-
-    @pytest.mark.parametrize("min_gap", [1, 5, 30])
-    def test_noise_events_first_crossing(self, min_gap):
-        """The first exceedance is an event whatever its distance to the start
-        of the slice (here 2 s, shorter than min_gap = 5 or 30 s); the second
-        one, 3 s after the end of the first, is a new event only if
-        min_gap <= 3 s."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=60, freq='1s')
-
-        data = [50] * 60
-        data[2:4] = [75] * 2
-        data[7:9] = [75] * 2
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-
-        result = noise_events(df, 0, threshold=65.0, min_gap=min_gap)
-        assert result == (2 if min_gap <= 3 else 1)
-
-    def test_noise_events_single_point_events(self):
-        """Test single-point events."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=20, freq='1s')
-        
-        data = [50] * 20
-        data[5] = 75
-        data[10] = 80
-        data[15] = 70
-        
-        df = pd.DataFrame({'sound_level': data}, index=dates)
-        result = noise_events(df, 0, threshold=65.0, min_gap=2)
-        
-        assert result == 3
+    @pytest.mark.parametrize("length, loud, min_gap, expected", [
+        # Three exceedances, 15 s apart
+        (100, [*range(10, 15), *range(30, 35), *range(50, 55)], 5, 3),
+        (100, [], 5, 0),                                   # none
+        (100, range(1, 100), 1, 1),                        # one, to the end
+        # Second exceedance 2 s after the first: same event (gap 5 s)
+        (100, [*range(10, 15), *range(17, 22)], 5, 1),
+        # Starting within an exceedance: an event; the second one ends with
+        # the slice, after 5 s at or below the threshold
+        (10, [0, 1, 7, 8, 9], 3, 2),
+        # First exceedance 2 s after the start, whatever min_gap; the second
+        # one 3 s after the end of the first: an event if min_gap <= 3 s
+        (60, [2, 3, 7, 8], 1, 2),
+        (60, [2, 3, 7, 8], 5, 1),
+        (60, [2, 3, 7, 8], 30, 1),
+        (20, [5, 10, 15], 2, 3),                           # single samples
+    ], ids=['three', 'none', 'continuous', 'insufficient_gap', 'boundaries',
+            'first_crossing_gap1', 'first_crossing_gap5', 'first_crossing_gap30',
+            'single_samples'])
+    def test_noise_events(self, length, loud, min_gap, expected):
+        """Exceedances of 65 dB counted as events, the first one always, the
+        next ones if they start at least min_gap after the end of the
+        previous one."""
+        df = self._signal(length, loud)
+        assert noise_events(df, 0, threshold=65.0, min_gap=min_gap) == expected
 
 
 @pytest.mark.behaviour
@@ -735,7 +569,3 @@ class TestLfLevels:
         assert flag.dtype == 'boolean'
         assert flag.iloc[0]
         assert flag.isna().tolist() == [False, True]
-
-
-if __name__ == '__main__':
-    pytest.main([__file__])

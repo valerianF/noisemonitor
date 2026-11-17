@@ -36,7 +36,9 @@ def harmonica_periodic(
     use_chunks: bool default True
         whether to process the data in chunks for large datasets.
     day1: Optional[str], default None
-        First day of the week to include in the calculation.
+        First day of the week to include in the calculation. The 10 min
+        before each selected day, when available, are used for the LA95 of
+        its first seconds, as for any other hour.
     day2: Optional[str], default None
         Last day of the week to include in the calculation.
 
@@ -47,9 +49,20 @@ def harmonica_periodic(
     """
     column = core._column_to_index(df, column)
 
-    # Compute hourly HARMONICA indicators
-    temp_df = filter._days(df, day1, day2)
-    harmonica_df = core.harmonica(temp_df, column, use_chunks)
+    if day1 and day2:
+        # The selected days, plus the 10 min before each of them, which hold
+        # the LA95 windows [t - 600 s, t) of its first seconds
+        days = filter._days(df, day1, day2)
+        starts = days.index.normalize().unique()
+        lead = pd.Timedelta(seconds=600)
+        keep = (df.index.normalize().isin(starts)
+                | (df.index + lead).normalize().isin(starts))
+        harmonica_df = core.harmonica(df[keep], column, use_chunks)
+        # Hourly values of the selected days only
+        harmonica_df = harmonica_df[
+            harmonica_df.index.normalize().isin(starts)]
+    else:
+        harmonica_df = core.harmonica(df, column, use_chunks)
 
     # Compute the average values for each hour of the day (NaN without data)
     daily_avg = (harmonica_df.groupby(harmonica_df.index.hour).mean()
@@ -102,7 +115,9 @@ def periodic(
         and night values in addition to the lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Samples of a
+        period missing from the data (first or last period cut by the start
+        or end of the data) count as missing.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -138,10 +153,20 @@ def periodic(
         rules[freq], closed='left', label='left')
 
     coverage_warning_issued = False
+    interval = pd.Timedelta(seconds=core.get_interval(df))
+    length = pd.tseries.frequencies.to_offset(rules[freq])
 
     for period, group in resampled:
         if len(group) > 0:
             group = group.set_axis(group.index + offset, axis=0)
+            if coverage_check:
+                # Samples of the period [start, end) missing from the data
+                # (period cut by its start or end) count as NaN: complete the
+                # period on the time grid of the data
+                start, end = period + offset, period + length + offset
+                first = start + (group.index[0] - start) % interval
+                grid = pd.date_range(first, end, freq=interval, inclusive='left')
+                group = group.reindex(group.index.union(grid))
             array = group.iloc[:, column]
 
             if coverage_check:
@@ -218,7 +243,9 @@ def freq_periodic(
         evening, and night values in addition to the Lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Samples of a
+        period missing from the data (first or last period cut by the start
+        or end of the data) count as missing.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -369,7 +396,8 @@ def lden(
         and night values in addition to the lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage.
+        with insufficient data coverage. Coverage counts the samples present
+        in the data.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -444,13 +472,15 @@ def leq(
         of the data.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Coverage counts
+        the samples present in the data. Without any value (all NaN, or no
+        sample), the levels are NaN in any case, with a CoverageWarning.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
 
     Returns
-    ---------- 
-    float: daily or weekly equivalent level rounded to two decimals. 
+    ----------
+    float: daily or weekly equivalent level rounded to two decimals.
         Statistical indicators are included if stats is set to True.
     """
     column = core._column_to_index(df, column)
@@ -458,21 +488,27 @@ def leq(
     temp = filter._days(df, day1, day2)
     array = filter._hours(temp, hour1, hour2).iloc[:, column]
 
+    passes_threshold = True
     if coverage_check:
         passes_threshold = core.check_coverage(
             array,
             coverage_threshold,
             emit_warning=True
         )
-        if not passes_threshold:
-            if stats:
-                return pd.DataFrame({
-                    'Leq': [np.nan],
-                    'L10': [np.nan],
-                    'L50': [np.nan],
-                    'L90': [np.nan]
-                })
-            return pd.DataFrame({'Leq': [np.nan]})
+    # No value at all (all NaN, or no sample): NaN levels
+    no_data = not array.notna().any()
+    if no_data and passes_threshold:
+        warnings.warn("No data between the given hours and days: the "
+                    "levels are NaN.", core.CoverageWarning, stacklevel=2)
+    if no_data or not passes_threshold:
+        if stats:
+            return pd.DataFrame({
+                'Leq': [np.nan],
+                'L10': [np.nan],
+                'L50': [np.nan],
+                'L90': [np.nan]
+            })
+        return pd.DataFrame({'Leq': [np.nan]})
 
     if stats:
         interval = core.get_interval(df)
@@ -630,8 +666,8 @@ def nday(
     start_night: int = 23,
     start_at_day: bool = False
 ) -> Tuple[pd.DataFrame, List[int]]:
-    """Compute the number of days in a dataset for which the indicators 
-    are between given values of decibels.
+    """Compute the number of days (or weeks, or months) in a dataset for
+    which the indicators are between given values of decibels.
 
     Parameters
     ----------
@@ -649,7 +685,9 @@ def nday(
         If None, the first column of the DataFrame will be used.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Samples of a
+        period missing from the data (first or last period cut by the start
+        or end of the data) count as missing.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -665,7 +703,9 @@ def nday(
     Returns
     ----------
     tuple[pd.DataFrame, List[int]] : Tuple containing a DataFrame with the
-        number of days for each decibel range and the list of bins used.
+        number of periods for each decibel range, in a column named
+        'Number of Days', 'Number of Weeks' or 'Number of Months' after
+        freq, and the list of bins used.
     """
     column = core._column_to_index(df, column)
 
@@ -698,9 +738,10 @@ def nday(
         right=False
         ).value_counts().sort_index()
 
-    # Create a DataFrame for the counts
+    # Create a DataFrame for the counts, named after the period
+    periods = {'D': 'Days', 'W': 'Weeks', 'MS': 'Months'}
     counts_df = pd.DataFrame(counts).reset_index()
-    counts_df.columns = ['Decibel Range', 'Number of Days']
+    counts_df.columns = ['Decibel Range', f'Number of {periods[freq]}']
 
     return counts_df, bins   
 

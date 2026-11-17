@@ -28,6 +28,7 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 - **Easy visualization** - Built-in plotting functions with customizable styles
 - **Data coverage validation** - Automated quality checks with configurable thresholds
 - **Weather integration** - [Canada only] Merge and analyze data with Canadian weather station data
+- **Validated with external data** - Most indicators have been validated against external datasets and reference implementations
 
 ## Installation
 
@@ -172,7 +173,8 @@ Integrate Environment Canada weather data to analyze weather impact on noise.
 
 ```python
 stations = nm.weather.weathercan.get_historical_stations(coordinates=[45.5, -73.6], radius=25)
-df_weather = await nm.weather.weathercan.merge_weather(df, station_id=30165, wind_speed_flag=18)
+df_weather = await nm.weather.weathercan.merge_weather(df, station_id=30165, wind_speed_flag=18,
+                                                       timezone='America/Toronto')  # weather times are LST
 contingency = nm.weather.weathercan.contingency_weather_flags(df_weather)
 ```
 

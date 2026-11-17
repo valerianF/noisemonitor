@@ -4,15 +4,15 @@ import pytest
 import pandas as pd
 import numpy as np
 import warnings
-from datetime import time, datetime
+from datetime import time
 
 import noisemonitor as nm
 from noisemonitor.summary import (
-    harmonica_periodic, periodic, freq_periodic, lden, leq, 
+    harmonica_periodic, periodic, freq_periodic, lden, leq,
     freq_indicators, nday, lf_periodic
 )
 from noisemonitor.util.core import (
-    CoverageWarning, IntegrationTimeWarning, _A_WEIGHTING, _C_WEIGHTING
+    CoverageWarning, _A_WEIGHTING, _C_WEIGHTING, harmonica
 )
 from tests.conftest import (
     ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, BRUITPARIF_LEVELS, GENCAT_A6,
@@ -40,6 +40,26 @@ def sample_octave_data():
         data[band] = base_level + variation
     
     return pd.DataFrame(data, index=dates)
+
+@pytest.fixture(scope="module")
+def week_harmonica_data():
+    """One week at 1 s from Monday 2024-01-08, plus the hour before it:
+    40 + 2 × (day of the week, Monday = 0) dB with up to 6 dB of noise, and
+    75 dB over the last 10 min of each day, in the LA95 windows of the
+    first seconds of the next day."""
+    index = pd.date_range('2024-01-07 23:00', '2024-01-15', freq='s',
+                        inclusive='left')
+    levels = (40 + 2 * index.day_of_week.to_numpy()
+            + np.random.default_rng(0).uniform(0, 6, len(index)))
+    levels[(index.hour == 23) & (index.minute >= 50)] = 75.0
+    return pd.DataFrame({'LAeq': levels}, index=index)
+
+
+@pytest.fixture(scope="module")
+def week_harmonica_hourly(week_harmonica_data):
+    """core.harmonica of week_harmonica_data."""
+    return harmonica(week_harmonica_data, 0)
+
 
 @pytest.fixture
 def one_loud_night_data():
@@ -199,6 +219,26 @@ class TestExternalBruitparif:
                         TOL_HARMONICA)
         assert result.drop(index=included).isna().all().all()
 
+    @pytest.mark.slow
+    def test_harmonica_periodic_one_day_of_week(self, bruitparif_1s, bruitparif_hourly,
+                                                bruitparif_span_complete):
+        """Saturday only (day1 = day2), the second day: its 24 hours give
+        Bruitparif's values, including 00:00, whose first LA95 windows lie
+        in the last 10 min of Friday."""
+        hours = bruitparif_hourly.index[bruitparif_hourly.index.day_name() == 'Saturday']
+        assert len(hours) == 24
+
+        result = harmonica_periodic(bruitparif_1s, column=0, day1='saturday',
+                                    day2='saturday')
+        complete = bruitparif_span_complete.loc[hours].to_numpy()
+
+        assert list(result.index) == [time(h) for h in range(24)]
+        for indicator in HARMONICA_INDICATORS:
+            got = result[indicator].to_numpy()
+            expected = bruitparif_hourly.loc[hours, indicator].to_numpy()
+            assert_close(got[complete], expected[complete])
+            assert_close(got[~complete], expected[~complete], TOL_HARMONICA)
+
 
 @pytest.mark.external
 class TestExternalLowFrequency:
@@ -305,10 +345,12 @@ class TestCalculations:
                 assert_close(result[col], expected[col])
 
     @pytest.mark.slow
-    @pytest.mark.parametrize("freq", ['D', 'W'])
-    def test_nday_counts(self, accra_hourly, freq):
-        """Number of days or weeks per bin, for each indicator: the values of
-        summary.periodic counted in [lower, upper) bins, NaN left out."""
+    @pytest.mark.parametrize("freq, count", [
+        ('D', 'Number of Days'), ('W', 'Number of Weeks'), ('MS', 'Number of Months')])
+    def test_nday_counts(self, accra_hourly, freq, count):
+        """Number of days, weeks or months per bin, for each indicator: the
+        values of summary.periodic counted in [lower, upper) bins, NaN left
+        out, in a column named after the period."""
         bins = [50, 55, 60, 65, 70, 75]
         edges = [-np.inf] + bins + [np.inf]
         for site, column in ACCRA_COLUMNS.items():
@@ -321,7 +363,8 @@ class TestCalculations:
                             for lower, upper in zip(edges[:-1], edges[1:])]
 
                 assert returned_bins == bins
-                assert list(result['Number of Days']) == expected
+                assert list(result.columns) == ['Decibel Range', count]
+                assert list(result[count]) == expected
                 assert sum(expected) == values.notna().sum()
                 ranges = list(result['Decibel Range'])
                 assert [r.left for r in ranges] == edges[:-1]
@@ -405,32 +448,31 @@ class TestCalculations:
             assert_close(result[(indicator, 'montano')].to_numpy(),
                         expected.to_numpy(), 1e-9)
 
-
-@pytest.mark.behaviour
-class TestHarmonicaPeriodic:
-    """Test cases for the harmonica_periodic function."""
-
-    def test_harmonica_1m(self, laeq1m_data):
-        """Test harmonica periodic raises error for intervals > 1s."""
-        # Test that it raises ValueError for insufficient data
-        with pytest.raises(
-            ValueError,
-            match="Computing the HARMONICA indicator requires"
-        ):
-            harmonica_periodic(
-                laeq1m_data, 
-                column=0
-            )
-
     @pytest.mark.slow
-    def test_harmonica_periodic_no_chunks(self, laeq1s_data):
-        """Test harmonica periodic without chunks."""
-        with pytest.warns(CoverageWarning, 
-                        match="Insufficient data coverage or gaps detected"):
-            result = harmonica_periodic(laeq1s_data, column=0, use_chunks=False)
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 24
+    @pytest.mark.parametrize("day1, day2", [
+        ('monday', 'sunday'), ('tuesday', 'monday'), ('monday', 'friday'),
+        ('friday', 'monday'), ('saturday', 'saturday')],
+        ids=['week', 'week_from_tuesday', 'weekdays', 'friday_to_monday', 'saturday'])
+    def test_harmonica_periodic_days_of_week(self, week_harmonica_data,
+                                            week_harmonica_hourly, day1, day2):
+        """The hourly values of core.harmonica on the whole data (each day
+        with the 10 min before it, here at 75 dB), averaged over the
+        selected days for each hour. Seven days give the whole week,
+        whichever day starts it."""
+        week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+                'saturday', 'sunday']
+        d1, d2 = week.index(day1), week.index(day2)
+        hourly = week_harmonica_hourly
+        selected = (hourly.index.day_of_week - d1) % 7 <= (d2 - d1) % 7
+        expected = hourly[selected].groupby(hourly.index[selected].hour).mean()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            result = harmonica_periodic(week_harmonica_data, column=0,
+                                        day1=day1, day2=day2)
+
+        assert list(result.index) == [time(h) for h in range(24)]
+        assert_close(result.to_numpy(), expected[result.columns].to_numpy())
 
 
 @pytest.mark.behaviour
@@ -441,36 +483,6 @@ class TestPeriodic:
         """Test periodic with invalid frequency."""
         with pytest.raises(ValueError, match="Invalid frequency"):
             periodic(laeq1m_data, freq='X', column=0)
-
-
-@pytest.mark.behaviour
-class TestFreq:
-    """Test cases for the frequency bands function."""
-
-    def test_freq_indicators(self, sample_octave_data):
-        """Test basic frequency indicators computation."""
-        with pytest.warns(
-            IntegrationTimeWarning,
-            match="Computing the L10, L50, and L90"
-            ):
-            result = freq_indicators(
-                sample_octave_data, 
-                stats=True,
-                hour1=6,
-                hour2=22
-            )
-        
-        assert isinstance(result, pd.DataFrame)
-
-        expected_bands = [63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 
-                        4000.0, 8000.0]
-        for band in expected_bands:
-            assert band in result.columns
-
-        expected_indicators = ['Leq', 'Lden', 'L10', 'L50', 'L90', 'Lday',
-                            'Levening', 'Lnight']
-        for indicator in expected_indicators:
-            assert indicator in result.index
 
 
 @pytest.mark.behaviour
@@ -509,23 +521,52 @@ class TestSummaryEdgeCases:
         with pytest.raises((IndexError, KeyError)):
             lden(laeq1m_data, column=99)
 
-    def test_single_day_data(self, laeq1s_data):
-        """Test functions with single day of data."""
-        single_day_data = laeq1s_data.iloc[:-1]
-        
-        result = lden(single_day_data, column=0)
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 1
-        
-        daily_result = periodic(single_day_data, freq='D', column=0)
-        assert isinstance(daily_result, pd.DataFrame)
-        print(daily_result)
-        assert len(daily_result) == 1
-
 
 @pytest.mark.behaviour
 class TestCoverageCheck:
     """Tests for coverage_check functionality across summary functions."""
+
+    @pytest.mark.parametrize("coverage_check", [False, True], ids=['no_check', 'check'])
+    @pytest.mark.parametrize("hours", [(1, 2), (3, 4)], ids=['all_nan', 'no_sample'])
+    @pytest.mark.parametrize("stats", [True, False], ids=['stats', 'leq_only'])
+    def test_leq_without_data(self, hours, stats, coverage_check):
+        """Hours without any value (all NaN, or no sample) give NaN levels,
+        with a single CoverageWarning and no numpy warning."""
+        index = pd.date_range('2024-01-01', periods=3 * 3600, freq='s')
+        levels = np.random.default_rng(0).uniform(40, 60, len(index))
+        levels[3600:7200] = np.nan  # 01:00 to 02:00; no data from 03:00
+        df = pd.DataFrame({'LAeq': levels}, index=index)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = leq(df, *hours, column=0, stats=stats,
+                        coverage_check=coverage_check)
+
+        assert [w.category for w in caught] == [CoverageWarning]
+        assert list(result.columns) == (['Leq', 'L10', 'L50', 'L90'] if stats else ['Leq'])
+        assert result.isna().all().all()
+
+    @pytest.mark.parametrize("freq, start, end, threshold", [
+        ('D', '2024-01-01 12:00', '2024-01-03 12:00', 0.6),  # 50%, 100%, 50%
+        ('W', '2024-01-03', '2024-01-17', 0.8),  # Wed to Wed: 5/7, 7/7, 2/7
+    ], ids=['daily', 'weekly'])
+    def test_periodic_cut_by_data_range(self, freq, start, end, threshold):
+        """The first and last periods, cut by the start and end of the data,
+        count their missing samples as missing: below the threshold, their
+        Leq and Lden are NaN, although all their present samples are valid.
+        Without coverage check, all three periods are kept."""
+        index = pd.date_range(start, end, freq='min', inclusive='left')
+        df = pd.DataFrame({'LAeq': 50.0}, index=index)
+
+        with pytest.warns(CoverageWarning):
+            result = periodic(df, freq=freq, coverage_check=True,
+                            coverage_threshold=threshold)
+        unchecked = periodic(df, freq=freq)
+
+        assert len(result) == 3
+        assert result.iloc[[0, 2]][['Leq', 'Lden']].isna().all().all()
+        assert_close(result['Leq'].iloc[1], 50.0)
+        assert_close(unchecked['Leq'].to_numpy(), [50.0] * 3)
 
     def test_periodic_coverage_check(self, data_with_gaps):
         """Test periodic function with coverage_check enabled."""
@@ -638,35 +679,6 @@ class TestCoverageCheck:
         total_days = result['Number of Days'].sum()
         assert total_days == 2
 
-    @pytest.mark.slow
-    def test_harmonica_periodic_coverage_check(self, laeq1s_data):
-        """Test harmonica_periodic function emits warning when coverage is below 80%."""
-        test_data = laeq1s_data[:86400].copy()  # 1 full day
-        
-        hour_mask = (test_data.index.hour == 10)
-        hour_indices = test_data.index[hour_mask]
-        np.random.seed(42)
-        nan_indices = np.random.choice(
-            hour_indices,
-            size=int(len(hour_indices) * 0.25),
-            replace=False
-        )
-        test_data.loc[nan_indices] = np.nan
-        
-        with pytest.warns(CoverageWarning, match="Insufficient data coverage or gaps detected"):
-            result = harmonica_periodic(
-                test_data,
-                column=0,
-                use_chunks=True
-            )
-        
-        assert len(result) == 24
-        assert 'HARMONICA' in result.columns
-        assert 'BGN' in result.columns
-        assert 'EVT' in result.columns
-        
-        assert isinstance(result, pd.DataFrame)
-
 @pytest.mark.behaviour
 class TestLfPeriodic:
     """Test cases for the lf_periodic function."""
@@ -725,9 +737,3 @@ class TestLfPeriodic:
     def test_invalid_frequency(self, lf_bands):
         with pytest.raises(ValueError, match="Invalid frequency"):
             lf_periodic(lf_bands, freq='X')
-
-
-
-if __name__ == "__main__":
-    # Allow running tests directly
-    pytest.main([__file__])
