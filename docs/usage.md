@@ -684,7 +684,7 @@ Environment Canada gives its hourly data in Local Standard Time (LST) all year. 
 
 Noise data at intervals of 1 h or less take the nearest hourly weather row. Coarser noise data (e.g., daily or monthly levels) take the weather of their whole period, with a warning: wind speed, temperature and humidity are averaged and flagged from these averages, precipitation is summed, and the rain and snow flags are raised if rain or snow was recorded in any hour of the period.
 
-An hour is flagged for rain or snow when it has precipitation and its `Weather` condition reports rain or snow; precipitation without a condition is then not flagged, and a warning gives the number of such hours. Some stations report no condition at all: rain and snow are then inferred from the temperature (precipitation at or above 0 °C is rain, below 0 °C snow), with a warning. Check these flags against other weather archives.
+An hour is flagged for rain or snow when it has precipitation and its `Weather` condition reports rain or snow (any condition naming them, e.g., `Freezing Rain` or `Blowing Snow`). Drizzle (freezing drizzle included) and ice pellets are counted as rain, with a warning giving the number of hours flagged from them alone, without rain reported. Precipitation without a condition is then not flagged, and a warning gives the number of such hours. Conversely, an hour reporting rain or snow without a precipitation amount is flagged from its condition alone, with a warning giving the number of such hours: some stations report conditions but no precipitation amounts (e.g., `'7025251'`, Montréal International Airport). Some stations report no condition at all: rain and snow are then inferred from the temperature (precipitation at or above 0 °C is rain, below 0 °C snow), with a warning. Check these flags against other weather archives.
 
 ### Weather contingency analysis
 
@@ -760,7 +760,7 @@ df_filtered = nm.filter.weather_flags(
 
 Output:
 ```
-Proportion of values filtered out: 44.80%
+Proportion of values filtered out: 44.44%
 ```
 
 **Note:** Weather data retrieval is asynchronous. Use `await` with `merge_weather()` or run it in an async context.
@@ -780,13 +780,18 @@ The test suite (pytest, in `tests/`) runs on every pull request and push to the 
 | Montano & Gushiken (2023)[^4] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='montano'`) | $C_{LF}$, $A_{LF}$, $C_{LF} - A_{LF}$ | 0.0501 dB (values published to 0.1 dB) |
 | Generalitat de Catalunya (2012)[^5] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='barcelona'`) | $L_{Aeq}$ and $L_{Ceq}$ of the 20–160 Hz bands, $L_f$ | 0.0501 dB (values published to 0.1 dB) |
 
-**Not yet validated against external data:**
-- **Checked internally** (tests marked `internal`, against closed-form results or the validated single-column functions):
-  - frequency-band functions: `summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series`;
-  - traffic noise indicators (TNI, NPL) and roughness indicators of `profile.periodic`;
-  - `summary.nday`;
-  - the Botsford low-frequency criterion (`method='botsford'`).
-- **No reference values:** the weather functions.
+**Validated through the functions above** (tests marked `internal`). These functions apply the externally validated computations to other selections of the data, and each test compares them with the validated function on the same selection:
+- other periods and windows of the functions in the table (weekly and monthly periods, sliding windows);
+- frequency-band functions (`summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series`): each band gives the same values as the single-column function applied to it alone;
+- `summary.nday`: counts of the validated daily values;
+- TNI of `profile.periodic`: $4(L_{10} - L_{90}) + L_{90} - 30$ from the validated $L_{10}$ and $L_{90}$, matching the formula applied to Bruitparif's hourly $L_{10}$ and $L_{90}$.
+
+**Not validated against reference values.** These rely on definitions or steps for which no published values were found; tests only check that the implementation matches its definition on synthetic signals with closed-form results:
+- NPL of `profile.periodic` ($L_{eq} + 2.56\sigma$, $\sigma$ being the sample standard deviation of the levels in the window);
+- roughness indicators of `profile.periodic` (DeFrance et al., 2010);
+- the Botsford low-frequency criterion (`method='botsford'`): same computation as the validated `'montano'` and `'barcelona'` methods, but over 20 Hz–20 kHz and with its own threshold.
+
+**Weather functions.** The reference values are the Environment Canada station data themselves. The tests check that these values are retrieved and merged as reported (tests marked `live`, against the Environment Canada service: merged values equal the station's hourly rows after conversion from Local Standard Time). They also check that the flags follow their documented rules (offline tests on simulated Environment Canada responses). Live tests are skipped unless pytest is run with `--live`; a separate workflow runs them on every pull request.
 
 ## References
 

@@ -1,4 +1,5 @@
-"""Shared by the test modules: fixtures of the internal test data
+"""Shared by the test modules: the --live option (tests marked live, which
+query online services, are skipped without it), fixtures of the internal test data
 (data/internal), and fixtures, constants and helpers of the external data
 (data/external). Constants and helpers are imported with
 `from tests.conftest import ...`.
@@ -16,6 +17,22 @@ import pandas as pd
 import pytest
 
 import noisemonitor as nm
+
+
+# Tests marked live query an online service: run only with --live
+
+def pytest_addoption(parser):
+    parser.addoption("--live", action="store_true",
+                    help="run the tests marked live, which query online services")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--live"):
+        return
+    skip = pytest.mark.skip(reason="queries an online service: run with --live")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip)
 
 
 # Internal test data

@@ -221,34 +221,21 @@ async def merge_weather(
     timezone: Optional[str] = 'America/Toronto'
 ) -> pd.DataFrame:
     """
-    Async function. Merge weather data with the input DataFrame based on the
-    datetime index. Will also include flags for weather conditions.
+    Async function. Merge hourly Environment Canada weather data into df
+    and add weather flags (True when their condition is met).
 
-    Samples at intervals of 1 h or less take the values of the hourly
-    weather row nearest to them. Coarser samples (e.g., daily LAeq,24h)
-    take the weather rows of their own period [t, t + period), period being
-    the frequency of df (e.g., a day, a week or a month) or, if it cannot be
-    inferred, its most common interval, and ending at the next sample at the
-    latest, with a UserWarning: wind speed, temperature and relative
-    humidity are averaged and their flags follow these averages,
-    precipitation is summed, 'Weather' lists the conditions met, and the
-    rain and snow flags (rolling ones included) are raised if they are
-    raised in any hour of the period. Data with fewer than 3 samples, whose
-    interval cannot be determined, always take the nearest hourly row.
+    Samples at 1 h or less take the nearest hourly row. Coarser samples
+    (e.g., daily levels) take the hourly rows of their own period, with a
+    UserWarning: values are averaged (precipitation summed) and the rain
+    and snow flags are raised if raised in any hour.
 
-    The rain and snow flags of an hour are raised when it has precipitation
-    and its 'Weather' condition reports rain or snow; precipitation without
-    a condition is then not flagged, with a UserWarning giving the number of
-    such hours. If the station reports no condition at all, rain and snow
-    are inferred from the temperature (precipitation at or above 0 °C is
-    rain, below 0 °C snow), with a UserWarning: check them against other
-    weather archives.
-
-    Environment Canada gives the times of its rows in Local Standard
-    Time (LST) all year: without timezone, they are merged as they are, so
-    the times of df must also be in standard time; with timezone, they are
-    first converted to the local clock time of that zone, daylight saving
-    time included (the time base of data loaded with noisemonitor.load).
+    Rain and snow are flagged in hours with precipitation whose 'Weather'
+    condition names rain (drizzle and ice pellets included) or snow. A
+    UserWarning is given when drizzle or ice pellets alone raise the rain
+    flag, when a condition without a precipitation amount is flagged
+    alone, when precipitation without a condition is not flagged, and when
+    a station reporting no condition gets rain (>= 0 °C) or snow (< 0 °C)
+    from the temperature. Details: usage guide, Weather Integration.
 
     Parameters
     ----------
@@ -266,10 +253,11 @@ async def merge_weather(
     rolling_window_hours: int, default 48
         Size of the rolling window for rain and snow flags in hours.
     timezone: str, optional
-        Time zone of the times of df (default: 'America/Toronto'), to convert
-        the weather times from LST to local time. At the end of daylight
-        saving time, the repeated local hour keeps its first weather row.
-        If None, weather times are kept in LST.
+        Time zone of the times of df (default: 'America/Toronto').
+        Environment Canada times are in Local Standard Time (LST) all year;
+        they are converted to the local time of this zone, daylight saving
+        time included (the repeated hour at its end keeps its first row).
+        If None, they are kept in LST.
 
     Returns
     ----------
@@ -311,7 +299,24 @@ async def merge_weather(
                 "precipitation: not flagged as rain or snow.",
                 UserWarning, stacklevel=2)
         text = hourly['Weather'].fillna('')
-        rain, snow = text.str.contains('Rain'), text.str.contains('Snow')
+        # Rain includes drizzle (e.g., 'Freezing Drizzle') and ice pellets
+        rain = text.str.contains('Rain|Drizzle|Ice Pellets')
+        snow = text.str.contains('Snow')
+        # Rain or snow reported without a precipitation amount (stations
+        # reporting conditions only): flagged from the condition alone
+        no_amount = hourly['Precip. Amount (mm)'].isna() & (rain | snow)
+        if no_amount.any():
+            warnings.warn(
+                f"No precipitation amount reported for {no_amount.sum()} "
+                "hour(s) with rain or snow: flagged from the weather "
+                "condition alone.", UserWarning, stacklevel=2)
+        precip = precip | no_amount
+        other_rain = (precip & rain & ~text.str.contains('Rain')).sum()
+        if other_rain:
+            warnings.warn(
+                f"{other_rain} hour(s) flagged as rain from a drizzle or ice "
+                "pellets condition, without rain reported.",
+                UserWarning, stacklevel=2)
     window = pd.Timedelta(hours=rolling_window_hours)
     for flag, condition in (('Rain_Flag', rain), ('Snow_Flag', snow)):
         hourly[flag] = precip & condition

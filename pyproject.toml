@@ -62,6 +62,7 @@ python_functions = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "live: queries an online service (Environment Canada); skipped unless pytest is run with --live",
     # Test categories: each test has exactly one
     "external: validation against published reference values (tests/data/external)",
     "internal: validation against values derived in the test (closed-form results on synthetic signals, or another noisemonitor function)",
