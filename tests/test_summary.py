@@ -484,6 +484,28 @@ class TestPeriodic:
         with pytest.raises(ValueError, match="Invalid frequency"):
             periodic(laeq1m_data, freq='X', column=0)
 
+    @pytest.mark.parametrize("func, single", [
+        (lden, True), (freq_indicators, True),
+        (periodic, False), (freq_periodic, False)])
+    def test_values_default(self, func, single):
+        """By default, Lday, Levening and Lnight come with the Lden of a
+        single period, not with the per-period tables."""
+        index = pd.date_range('2024-01-01', periods=2 * 24 * 60, freq='min')
+        df = pd.DataFrame({'125': 50.0, '250': 50.0}, index=index)
+        if func in (lden, periodic):
+            df = df[['125']]
+
+        result = func(df)
+
+        labels = result.index if func is freq_indicators else result.columns
+        indicators = set(labels.get_level_values(0))
+        den = {'Lday', 'Levening', 'Lnight'}
+        assert 'Lden' in indicators
+        if single:
+            assert den <= indicators
+        else:
+            assert not den & indicators
+
 
 @pytest.mark.behaviour
 class TestNday:

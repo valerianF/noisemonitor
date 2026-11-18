@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import noisemonitor as nm
 from noisemonitor.util.core import equivalent_level
-from noisemonitor.util.load import load, _parse_data
+from noisemonitor.util.load import load, _detect_sep, _parse_data
 from tests.conftest import (
     BRUITPARIF_ROWS, BRUITPARIF_TZ, EXT_PATH, assert_close
 )
@@ -596,6 +596,80 @@ class TestLoadUnnamedColumnsAndDecimalComma:
 
 
 @pytest.mark.behaviour
+class TestLoadSeparator:
+    """Separator of text files detected when sep is None (default)."""
+
+    ROWS = [('2023-01-01 10:00:00', 65.5, 68.1),
+            ('2023-01-01 10:01:00', 67.2, 69.5),
+            ('2023-01-01 10:02:00', 64.8, 67.9)]
+    DATA_DIR = Path(__file__).parent / 'data' / 'internal'
+
+    def _write(self, tmp_path, sep, decimal='.', trailing=False):
+        """ROWS under a header row, decimal separator as given, each line
+        ending with sep if trailing."""
+        end = sep if trailing else ''
+        lines = [sep.join(['datetime', 'LAeq', 'LCeq']) + end]
+        lines += [sep.join([row[0]] + [str(v).replace('.', decimal)
+                                       for v in row[1:]]) + end
+                  for row in self.ROWS]
+        path = tmp_path / 'data.csv'
+        path.write_text('\n'.join(lines) + '\n')
+        return str(path)
+
+    @pytest.mark.parametrize("trailing", [False, True])
+    @pytest.mark.parametrize("sep, decimal", [
+        (',', '.'), (';', '.'), (';', ','), ('\t', '.'), ('\t', ','), ('|', '.')])
+    def test_detected(self, tmp_path, sep, decimal, trailing):
+        """Comma-, semicolon-, tab- and pipe-separated files load without
+        sep, also with decimal commas or a separator ending each line."""
+        path = self._write(tmp_path, sep, decimal, trailing)
+
+        result = load(path, datetimeindex=0, valueindexes=None, use_chunks=False)
+
+        assert list(result.columns) == ['LAeq', 'LCeq']
+        np.testing.assert_allclose(result.values, [row[1:] for row in self.ROWS])
+
+    @pytest.mark.parametrize("name", ['test_data_decimal_comma.xls',
+                                      'test_data_decimal_dot.csv'])
+    def test_noisesentry(self, name):
+        """NoiseSentry exports (title line, blank line, then tab-separated
+        rows) load without sep as with sep='\\t'."""
+        args = dict(datetimeindex=0, valueindexes=None, header=1, use_chunks=False)
+        path = str(self.DATA_DIR / name)
+
+        pd.testing.assert_frame_equal(load(path, **args),
+                                      load(path, sep='\t', **args))
+
+    def test_given_separator_not_detected(self, tmp_path):
+        """A given sep is used as it is."""
+        path = self._write(tmp_path, ';', decimal=',')
+
+        with patch('noisemonitor.util.load._detect_sep') as detect:
+            result = load(path, datetimeindex=0, valueindexes=None, sep=';',
+                          use_chunks=False)
+
+        detect.assert_not_called()
+        np.testing.assert_allclose(result.values, [row[1:] for row in self.ROWS])
+
+    def test_excel_not_detected(self):
+        """Excel workbooks are read without separator detection."""
+        with patch('noisemonitor.util.load._detect_sep') as detect:
+            load(str(self.DATA_DIR / 'test_data_binary.xls'), datetimeindex=0,
+                 header=2, use_chunks=False)
+
+        detect.assert_not_called()
+
+    def test_no_separator_found(self, tmp_path):
+        """Without a separator on every line, ',' (pandas' default) is
+        used."""
+        path = tmp_path / 'data.txt'
+        path.write_text('datetime LAeq\n2023-01-01 10:00:00 65.5\n'
+                        '2023-01-01 10:01:00;67.2\n')
+
+        assert _detect_sep(str(path), 0, {}) == ','
+
+
+@pytest.mark.behaviour
 class TestLoadTimestamps:
     """Sub-second timestamps, Excel date and time cells, numeric timestamps,
     and timestamps with a UTC offset."""
@@ -757,12 +831,13 @@ class TestLoadCompressed:
     """Compressed text files, decompressed by pandas.read_csv."""
 
     SOURCE = Path(__file__).parent / 'data' / 'internal' / 'test_data_decimal_dot.csv'
-    ARGS = dict(datetimeindex=0, valueindexes=None, header=1, sep='\t',
-                use_chunks=False)
+    ARGS = dict(datetimeindex=0, valueindexes=None, header=1, use_chunks=False)
 
+    @pytest.mark.parametrize("sep", ['\t', None], ids=['given', 'detected'])
     @pytest.mark.parametrize("suffix", ['.xz', '.gz', '.bz2', '.zip'])
-    def test_compressed_csv(self, tmp_path, suffix):
-        """A compressed copy of a .csv file loads as the file itself."""
+    def test_compressed_csv(self, tmp_path, suffix, sep):
+        """A compressed copy of a .csv file loads as the file itself, with
+        its separator given or detected."""
         path = tmp_path / f'{self.SOURCE.name}{suffix}'
         if suffix == '.zip':
             with zipfile.ZipFile(path, 'w') as archive:
@@ -772,8 +847,8 @@ class TestLoadCompressed:
             with open(self.SOURCE, 'rb') as src, opener(path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
 
-        pd.testing.assert_frame_equal(load(str(path), **self.ARGS),
-                                      load(str(self.SOURCE), **self.ARGS))
+        pd.testing.assert_frame_equal(load(str(path), sep=sep, **self.ARGS),
+                                      load(str(self.SOURCE), sep='\t', **self.ARGS))
 
     def test_compressed_excel(self, tmp_path):
         """Only .csv and .txt files can be compressed."""

@@ -12,7 +12,6 @@ from noisemonitor.util.core import (
     hourly_harmonica,
     lden,
     noise_events,
-    _column_to_index,
     _laeq_1s,
     check_coverage,
     CoverageWarning,

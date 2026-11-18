@@ -12,15 +12,13 @@ import lxml.html
 import pandas as pd
 import warnings
 import numpy as np
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from ..util.core import _column_to_index, get_interval
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from io import StringIO
-
-from typing import List, Optional
 
 from noisemonitor.summary import leq, lden
 

@@ -263,10 +263,11 @@ def freq_periodic(
     day2: Optional[str] = None,
     win: int = 3600,
     step: int = 0,
-    chunks: bool = True,
+    use_chunks: bool = True,
     stat: Optional[Union[int, list]] = None,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    chunks: Optional[bool] = None
 ) -> pd.DataFrame:
     """
     Compute daily or weekly profiles for each frequency band in the
@@ -295,7 +296,7 @@ def freq_periodic(
     step: int, default 0
         Step size to compute a sliding average, in whole seconds. If set to
         0 (default value), the function will compute non-sliding averages.
-    chunks: bool, default True
+    use_chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         weekly levels for each frequency band (one after the other, with a
         RuntimeWarning, if parallel processing is unavailable).
@@ -307,17 +308,28 @@ def freq_periodic(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    chunks: bool, optional
+        Deprecated alias of use_chunks, to be removed in noisemonitor
+        2.0.
 
     Returns
     ----------
     pd.DataFrame
         DataFrame with the levels of each window for each frequency band.
     """
+    if chunks is not None:
+        warnings.warn(
+            "'chunks' is deprecated and will be removed in noisemonitor "
+            "2.0: use 'use_chunks' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        use_chunks = chunks
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
 
     results = core._map_bands(
-        periodic, df, chunks, coverage_check, hour1=hour1, hour2=hour2,
+        periodic, df, use_chunks, coverage_check, hour1=hour1, hour2=hour2,
         day1=day1, day2=day2, win=win, step=step, stat=stat,
         coverage_threshold=coverage_threshold)
 
@@ -339,10 +351,11 @@ def freq_series(
     df: pd.DataFrame,
     win: int = 3600,
     step: int = 0,
-    chunks: bool = True,
+    use_chunks: bool = True,
     start_at_midnight: bool = False,
     coverage_check: bool = False,
-    coverage_threshold: float = 0.5
+    coverage_threshold: float = 0.5,
+    chunks: Optional[bool] = None
 ) -> pd.DataFrame:
     """
     Compute time series of sound levels for each frequency band in the
@@ -360,7 +373,7 @@ def freq_series(
     step: int, default 0
         Step size to compute a rolling average, in whole seconds. If set to
         0 (default value), the function will compute non-rolling averages.
-    chunks: bool, default True
+    use_chunks: bool, default True
         If set to True, the function will use parallel processing to compute
         the series for each frequency band (one after the other, with a
         RuntimeWarning, if parallel processing is unavailable).
@@ -372,17 +385,28 @@ def freq_series(
         with insufficient data coverage and emit warnings.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
+    chunks: bool, optional
+        Deprecated alias of use_chunks, to be removed in noisemonitor
+        2.0.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with time series for each frequency band.
     """
+    if chunks is not None:
+        warnings.warn(
+            "'chunks' is deprecated and will be removed in noisemonitor "
+            "2.0: use 'use_chunks' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        use_chunks = chunks
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
 
     results = core._map_bands(
-        series, df, chunks, coverage_check, win=win, step=step,
+        series, df, use_chunks, coverage_check, win=win, step=step,
         start_at_midnight=start_at_midnight,
         coverage_threshold=coverage_threshold)
 

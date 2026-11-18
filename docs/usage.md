@@ -10,6 +10,7 @@ This guide provides detailed examples for using noisemonitor's key features.
 - [Profile Indicators](#profile-indicators)
 - [Coverage Checking](#coverage-checking)
 - [Weather Integration (Canada only)](#weather-integration)
+- [Software testing and external validation](#software-testing-and-external-validation)
 - [References](#references)
 
 ## Data Loading
@@ -75,6 +76,8 @@ df_freq = nm.load(
 ```
 
 **Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`; `.csv` and `.txt` files can be compressed (`.xz`, `.gz`, `.bz2`, `.zip`, e.g. `data.csv.xz`). Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
+
+**Separators:** the separator of text files (tab, `;`, `,` or `|`) is detected from their first lines, so `sep` is optional; when given, it is used as is.
 
 **Dates and times:** text is parsed with dateutil; date, time and datetime cells of Excel files are also accepted. Numeric timestamps (Unix epoch, Excel serial numbers) are not supported: convert them to dates first.
 
@@ -269,7 +272,7 @@ The difference between the C- and A-weighted levels of a sound (C-A, $L_C - L_A$
 |---|---|---|---|
 | `'botsford'` | 20 Hz to 20 kHz (whole spectrum) | $L_C - L_A > 10$ dB | Berglund et al. (1999) |
 | `'montano'` (default) | 16 Hz to 200 Hz (low-frequency range of ISO 1996-2:2017) | $L_C - L_A > 15$ dB | Montano & Gushiken (2023) |
-| `'barcelona'` | 20 Hz to 160 Hz | $L_C - L_A \geq 20$ dB | Generalitat de Catalunya (2009); Ajuntament de Barcelona (2014) |
+| `'barcelona'` | 20 Hz to 160 Hz | $L_C - L_A \geq 20$ dB | Generalitat de Catalunya (2012) |
 
 The A- and C-weighted levels are computed from the band levels of each sample (weightings of IEC 61672-1:2013), so the band columns must hold Z-weighted levels, and each method needs every band of its range (other bands are ignored; a sample with a missing band is left out). Over the whole spectrum, mid and high frequencies raise the A-weighted level and can hide strong low-frequency content (unbalanced spectra, e.g. urban noise). Restricted to a low-frequency band range, C-A describes the shape of the spectrum within that range, not its level: it does not tell whether the low frequencies are audible. DIN 45680 screens indoor measurements on the whole-spectrum C-A (`'botsford'`) with 20 dB (DIN, 1997), lowered to 15 dB in its withdrawn 2013 draft (Kubicek, 2018).
 
@@ -762,16 +765,39 @@ Proportion of values filtered out: 44.80%
 
 **Note:** Weather data retrieval is asynchronous. Use `await` with `merge_weather()` or run it in an async context.
 
+## Software testing and external validation
+
+The test suite (pytest, in `tests/`) runs on every pull request and push to the main branch. Each test belongs to one of three categories, selected with pytest markers:
+- `external`: comparison with reference values computed outside noisemonitor (table below). The data files and how they were prepared are described [here](../tests/data/external/README.md).
+- `internal`: comparison with results known in closed form on synthetic signals, or with another validated noisemonitor function (e.g., each band of `profile.freq_periodic` against `profile.periodic` applied to that band alone).
+- `behaviour`: no reference value: output structure, options, errors and warnings, coverage rules, and edge cases (data gaps, windows past midnight, daylight saving time, sub-second data, file formats, separators and decimal commas).
+
+| Reference | Function | Indicators | Tolerance |
+|---|---|---|---|
+| Clark et al. (2021)[^1] | `core.equivalent_level`, `core.lden`, `summary.periodic`, `summary.lden`, `summary.leq`, `profile.periodic`, `profile.series` | $L_{Aeq,24h}$, $L_{den}$, $L_{day}$, $L_{night}$, $L_{Aeq}$ 06–22 h and 22–06 h | 0.0001 dB (0.0051 dB for `summary.lden` and `summary.leq`, both rounded to 0.01 dB) |
+| Bruitparif (2026)[^2] | `core.equivalent_level`, `profile.periodic`, `profile.series`, `summary.leq`, `core.harmonica`, `summary.harmonica_periodic` | Hourly $L_{Aeq}$, $L_{10}$, $L_{50}$, $L_{90}$, HARMONICA index, BGN, EVT | 0.0001 dB (0.0051 dB for `summary.leq`, rounded to 0.01 dB); HARMONICA, BGN, EVT: 0.0001, or 0.005 for hours with a missing second |
+| Baclet & Rumpler (2024)[^3] | `profile.nne` (`core.noise_events`) | Hourly Number of Noise Events, 128 parameter sets | Exact |
+| Montano & Gushiken (2023)[^4] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='montano'`) | $C_{LF}$, $A_{LF}$, $C_{LF} - A_{LF}$ | 0.0501 dB (values published to 0.1 dB) |
+| Generalitat de Catalunya (2012)[^5] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='barcelona'`) | $L_{Aeq}$ and $L_{Ceq}$ of the 20–160 Hz bands, $L_f$ | 0.0501 dB (values published to 0.1 dB) |
+
+**Not yet validated against external data:**
+- **Checked internally** (tests marked `internal`, against closed-form results or the validated single-column functions):
+  - frequency-band functions: `summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series`;
+  - traffic noise indicators (TNI, NPL) and roughness indicators of `profile.periodic`;
+  - `summary.nday`;
+  - the Botsford low-frequency criterion (`method='botsford'`).
+- **No reference values:** the weather functions.
+
 ## References
 
-- Ajuntament de Barcelona. (2014). Modificació dels annexos del Títol IV sobre contaminació acústica de l'Ordenança de Medi Ambient de Barcelona. *Butlletí Oficial de la Província de Barcelona*, 28 April 2014 (Annex II.7). https://bop.diba.cat/anuncis/antic/022014010172
 - Baclet, S., & Rumpler, R. (2024). Performance of a generalised algorithm for the detection of noise events from road traffic in a real urban area: A simulation study. *Applied Acoustics*, 228, 110337. https://doi.org/10.1016/j.apacoust.2024.110337
 - Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for community noise*. World Health Organization. https://www.who.int/publications/i/item/a68672
 - Brown, A. L., & De Coensel, B. (2018). A study of the performance of a generalized exceedance algorithm for detecting noise events caused by road traffic. *Applied Acoustics*, 138, 101-114. https://doi.org/10.1016/j.apacoust.2018.03.031
+- Clark, S. N. et al. (2021). Spatial modelling and inequalities of environmental noise in Accra, Ghana. *Scientific Reports*, 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. 
 - DeFrance, J., Palacino. J., & Baulac, M. (2010). Auscultation acoustique des aménagements cyclables en milieu urbain. *Proceedings of the 10ème Congrès Français d’Acoustique*, Lyon, France. https://hal.science/hal-00551186v1
 - Deutsches Institut für Normung. (1997). *DIN 45680:1997-03 Messung und Bewertung tieffrequenter Geräuschimmissionen in der Nachbarschaft*.
 - European Parliament and Council. (2002). Directive 2002/49/EC of the European Parliament and of the Council of 25 June 2002 relating to the assessment and management of environmental noise. *EUR-Lex*. http://data.europa.eu/eli/dir/2002/49/2021-07-29
-- Generalitat de Catalunya. (2009). Decret 176/2009, de 10 de novembre, pel qual s'aprova el Reglament de la Llei 16/2002, de 28 de juny, de protecció contra la contaminació acústica, i se n'adapten els annexos (Annex 3). *Diari Oficial de la Generalitat de Catalunya*, 5506. https://portaljuridic.gencat.cat/eli/es-ct/d/2009/11/10/176
+- Generalitat de Catalunya. (2012). *Guies per a la gestió i avaluació de la contaminació acústica, 10. Motor que genera soroll a baixa freqüència (A6)*. Departament de Territori i Sostenibilitat. https://mediambient.repositori.gencat.cat/bitstream/handle/20.500.14343/794/2012_10._avaluacio_baixa_frequencia.pdf?sequence=1&isAllowed=y
 - Griffiths, I. M., & Langdon, F. J. (1968). Subjective response to road traffic noise. *Journal of Sound and Vibration*, 1, 16-32, 375-378. https://doi.org/10.1016/0022-460X(68)90191-0
 - International Electrotechnical Commission. (2013). *IEC 61672-1:2013 Electroacoustics - Sound level meters - Part 1: Specifications*.
 - International Organization for Standardization. (1997). *ISO 266:1997 Acoustics - Preferred frequencies*.
@@ -780,3 +806,9 @@ Proportion of values filtered out: 44.80%
 - Mietlicki, C., Mietlicky, F., Ribeiro, C., and Gaudiber, P. (2015). The HARMONICA project, new tools to assess environmental noise and better inform the public. *Proceedings of Forum Acusticum*, Krakow, Poland. https://www.bruitparif.fr/pages/En-tete/500%20Innovation%20et%20recherche/700%20Publications%20scientifiques/2014%20-%20The%20HARMONICA%20project.pdf
 - Montano, W. A., & Gushiken, E. I. (2023). Summary of "Predicting and assessing low-frequency sound using its own bandwidth". *Proceedings of Meetings on Acoustics*, 52, 040010. https://doi.org/10.1121/2.0001880
 - Robinson, D. W. (1971). The Concept of Noise Pollution Level. *Journal of Occupational Medicine*, 13(12), 602. https://journals.lww.com/joem/toc/1971/12000
+
+[^1]: Data is available here: https://zenodo.org/records/11223686 (CC BY 4.0).
+[^2]: Data provided on request by Bruitparif (CC BY 4.0): $L_{Aeq,1s}$ of one station over two days, and Bruitparif's hourly indicators computed from it, including the HARMONICA index.
+[^3]: Data provided by the first author on request (CC BY 4.0): simulated $L_{Aeq,1s}$, and the event counts of the authors' implementation.
+[^4]: Data: Table 2 and Fig. 3.
+[^5]: Data: Tables 3 and 5.

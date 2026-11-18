@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 from matplotlib.patches import Polygon
 from matplotlib.ticker import ScalarFormatter
 from datetime import datetime, time
-from typing import List, Optional, Union
+from typing import List, Union
 from itertools import cycle
 
 from noisemonitor.profile import series, periodic
@@ -74,7 +74,7 @@ def compare(
         for arg in args:
             ax = line(df, arg, ylabel=ylabel,
                 step=step, show_points=show_points,
-                figsize=figsize, ax=ax, threshold=threshold,
+                figsize=figsize, show=False, ax=ax, threshold=threshold,
                 ylim=ylim, title=title, **kwargs)
             ax.lines[-1].set_label(f"{label} - {arg}")
 
@@ -92,7 +92,7 @@ def freq_line(
     figsize: tuple = (12, 8),
     show: bool = True,
     **kwargs
-) -> None:
+) -> matplotlib.axes.Axes:
     """
     Plot the overall levels for each frequency band.
 
@@ -105,18 +105,17 @@ def freq_line(
         Label for the y-axis.
     title: str, default "Overall Frequency Bands"
         Title for the plot.
-    figsize: tuple, default (10, 8)
+    figsize: tuple, default (12, 8)
         Figure size in inches.
     show: bool, default True
         if True, display the plot using plt.show().
-    ax: matplotlib.axes.Axes, optional
-        Axes object to plot on. If None, a new figure and axes are created.
     **kwargs: any
         Additional keyword arguments passed to the plot function.
 
     Returns
     ----------
-    None
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
 
     plt.rcParams.update({'font.size': 16})
@@ -155,6 +154,7 @@ def freq_line(
     plt.tight_layout()
     if show:
         plt.show()
+    return ax
 
 def freq_map(
     df: pd.DataFrame,
@@ -164,7 +164,7 @@ def freq_map(
     figsize: tuple = (12, 8),
     show: bool = True,
     **kwargs
-) -> None:
+) -> matplotlib.axes.Axes:
     """
     Plot a heatmap of sound levels across frequency bands over time.
 
@@ -189,7 +189,8 @@ def freq_map(
 
     Returns
     ----------
-    None
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     x = _get_datetime_index(df)
 
@@ -224,13 +225,14 @@ def freq_map(
     plt.tight_layout()
     if show:
         plt.show()
+    return ax
 
 def harmonica(
     df: pd.DataFrame,
     title: str = "HARMONICA Index Plot",
     show: bool = True,
     **kwargs
-) -> None:
+) -> matplotlib.axes.Axes:
     """Plot the HARMONICA index.
 
     Parameters
@@ -244,6 +246,11 @@ def harmonica(
     **kwargs: any
         Additional keyword arguments passed to matplotlib functions.
         Common examples: ylim, figsize, etc.
+
+    Returns
+    ----------
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     # Raise an error if the DataFrame length is not 24
     if len(df) != 24:
@@ -313,6 +320,7 @@ def harmonica(
     plt.tight_layout()
     if show:
         plt.show()
+    return ax
 
 def line(
     df: pd.DataFrame, 
@@ -322,6 +330,7 @@ def line(
     show_points: bool = False, 
     fill_background: bool = False, 
     figsize: tuple = (10,8), 
+    show: bool = True,
     ax: matplotlib.axes.Axes = None,
     threshold: float = None,
     **kwargs
@@ -350,6 +359,9 @@ def line(
         Only applied for temporal resolutions > 6/day.
     figsize: tuple, default (10,8)
         figure size in inches.
+    show: bool, default True
+        if True, display the plot using plt.show(). Set it to False to
+        add to the plot afterwards (e.g. when drawing on a given ax).
     ax: matplotlib.axes.Axes, default None
         Axes object to plot on. If None, a new figure and axes are created.
     threshold: float, optional
@@ -450,6 +462,8 @@ def line(
 
     plt.xticks(rotation=45)
     plt.tight_layout()
+    if show:
+        plt.show()
     return ax
 
 def nday(
@@ -461,7 +475,7 @@ def nday(
     figsize: tuple = (10,8),
     show: bool = True,
     **kwargs
-) -> None:
+) -> matplotlib.axes.Axes:
     """Plots a histogram from the output of the noisemonitor.summary.nday()
     function with the number of days (or weeks, or months) in each decibel
     range and a color coding corresponding to the indicated thresholds.
@@ -490,7 +504,8 @@ def nday(
 
     Returns
     ----------
-    None
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     # Extract special kwargs
     ylim = kwargs.pop('ylim', None)
@@ -552,8 +567,7 @@ def nday(
     plt.tight_layout()
     if show:
         plt.show()
-
-    return
+    return ax
 
 def line_weather(
     df: pd.DataFrame, 
@@ -569,7 +583,7 @@ def line_weather(
     show: bool = True,
     threshold: float = None,
     **kwargs
-):
+) -> matplotlib.axes.Axes:
     """
     Plot sound levels with weather flags.
 
@@ -608,7 +622,8 @@ def line_weather(
 
     Returns
     ----------
-    None
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     column = core._column_to_index(df, column)
 
@@ -632,12 +647,13 @@ def line_weather(
     step_kwargs = {k: v for k, v in kwargs.items() 
                 if k not in line_kwargs}
     
-    line(
+    ax = line(
         levels_df,
         levels_df.columns[_column_p],
         step=True,
         title=title,
         figsize=figsize,
+        show=False,
         threshold=threshold,
         **line_kwargs
     )
@@ -659,7 +675,7 @@ def line_weather(
         if include_flag:
             normalized_flag = df[flag].astype(int) * (
                 sound_max - sound_min) + sound_min
-            plt.step(
+            ax.step(
                 df.index,
                 normalized_flag,
                 label=flag,
@@ -668,12 +684,11 @@ def line_weather(
                 **step_kwargs
             )
 
-    # Add legend
-    plt.legend()
+    ax.legend()
 
-    # Show plot
     if show:
         plt.show()
+    return ax
 
 def compare_weather_daily(
     df: pd.DataFrame,
@@ -693,7 +708,7 @@ def compare_weather_daily(
     show: bool = True,
     threshold: float = None,
     **kwargs
-):
+) -> matplotlib.axes.Axes:
     """
     Compare daily level profiles with or without flags.
 
@@ -738,7 +753,8 @@ def compare_weather_daily(
 
     Returns
     ----------
-    None
+    ax: matplotlib.axes.Axes
+        Axes object containing the plot.
     """
     column = core._column_to_index(df, column)
 
@@ -784,8 +800,7 @@ def compare_weather_daily(
             coverage_threshold=coverage_threshold
         )
 
-    # Plot daily Leq profiles using nm.plot_compare
-    compare(
+    return compare(
         list(weekly_levels_dict.values()),
         list(weekly_levels_dict.keys()),
         show_col,

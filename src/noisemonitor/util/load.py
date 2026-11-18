@@ -2,13 +2,11 @@
 for analysis.
 """
 
+import csv
 import os
 import re
 import pandas as pd
-import numpy as np
-import sys
 import warnings
-import multiprocessing
 
 from datetime import date, datetime, time
 from dateutil import parser
@@ -16,7 +14,8 @@ from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
-# Number of rows inspected to detect empty unnamed columns and decimal commas.
+# Number of rows inspected to detect the separator, empty unnamed columns
+# and decimal commas.
 _SAMPLE_ROWS = 100
 # First bytes of Excel workbooks: OLE2 (.xls) and ZIP (.xlsx).
 _EXCEL_SIGNATURES = (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1', b'PK\x03\x04')
@@ -27,6 +26,12 @@ _MIXED_OFFSETS = (
 )
 # Compressions of text files (.csv, .txt), decompressed by pandas.read_csv.
 _COMPRESSIONS = ('.xz', '.gz', '.bz2', '.zip')
+# Separators tried, in this order, when sep is None: tab- and
+# semicolon-separated files can hold commas (decimal commas), not the reverse.
+_SEPARATORS = ('\t', ';', ',', '|')
+# read_csv arguments that change which lines of a file are read.
+_LINE_KWARGS = ('encoding', 'encoding_errors', 'compression', 'skiprows',
+                'comment')
 
 def load(
     path: Union[str, List[str]], 
@@ -35,7 +40,7 @@ def load(
     dateindex: Optional[Union[int, str]] = None, 
     valueindexes: Optional[Union[int, str, List[Union[int, str]]]] = 1, 
     header: Optional[int] = 0, 
-    sep: str = ',',
+    sep: Optional[str] = None,
     timezone: Optional[str] = None,
     use_chunks: bool = True,
     chunksize: int = 10000,
@@ -91,8 +96,12 @@ def load(
         no header. Blank lines are not counted in text files (.csv, .txt,
         and text files with an .xls extension) but are counted in Excel
         files.
-    sep: str, default ','
-        separator if reading .csv file(s).
+    sep: str, default None
+        separator of text files (.csv, .txt, and text files with an .xls
+        extension). If None, it is detected in each file from its first
+        100 lines from the header row: the first of tab, ';', ',' and '|'
+        found on each of these lines and the same number of times on each
+        data line; ',' if none is.
     timezone: str, default None
         timezone of the measurement site (e.g. 'Europe/Paris'), for
         timestamps written with a UTC offset (e.g. 
@@ -184,9 +193,15 @@ def load(
                     f"Unsupported file extension: {ext}{compression} "
                     "(only .csv and .txt files can be compressed).")
 
+        text = (ext in ['.csv', '.txt']
+                or (ext == '.xls' and not _is_excel_file(fp)))
+        file_sep = sep
+        if text and sep is None:
+            file_sep = _detect_sep(fp, header, kwargs)
+
         # Reading datasheet with pandas
         if ext == '.xls':
-            if _is_excel_file(fp):
+            if not text:
                 temp = pd.read_excel(
                     fp,
                     engine='calamine',
@@ -197,7 +212,7 @@ def load(
             else:
                 temp = pd.read_csv(
                     fp, 
-                    sep=sep, 
+                    sep=file_sep, 
                     header=header,
                     usecols=usecols,
                     **kwargs
@@ -213,7 +228,7 @@ def load(
         elif ext in ['.csv', '.txt']:
             temp = pd.read_csv(
                 fp, 
-                sep=sep, 
+                sep=file_sep, 
                 header=header,
                 engine='c',
                 usecols=usecols,
@@ -393,6 +408,34 @@ def _is_excel_file(path):
     .xls extension; an .xlsx workbook renamed .xls is also detected."""
     with open(path, 'rb') as f:
         return f.read(8).startswith(_EXCEL_SIGNATURES)
+
+def _detect_sep(path, header, kwargs):
+    """Separator of a text file: the first of _SEPARATORS found on each of
+    its first lines from the header row, and the same number of times on
+    each data line (a header row may lack the trailing separator of the data
+    lines); ',' if none is. The lines are read as pandas.read_csv would
+    (compression, encoding, skipped rows and blank lines) from the read_csv
+    arguments in kwargs."""
+    start = 0 if header is None else header
+    lines = pd.read_csv(
+        path,
+        sep='\x1f',
+        header=None,
+        nrows=start + _SAMPLE_ROWS + 1,
+        dtype=str,
+        quoting=csv.QUOTE_NONE,
+        keep_default_na=False,
+        engine='c',
+        **{k: v for k, v in kwargs.items() if k in _LINE_KWARGS}
+    ).iloc[start:, 0]
+    lines = [line for line in lines if line.strip()]
+    data = lines if header is None else lines[1:]
+
+    for candidate in _SEPARATORS:
+        if (data and all(candidate in line for line in lines)
+                and len({line.count(candidate) for line in data}) == 1):
+            return candidate
+    return ','
 
 def _drop_unnamed_columns(df, index_labels, header):
     """Drop columns with an empty header (named 'Unnamed: N' by pandas)

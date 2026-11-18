@@ -457,14 +457,15 @@ class TestCalculations:
         for col in expected.columns:
             assert_close(result[col], expected[col])
 
-    @pytest.mark.parametrize("chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
                             ids=['no_chunks', 'chunks'])
-    def test_freq_periodic_bands(self, bruitparif_bands, chunks):
+    def test_freq_periodic_bands(self, bruitparif_bands, use_chunks):
         """Each band (column names in mixed formats, unsorted) gives the
         values of profile.periodic on its own column, under its frequency;
         bands in ascending order."""
         params = dict(win=3600, step=1800, stat=[5, 95])
-        result = freq_periodic(bruitparif_bands, 0, 23, chunks=chunks, **params)
+        result = freq_periodic(bruitparif_bands, 0, 23, use_chunks=use_chunks,
+                            **params)
 
         assert result.columns.names == ['Indicator', 'Frequency Band']
         assert (list(result.columns.get_level_values('Frequency Band').unique())
@@ -475,13 +476,13 @@ class TestCalculations:
                 result.xs(band, axis=1, level='Frequency Band'), expected,
                 check_names=False, check_exact=True, check_like=True)
 
-    @pytest.mark.parametrize("chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
+    @pytest.mark.parametrize("use_chunks", [False, pytest.param(True, marks=pytest.mark.slow)],
                             ids=['no_chunks', 'chunks'])
-    def test_freq_series_bands(self, bruitparif_bands, chunks):
+    def test_freq_series_bands(self, bruitparif_bands, use_chunks):
         """Each band gives the values of profile.series on its own column,
         under its frequency; bands in ascending order."""
         params = dict(win=3600, step=1800)
-        result = freq_series(bruitparif_bands, chunks=chunks, **params)
+        result = freq_series(bruitparif_bands, use_chunks=use_chunks, **params)
 
         assert result.columns.names == ['Indicator', 'Frequency Band']
         assert (list(result.columns.get_level_values('Frequency Band').unique())
@@ -536,7 +537,7 @@ class TestCalculations:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', IntegrationTimeWarning)
             leq = freq_series(lf_bands[[f'{b:g}' for b in bands]],
-                            chunks=False)['Leq']
+                            use_chunks=False)['Leq']
         result = lf_series(lf_bands)
         for indicator, weighting in (('LA', _A_WEIGHTING), ('LC', _C_WEIGHTING)):
             expected = 10 * np.log10(sum(np.power(10, (leq[b] + weighting[b]) / 10)
@@ -661,10 +662,26 @@ class TestProfileEdgeCases:
 
         monkeypatch.setattr(nm.util.core, 'ProcessPoolExecutor', _BrokenPool)
         with pytest.warns(RuntimeWarning, match="Parallel processing unavailable"):
-            result = func(bruitparif_bands, *args, win=3600, chunks=True)
+            result = func(bruitparif_bands, *args, win=3600, use_chunks=True)
 
         pd.testing.assert_frame_equal(
-            result, func(bruitparif_bands, *args, win=3600, chunks=False))
+            result, func(bruitparif_bands, *args, win=3600, use_chunks=False))
+
+    @pytest.mark.parametrize("chunks", [pytest.param(True, marks=pytest.mark.slow), False])
+    @pytest.mark.parametrize("func, args", [(freq_periodic, (0, 23)), (freq_series, ())],
+                            ids=['freq_periodic', 'freq_series'])
+    def test_freq_chunks_deprecated(self, bruitparif_bands, func, args, chunks):
+        """The former keyword chunks still sets use_chunks, with a
+        DeprecationWarning."""
+        from unittest.mock import patch
+
+        with patch.object(nm.util.core, '_map_bands',
+                          wraps=nm.util.core._map_bands) as spy:
+            with pytest.warns(DeprecationWarning, match="use 'use_chunks'"):
+                func(bruitparif_bands[bruitparif_bands.columns[:1]], *args,
+                     win=3600, use_chunks=not chunks, chunks=chunks)
+
+        assert spy.call_args.args[2] is chunks
 
 
 @pytest.mark.behaviour
@@ -690,14 +707,14 @@ class TestCoverageCheck:
         assert result.iloc[empty].isna().all().all()
         assert result.drop(index=result.index[empty]).notna().all().all()
 
-    @pytest.mark.parametrize("chunks", [
+    @pytest.mark.parametrize("use_chunks", [
         False, pytest.param(True, marks=pytest.mark.slow)], ids=['sequential', 'chunks'])
     @pytest.mark.parametrize("coverage_check", [False, True], ids=['no_check', 'check'])
     @pytest.mark.parametrize("func, args", [
         (freq_periodic, dict(hour1=0, hour2=2)), (freq_series, dict())],
         ids=['freq_periodic', 'freq_series'])
     def test_freq_windows_without_data(self, nan_hour_data, func, args,
-                                    coverage_check, chunks):
+                                    coverage_check, use_chunks):
         """Two bands, each with a window without any value (01:00): a single
         CoverageWarning per call, with or without parallel processing."""
         bands = pd.concat({'125': nan_hour_data['LAeq'],
@@ -705,7 +722,7 @@ class TestCoverageCheck:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            result = func(bands, win=3600, chunks=chunks,
+            result = func(bands, win=3600, use_chunks=use_chunks,
                         coverage_check=coverage_check, **args)
 
         assert [w.category for w in caught] == [CoverageWarning]

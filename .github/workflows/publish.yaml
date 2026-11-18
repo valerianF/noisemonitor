@@ -56,11 +56,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
       - name: Generate API documentation
         run: python docs/generate_api_docs.py
 

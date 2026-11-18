@@ -16,6 +16,7 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Modules](#core-modules)
+- [Software Testing and Validation](#software-testing-and-validation)
 - [Citation](#citation)
 - [License](#license)
 
@@ -28,7 +29,7 @@ See the [Usage Guide](docs/usage.md) for detailed examples and the [API Referenc
 - **Easy visualization** - Built-in plotting functions with customizable styles
 - **Data coverage validation** - Automated quality checks with configurable thresholds
 - **Weather integration** - [Canada only] Merge and analyze data with Canadian weather station data
-- **Validated with external data** - Most indicators have been validated against external datasets and reference implementations
+- **Validated with external data** - As of v1.1.0 release, most indicators have been validated against external datasets and reference implementations (see [Software Testing and Validation](#software-testing-and-validation)).
 
 ## Installation
 
@@ -183,6 +184,10 @@ df_weather = await nm.weather.weathercan.merge_weather(df, station_id='702S006',
                                                        timezone='America/Toronto')  # weather times are LST
 contingency = nm.weather.weathercan.contingency_weather_flags(df_weather)
 ```
+
+## Software Testing and Validation
+
+**noisemonitor** is tested with pytest on every pull request and push to the main branch. Most acoustic indicators are validated against reference values computed outside the package: published measurement data (Clark et al., 2021), hourly indicators from Bruitparif including the HARMONICA index, noise event counts from Baclet and Rumpler's (2024) implementation, and published low-frequency noise examples (Montano & Gushiken, 2023; Generalitat de Catalunya, 2012). Other tests check results known in closed form, consistency between functions, and behaviour on edge cases (data gaps, daylight saving time, sub-second data, file formats). See [Software testing and external validation](docs/usage.md#software-testing-and-external-validation) in the Usage Guide for the validated functions, datasets and tolerances.
 
 ## Citation
 

@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import warnings
-import matplotlib.pyplot as plt
 
 from datetime import time
 from typing import Optional, List, Union, Tuple
@@ -112,7 +111,9 @@ def periodic(
         If None, the first column of the DataFrame will be used.
     values: bool, default False
         if set to True, the function will return individual day, evening
-        and night values in addition to the lden.
+        and night values in addition to the lden. Off by default, to keep
+        one Leq and one Lden column per period (noisemonitor.summary.lden
+        returns them by default, for a single period).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings. Samples of a
@@ -240,7 +241,8 @@ def freq_periodic(
         Periods are labelled by their start.
     values: bool, default False
         If set to True, the function will return individual day, 
-        evening, and night values in addition to the Lden.
+        evening, and night values in addition to the Lden. Off by default,
+        as in noisemonitor.summary.periodic.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings. Samples of a
@@ -306,8 +308,7 @@ def lf_periodic(
         low-frequency content when C-A > 15 dB, an empirical trigger (Montano &
         Gushiken, 2023).
     - 'barcelona': 20 Hz to 160 Hz; significant low-frequency components when
-        C-A >= 20 dB (Decree 176/2009 of Catalonia, Annex 3, also in
-        Barcelona's environmental bylaw).
+        C-A >= 20 dB (Generalitat de Catalunya, 2012).
     Restricted to a band range, C-A depends on the shape of the spectrum
     within the range, not on its level: it does not tell whether the low
     frequencies are audible.
@@ -394,7 +395,9 @@ def lden(
         If None, the first column of the DataFrame will be used.
     values: bool, default True
         If set to True, the function will return individual day, evening
-        and night values in addition to the lden.
+        and night values in addition to the lden. On by default, for a
+        single period (noisemonitor.summary.periodic, which returns one row
+        per period, leaves them out by default).
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage. Coverage counts the samples present
@@ -575,7 +578,8 @@ def freq_indicators(
         indicators (L10, L50, L90) in addition to Leq.
     values: bool, default True
         If set to True, the function will include individual
-        day, evening, and night values in addition to Lden.
+        day, evening, and night values in addition to Lden. On by default,
+        as in noisemonitor.summary.lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings.

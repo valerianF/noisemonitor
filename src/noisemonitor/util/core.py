@@ -3,12 +3,10 @@
 import pandas as pd
 import numpy as np
 import warnings
-import sys
-import multiprocessing
 import re
 
 from datetime import time
-from typing import Union, Callable, Tuple, Optional, Dict
+from typing import Union, Callable, Tuple, Dict
 
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -56,8 +54,8 @@ _LF_METHODS = {
     # ISO 1996-2:2017 (16 Hz to 200 Hz)
     'montano': {'bands': (16.0, 200.0), 'threshold': 15.0,
                 'inclusive': False},
-    # Decree 176/2009 of Catalonia, Annex 3, 3.2 (also Barcelona's
-    # environmental bylaw): no significant low frequency below 20 dB
+    # Generalitat de Catalunya (2012), guide 10 (A6): no significant low
+    # frequency below 20 dB
     'barcelona': {'bands': (20.0, 160.0), 'threshold': 20.0,
                 'inclusive': True},
 }
@@ -265,7 +263,7 @@ def _lf_apply(
 def _map_bands(
     func: Callable,
     df: pd.DataFrame,
-    chunks: bool,
+    use_chunks: bool,
     coverage_check: bool,
     **kwargs
 ) -> Dict:
@@ -273,7 +271,7 @@ def _map_bands(
     profile.periodic), on each column of df as a one-column DataFrame, with
     coverage_check and kwargs. Return the results by column label.
 
-    With chunks, the columns are processed in parallel, each worker receiving
+    With use_chunks, the columns are processed in parallel, each worker receiving
     its own column only; if parallel processing is unavailable, they are
     processed one after the other, with a RuntimeWarning. In both cases, the
     warnings of each column are recorded (worker processes cannot emit
@@ -282,7 +280,7 @@ def _map_bands(
     bands = {col: df.iloc[:, [i]] for i, col in enumerate(df.columns)}
     outputs = None
 
-    if chunks:
+    if use_chunks:
         try:
             with ProcessPoolExecutor() as executor:
                 futures = {

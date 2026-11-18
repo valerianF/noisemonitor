@@ -15,6 +15,7 @@ matplotlib.use('Agg')
 
 import noisemonitor as nm
 from noisemonitor.profile import periodic
+from noisemonitor.util.core import IntegrationTimeWarning
 from noisemonitor.util.display import (
     compare, freq_line, freq_map, harmonica, line,
     line_weather, compare_weather_daily
@@ -111,8 +112,8 @@ class TestBasicPlotFunctions:
         as_objects = df.set_axis(pd.Index(df.index.to_pydatetime(), dtype=object))
         assert as_objects.index.dtype == object
 
-        expected = line(df, df.columns[0]).lines[0].get_xdata()
-        got = line(as_objects, df.columns[0]).lines[0].get_xdata()
+        expected = line(df, df.columns[0], show=False).lines[0].get_xdata()
+        got = line(as_objects, df.columns[0], show=False).lines[0].get_xdata()
 
         assert list(got) == list(expected)
         plt.close('all')
@@ -125,7 +126,7 @@ class TestBasicPlotFunctions:
         """Dates are labelled by day, or by month for data at intervals of
         15 days or more."""
         index = pd.date_range('2023-01-01', periods=periods, freq=freq)
-        ax = line(pd.DataFrame({'Leq': 50.0}, index=index), 'Leq')
+        ax = line(pd.DataFrame({'Leq': 50.0}, index=index), 'Leq', show=False)
 
         assert ax.xaxis.get_major_formatter().fmt == fmt
         plt.close('all')
@@ -137,12 +138,20 @@ class TestBasicPlotFunctions:
         df2 = laeq1m_data.iloc[100:200]
 
         ax = compare([df1, df2], ['Dataset 1', 'Dataset 2'], df1.columns[0],
-                     linewidth=2.5, alpha=0.8, ylim=(30, 90))
+                    linewidth=2.5, alpha=0.8, ylim=(30, 90))
 
         assert [t.get_text() for t in ax.get_legend().get_texts()] == [
             'Dataset 1 - LEQ dB -A', 'Dataset 2 - LEQ dB -A']
         assert ax.get_ylim() == (30, 90)
-        mock_show.assert_called()
+        mock_show.assert_called_once()
+        plt.close('all')
+
+    @pytest.mark.parametrize("show, calls", [(True, 1), (False, 0)])
+    def test_line_show(self, laeq1m_data, show, calls):
+        """line shows the plot unless show=False."""
+        with patch('matplotlib.pyplot.show') as mock_show:
+            line(laeq1m_data.iloc[:100], laeq1m_data.columns[0], show=show)
+        assert mock_show.call_count == calls
         plt.close('all')
 
     @pytest.mark.parametrize("column", ['nonexistent_column', 999])
@@ -165,7 +174,7 @@ class TestAdvancedPlotFunctions:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
                 freq_line(sample_octave_data, figsize=(14, 8))
-        assert mock_show.call_count >= 1
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @patch('matplotlib.pyplot.show')
@@ -178,7 +187,7 @@ class TestAdvancedPlotFunctions:
                 warnings.simplefilter("ignore", UserWarning)
                 freq_line(overall_df, color='green', linewidth=2, marker='s',
                           markersize=8)
-        assert mock_show.call_count >= 1
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @patch('matplotlib.pyplot.show')
@@ -187,14 +196,14 @@ class TestAdvancedPlotFunctions:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             freq_map(sample_octave_data.iloc[:100], cmap='viridis', vmin=40, vmax=80)
-        assert mock_show.call_count >= 1
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @patch('matplotlib.pyplot.show')
     def test_harmonica(self, mock_show, harmonica_profile):
         """Bar chart of the HARMONICA profile, with kwargs."""
         harmonica(harmonica_profile, figsize=(15, 6), ylim=(0, 12))
-        assert mock_show.call_count >= 1
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @pytest.mark.parametrize("freq, ylabel", [
@@ -207,6 +216,48 @@ class TestAdvancedPlotFunctions:
         nm.display.nday(counts, bins=[50, 55], freq=freq, show=False)
 
         assert plt.gca().get_ylabel() == ylabel
+        plt.close('all')
+
+
+class TestReturnedAxes:
+    """Every plot function returns the Axes it draws on."""
+
+    @pytest.fixture
+    def plots(self, laeq1m_data, sample_octave_data, sample_weather_data,
+            harmonica_profile):
+        """One call per display function, with show=False where available."""
+        bands = sample_octave_data.set_axis(
+            sample_octave_data.columns.astype(float), axis=1)
+        counts = pd.DataFrame({'Count': [1, 2, 3]},
+                            index=['<50', '50-55', '>55'])
+        df = laeq1m_data.iloc[:100]
+        return {
+            'line': lambda: line(df, df.columns[0], show=False),
+            'compare': lambda: compare([df], ['a'], df.columns[0], show=False),
+            'freq_line': lambda: freq_line(
+                pd.DataFrame({'Leq': bands.mean()}).T, show=False),
+            'freq_map': lambda: freq_map(bands.iloc[:100], show=False),
+            'harmonica': lambda: harmonica(harmonica_profile, show=False),
+            'nday': lambda: nm.display.nday(counts, bins=[50, 55], show=False),
+            'line_weather': lambda: line_weather(
+                sample_weather_data.iloc[:200], show=False),
+            'compare_weather_daily': lambda: compare_weather_daily(
+                sample_weather_data, show=False),
+        }
+
+    @pytest.mark.parametrize("name", [
+        'line', 'compare', 'freq_line', 'freq_map', 'harmonica', 'nday',
+        'line_weather', 'compare_weather_daily'])
+    def test_returns_axes(self, plots, name):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            # compare_weather_daily: profiles of 1 min data
+            warnings.simplefilter("ignore", IntegrationTimeWarning)
+            ax = plots[name]()
+
+        assert isinstance(ax, matplotlib.axes.Axes)
+        assert ax is plt.gca()
+        assert ax.has_data()
         plt.close('all')
 
 
@@ -229,7 +280,7 @@ class TestWeatherPlotFunctions:
             color='purple',
             linewidth=2
         )
-        assert mock_show.call_count >= 1
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @patch('matplotlib.pyplot.show')
@@ -237,8 +288,8 @@ class TestWeatherPlotFunctions:
         """Test weather line plotting with rolling window."""
         with pytest.warns(UserWarning, match="Computing the L10, L50, and L90"):
             line_weather(sample_weather_data, column=sample_weather_data.columns[0],
-                         win=3600)
-        assert mock_show.call_count >= 1
+                        win=3600)
+        assert mock_show.call_count == 1
         plt.close('all')
 
     @patch('matplotlib.pyplot.show')
@@ -252,6 +303,7 @@ class TestWeatherPlotFunctions:
 
         assert spy.call_count > 0
         assert all(call.args[1:3] == (0, 23) for call in spy.call_args_list)
+        mock_show.assert_called_once()
         plt.close('all')
 
     def test_compare_weather_daily_any_flag(self, sample_weather_data):
@@ -260,8 +312,8 @@ class TestWeatherPlotFunctions:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             compare_weather_daily(sample_weather_data, column=0, show=False,
-                                  include_wind_flag=True, include_rain_flag=True,
-                                  linewidth=1.5, alpha=0.9)
+                                include_wind_flag=True, include_rain_flag=True,
+                                linewidth=1.5, alpha=0.9)
 
         labels = [t.get_text() for t in plt.gca().get_legend().get_texts()]
         assert 'Any Flag - Leq' in labels and 'No Flag - Leq' in labels
