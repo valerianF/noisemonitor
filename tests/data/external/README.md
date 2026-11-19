@@ -4,7 +4,7 @@ Reference values from outside `noisemonitor`, used by the external validation te
 
 ## Dataset 1: Accra (`ext_data_accra_h.csv`, `ext_data_accra_d.csv`)
 
-**Source:** Clark, S. N. et al. (2021). Spatial modelling and inequalities of environmental noise in Accra, Ghana. *Scientific Reports* 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. Data: Zenodo record 11223686, https://zenodo.org/records/11223686 (CC BY 4.0), files `Hr.long.csv` (md5 `3f515bde8f126e1b9809521483916c10`) and `Day.long.csv` (md5 `cf464b25b70093d044e2d3c82f82939b`): one year of measurements at 10 sites (April 2019 to March 2020), logged every minute and published as hourly and daily values.
+**Source:** Clark, S. N. et al. (2021). Space-time characterization of community noise and sound sources in Accra, Ghana. *Scientific Reports* 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. Data: Zenodo record 11223686, https://zenodo.org/records/11223686 (CC BY 4.0), files `Hr.long.csv` (md5 `3f515bde8f126e1b9809521483916c10`) and `Day.long.csv` (md5 `cf464b25b70093d044e2d3c82f82939b`): one year of measurements at 10 sites (April 2019 to March 2020), logged every minute and published as hourly and daily values.
 
 **Tested:** daily values computed from the hourly $L_{Aeq}$, against the published daily values: `core.equivalent_level`, `core.lden`, `summary.periodic`, `summary.lden`, `summary.leq`, `profile.periodic`, `profile.series`.
 

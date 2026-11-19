@@ -798,7 +798,7 @@ The test suite (pytest, in `tests/`) runs on every pull request and push to the 
 - Baclet, S., & Rumpler, R. (2024). Performance of a generalised algorithm for the detection of noise events from road traffic in a real urban area: A simulation study. *Applied Acoustics*, 228, 110337. https://doi.org/10.1016/j.apacoust.2024.110337
 - Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for community noise*. World Health Organization. https://www.who.int/publications/i/item/a68672
 - Brown, A. L., & De Coensel, B. (2018). A study of the performance of a generalized exceedance algorithm for detecting noise events caused by road traffic. *Applied Acoustics*, 138, 101-114. https://doi.org/10.1016/j.apacoust.2018.03.031
-- Clark, S. N. et al. (2021). Spatial modelling and inequalities of environmental noise in Accra, Ghana. *Scientific Reports*, 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. 
+- Clark, S. N. et al. (2021). Space-time characterization of community noise and sound sources in Accra, Ghana. *Scientific Reports*, 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. 
 - DeFrance, J., Palacino. J., & Baulac, M. (2010). Auscultation acoustique des aménagements cyclables en milieu urbain. *Proceedings of the 10ème Congrès Français d’Acoustique*, Lyon, France. https://hal.science/hal-00551186v1
 - Deutsches Institut für Normung. (1997). *DIN 45680:1997-03 Messung und Bewertung tieffrequenter Geräuschimmissionen in der Nachbarschaft*.
 - European Parliament and Council. (2002). Directive 2002/49/EC of the European Parliament and of the Council of 25 June 2002 relating to the assessment and management of environmental noise. *EUR-Lex*. http://data.europa.eu/eli/dir/2002/49/2021-07-29
