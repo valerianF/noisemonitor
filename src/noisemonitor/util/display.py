@@ -159,7 +159,7 @@ def freq_line(
 def freq_map(
     df: pd.DataFrame,
     title: str = "Frequency Bands Heatmap",
-    ylabel: str = "Frequency Band",
+    ylabel: str = "Frequency Band (Hz)",
     cblabel: str = "Sound Level (dBA)",
     figsize: tuple = (12, 8),
     show: bool = True,
