@@ -60,10 +60,26 @@ class TestAllData:
         # Verify all returned timestamps are outside the range
         outside_range = (
             (result.index < start_datetime) |
-            (result.index > end_datetime)
+            (result.index >= end_datetime)
         )
         assert outside_range.all()
-    
+
+    def test_half_open_range(self):
+        """The range is [start, end): the sample stamped start is kept, the
+        one stamped end is not (it starts after the range). between=True
+        returns exactly the other samples."""
+        index = pd.date_range('2025-07-31', periods=48, freq='h')
+        df = pd.DataFrame({'LEQ dB -A': np.arange(48.0)}, index=index)
+        start, end = datetime(2025, 7, 31, 6), datetime(2025, 8, 1)
+
+        inside = all_data(df, start, end)
+        outside = all_data(df, start, end, between=True)
+
+        assert inside.index.equals(
+            pd.date_range(start, end, freq='h', inclusive='left'))
+        pd.testing.assert_frame_equal(
+            pd.concat([inside, outside]).sort_index(), df, check_freq=False)
+
     def test_empty_result(self, laeq1m_data):
         """Test when filtering results in empty DataFrame."""
         # Filter for a time range outside the data
@@ -179,6 +195,23 @@ class TestWeatherFlags:
         filtered_count = result['LEQ dB -A'].notna().sum()
         assert filtered_count == original_count
     
+    def test_default_flags(self):
+        """By default, the samples with the wind or the rain flag are
+        filtered; those with only the temperature, humidity or snow flag are
+        kept."""
+        flags = ['Wind_Spd_Flag', 'Rain_Flag_Roll', 'Temp_Flag',
+                'Rel_Hum_Flag', 'Snow_Flag_Roll']
+        index = pd.date_range('2025-03-22', periods=len(flags), freq='h')
+        # One flag raised per sample, in the order of flags
+        df = pd.DataFrame(np.eye(len(flags), dtype=bool), index=index,
+                        columns=flags)
+        df.insert(0, 'LEQ dB -A', 50.0)
+
+        result = weather_flags(df)
+
+        assert result['LEQ dB -A'].isna().tolist() == [
+            True, True, False, False, False]
+
     def test_missing_flag_columns(self, laeq1m_data):
         """Test behavior when flag columns don't exist."""
         result = weather_flags(laeq1m_data.copy())

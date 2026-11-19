@@ -15,10 +15,14 @@ def all_data(
     end_datetime: datetime, 
     between: bool = False
 ) -> pd.DataFrame:
-    """Filter a DataFrame (typically the output of noisemonitor.load()) 
+    """Filter a DataFrame (typically the output of noisemonitor.load())
     with a datetime index between two particular dates. By setting
     between = True, you can filter out the times that are between the two
-    dates.
+    dates. The range is half-open, [start_datetime, end_datetime), as
+    every period of the package: a timestamp marks the start of its
+    integration period, so a sample stamped end_datetime lies after the
+    range (e.g., start_datetime=datetime(2025, 6, 1) and
+    end_datetime=datetime(2025, 8, 1) keep June and July whole).
 
     Parameters
     ----------
@@ -26,28 +30,28 @@ def all_data(
         a DataFrame with a datetime index (e.g., the output of
         noisemonitor.load() or noisemonitor.summary.periodic()).
     start_datetime: datetime object
-        first date from which to filter the data. 
+        start of the range (included).
         Must be earlier than end_datetime.
     end_datetime: datetime object
-        second date from which to filter the data. 
+        end of the range (excluded).
         Must be later than start_datetime.
     between: bool, default False
         If set to True, will filter out data that is between the two dates.
         Else and by default, will filter data that is outside the two dates.
 
     Returns
-    ---------- 
+    ----------
     DataFrame: input dataframe filtered to the specified dates range.
     """
     try:
         if between:
             return df.loc[
                 (df.index < start_datetime) |
-                (df.index > end_datetime)
+                (df.index >= end_datetime)
             ]
         return df.loc[
             (df.index >= start_datetime) &
-            (df.index <= end_datetime)
+            (df.index < end_datetime)
         ]
     except TypeError as e:
         raise TypeError(
@@ -124,7 +128,7 @@ def weather_flags(
     column: Union[int, str], default None
         The column name or index to use for calculations. 
         If None, the first column will be used.
-    filter_wind_flag: bool, default False
+    filter_wind_flag: bool, default True
         Whether to filter data with Wind Speed Flag.
     filter_rain_flag: bool, default True
         Whether to filter data with Rain Flag.

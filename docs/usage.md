@@ -94,7 +94,7 @@ The `noisemonitor.filter` module provides functions to subset data by datetime r
 ```python
 from datetime import datetime
 
-# Filter by date range
+# Filter by date range: [start, end), from 23 March 00:00 up to 29 March 00:00
 df_filtered = nm.filter.all_data(
     df_1m,
     start_datetime=datetime(2025, 3, 23),
@@ -111,7 +111,7 @@ df_filtered = nm.filter.extreme_values(
 
 ## Time conventions
 
-**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only fo $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions.
+**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only fo $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions, and to the date range of `noisemonitor.filter.all_data`.
 
 **Hours:** two conventions coexist.
 - `noisemonitor.summary` functions (e.g., `leq()`, `freq_indicators()`) and `noisemonitor.profile.nne()` take `hour1` and `hour2` from 0 to 24, `hour2` being the excluded end of the period: `hour1=0, hour2=24` is the whole day.
