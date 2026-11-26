@@ -168,7 +168,7 @@ def periodic(
         })
 
     if roughness_indicators:
-        interval = df.index[2] - df.index[1]
+        interval = core._interval(df.index)
         rough_levels = None
         if interval < pd.Timedelta(seconds=1):
             rough_levels = core._laeq_1s(temp.iloc[:, column])

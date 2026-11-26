@@ -3,6 +3,7 @@
 import bz2
 import gzip
 import lzma
+import re
 import shutil
 import zipfile
 
@@ -20,7 +21,7 @@ import noisemonitor as nm
 from noisemonitor.util.core import equivalent_level
 from noisemonitor.util.load import load, _detect_sep, _parse_data
 from tests.conftest import (
-    BRUITPARIF_ROWS, BRUITPARIF_TZ, EXT_PATH, assert_close
+    BRUITPARIF_ROWS, BRUITPARIF_TZ, EXT_PATH, T0, assert_close
 )
 
 # The 10 min of LAeq,1s before 25 October, and the first row at UTC+1 after
@@ -220,27 +221,6 @@ class TestLoad:
         )
 
         assert isinstance(result, pd.DataFrame)
-        assert len(result) == 2
-
-    def test_load_duplicate_timestamps(self):
-        """Test loading data with duplicate timestamps."""
-        dup_file = os.path.join(self.temp_dir, 'duplicates.csv')
-        with open(dup_file, 'w') as f:
-            f.write("datetime,LAeq\n")
-            f.write("2023-01-01 10:00:00,65.5\n")
-            f.write("2023-01-01 10:00:00,66.0\n")
-            f.write("2023-01-01 10:01:00,67.2\n")
-
-        result = load(
-            path=dup_file,
-            datetimeindex=0,
-            valueindexes=[1],
-            sep=',',
-            use_chunks=False
-        )
-
-        assert isinstance(result, pd.DataFrame)
-        assert result.index.is_unique
         assert len(result) == 2
 
     @pytest.mark.parametrize("datetimeindex, valueindexes", [
@@ -770,6 +750,59 @@ class TestLoadTimestamps:
         with pytest.raises(ValueError, match="already local times"):
             load(path, datetimeindex=0, valueindexes=1, timezone='Europe/Paris',
                 use_chunks=False)
+
+
+@pytest.mark.behaviour
+class TestLoadGrid:
+    """Regular time grid: the most common step between the samples, at
+    their most common position within it. Samples off the grid move to its
+    nearest time (the later one at mid-step), with a UserWarning; a sample
+    whose grid time holds a sample closer to it is dropped, with a
+    UserWarning; of duplicate timestamps, the first sample is kept, with a
+    UserWarning."""
+
+    @pytest.mark.parametrize("seconds, step, start, rows, messages", [
+        ([0, 60, 180, 240, 300], 60, 0, [0, 1, None, 2, 3, 4], []),
+        ([0, 60, 240, 300, 480, 540], 60, 0,
+        [0, 1, None, None, 2, 3, None, None, 4, 5], []),
+        ([20, 60, 120, 180], 60, 0, [0, 1, 2, 3],
+        [r"^1 sample\(s\) off .* \(every 60 s\) moved .* by up to 20 s\.$"]),
+        ([37, 60, 120, 180], 60, 60, [1, 2, 3],
+        [r"^1 sample\(s\) off .* \(every 60 s\) dropped"]),
+        ([0, 1, 2.2, 3, 4, 5, 5.9, 7, 8], 1, 0, [0, 1, 2, 3, 4, 5, 6, 7, 8],
+        [r"^2 sample\(s\) off .* \(every 1 s\) moved .* by up to 0\.2 s\.$"]),
+        ([0, 60, 120, 200, 260, 320, 380], 60, 20, [0, 1, 2, 3, 4, 5, 6],
+        [r"^3 sample\(s\) off .* \(every 60 s\) moved .* by up to 20 s\.$"]),
+        ([0, 1, 2, 2.5, 3, 4], 1, 0, [0, 1, 2, 4, 5],
+        [r"^1 sample\(s\) off .* \(every 1 s\) dropped"]),
+        ([0, 0, 60, 120], 60, 0, [0, 2, 3],
+        [r"^1 duplicate timestamp\(s\): only the first sample"]),
+    ], ids=['missing_third_sample', 'two_samples_of_four', 'first_sample_moved',
+            'first_sample_dropped', 'jitter', 'clock_shift', 'half_step_sample',
+            'duplicates'])
+    def test_grid(self, tmp_path, seconds, step, start, rows, messages):
+        """seconds: times of the samples (s), valued by their position in
+        the file; the grid starts at start (s) and its rows hold the samples
+        of the given positions (None: row of NaN)."""
+        path = tmp_path / 'grid.csv'
+        pd.Series(np.arange(len(seconds), dtype=float),
+                index=T0 + pd.to_timedelta(seconds, unit='s'),
+                name='LAeq').to_csv(path, index_label='datetime',
+                                    date_format='%Y-%m-%d %H:%M:%S.%f')
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = load(str(path), datetimeindex=0, valueindexes=1,
+                        use_chunks=False)
+
+        assert list(result.index) == list(pd.date_range(
+            T0 + pd.Timedelta(seconds=start), periods=len(rows),
+            freq=f'{step}s'))
+        np.testing.assert_array_equal(
+            result['LAeq'], [np.nan if r is None else r for r in rows])
+        assert [w.category for w in caught] == [UserWarning] * len(messages)
+        for w, message in zip(caught, messages):
+            assert re.search(message, str(w.message))
 
 
 CHUNKS = [

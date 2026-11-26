@@ -5,6 +5,7 @@ for analysis.
 import csv
 import os
 import re
+import numpy as np
 import pandas as pd
 import warnings
 
@@ -13,6 +14,8 @@ from dateutil import parser
 from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+
+from . import core
 
 # Number of rows inspected to detect the separator, empty unnamed columns
 # and decimal commas.
@@ -59,6 +62,16 @@ def load(
     separator at the end of each line) are dropped when their first 100 rows 
     are empty; otherwise they are kept and a UserWarning is issued. 
     Value columns read as text are converted to floats.
+
+    The data are put on a regular time grid: its interval is the most
+    common step between consecutive timestamps, and its times the most
+    common position of the samples within this interval, so that missing
+    samples, gaps or a first sample out of step do not change it. Missing
+    samples are rows of NaN. Samples off the grid (e.g., timestamps with
+    jitter, or after an adjustment of the clock) are moved to the nearest
+    grid time, with a UserWarning; a sample whose nearest grid time holds a
+    sample closer to it is dropped, with a UserWarning. Of the samples
+    sharing a timestamp, the first one is kept, with a UserWarning.
 
     Parameters
     ----------
@@ -301,6 +314,9 @@ def load(
     if not isinstance(df.index, pd.DatetimeIndex):
         # Chunks with different UTC offsets do not form a DatetimeIndex
         raise ValueError(_MIXED_OFFSETS)
+    # Timestamps repeated in the data, before the conversion to local time
+    # (which repeats one hour when daylight saving time ends)
+    duplicates = int(df.index.duplicated().sum())
     if timezone is not None:
         local = df.index.tz_localize(None)
         # Local times repeated when daylight saving time ends
@@ -316,18 +332,57 @@ def load(
             )
         df.index = local
 
+    if duplicates:
+        warnings.warn(
+            f"{duplicates} duplicate timestamp(s): only the first sample at "
+            "each of them is kept.", UserWarning, stacklevel=2)
     # Ensure the index is unique and sorted
     if not df.index.is_unique:
         df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index()
 
-    # Resample the data to fill gaps based on the interval between rows.
-    # The interval is taken between index[1] and index[2] because some
-    # devices report a wrong interval for the first two data points.
+    # Regular time grid: its interval is the most common step between samples
+    # and its times the most common position of the samples within it, so
+    # that missing samples, gaps, a first sample out of step or a clock shift
+    # do not change it. Gaps become rows of NaN.
     if len(df) > 2:
-        interval = df.index[2] - df.index[1]
-        df = df.resample(interval, origin=df.index[2]).asfreq()
-        
+        interval = core._interval(df.index)
+        unit = df.index.unit
+        t = df.index.asi8
+        step = interval // pd.Timedelta(1, unit=unit)
+        position = (t - t[0]) % step
+        if position.any():
+            # Samples off the grid go to its nearest time (the later one at
+            # mid-step); of the samples reaching the same time, the closest
+            # to it is kept (the first one on a tie)
+            # Most common position, the smallest one on a tie (mode() sorts)
+            origin = t[0] + pd.Series(position).mode().iloc[0]
+            grid = origin + (t - origin + step // 2) // step * step
+            shift = grid - t
+            order = np.lexsort((np.abs(shift), grid))
+            first = np.ones(len(order), dtype=bool)
+            first[1:] = grid[order][1:] != grid[order][:-1]
+            keep = np.sort(order[first])
+
+            seconds = interval.total_seconds()
+            moved = np.abs(shift[keep][shift[keep] != 0])
+            if moved.size:
+                largest = pd.Timedelta(int(moved.max()), unit=unit).total_seconds()
+                warnings.warn(
+                    f"{moved.size} sample(s) off the time grid of the data "
+                    f"(every {seconds:g} s) moved to its nearest time, by up "
+                    f"to {largest:g} s.", UserWarning, stacklevel=2)
+            dropped = len(t) - len(keep)
+            if dropped:
+                warnings.warn(
+                    f"{dropped} sample(s) off the time grid of the data (every "
+                    f"{seconds:g} s) dropped: their nearest grid time holds a "
+                    "sample closer to it.", UserWarning, stacklevel=2)
+            df = df.iloc[keep]
+            df = df.set_axis(
+                df.index + shift[keep].astype(f'timedelta64[{unit}]'), axis=0)
+        df = df.resample(interval, origin=df.index[0]).asfreq()
+
     return df
 
 def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):

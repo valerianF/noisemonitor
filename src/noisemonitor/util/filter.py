@@ -2,11 +2,13 @@
 dataframes. 
 """
 
+import warnings
+
 import pandas as pd
 import numpy as np
 
 from datetime import datetime, time
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 from . import core
 
 def all_data(
@@ -62,12 +64,16 @@ def all_data(
 def extreme_values(
     df: pd.DataFrame, 
     column: Optional[Union[int, str]] = None, 
-    min_value: int = 30, 
-    max_value: int = 100
-) -> pd.DataFrame:
+    min_value: int = 30,
+    max_value: int = 100,
+    return_filtered: bool = False
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame]]:
     """
-    Replace values in the specified column that are below min_value or 
-    above max_value with NaN.
+    Replace values in the specified column that are below min_value or
+    above max_value with NaN. A UserWarning gives the number of values
+    replaced, if any (otherwise a message is printed): an extreme level can
+    be a genuine noise event rather than a measurement error, so these
+    values should be checked.
 
     Parameters
     ----------
@@ -80,11 +86,15 @@ def extreme_values(
         The minimum value threshold.
     max_value: int, default 100
         The maximum value threshold.
+    return_filtered: bool, default False
+        If True, also return the rows whose value was replaced, with their
+        original values.
 
     Returns
     ----------
     pd.DataFrame: copy of df with extreme values replaced by NaN (df is
-    left unchanged).
+    left unchanged). With return_filtered=True, a tuple of two DataFrames:
+    this copy and the rows of df whose value was replaced.
     """
     if column is None:
         column = 0
@@ -92,21 +102,31 @@ def extreme_values(
     column = core._column_to_index(df, column)
     column_name = df.columns[column]
 
+    values = df[column_name]
+    extreme = values.notna() & ~values.between(min_value, max_value)
+    filtered_rows = df.loc[extreme].copy()
+
     df = df.copy()
+    df[column_name] = values.where(~extreme)
 
-    initial_count = df[column_name].notna().sum()
-    df[column_name] = df[column_name].apply(
-        lambda x: x if min_value <= x <= max_value else np.nan
-    )
-
-    filtered_count = df[column_name].notna().sum()
-    filtered_out = initial_count - filtered_count
+    initial_count = values.notna().sum()
+    filtered_out = int(extreme.sum())
     # A column without any value has nothing to filter out
     proportion_filtered = (
         (filtered_out / initial_count) * 100 if initial_count else 0.0)
 
-    print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
+    if filtered_out:
+        warnings.warn(
+            f"{filtered_out} value(s) ({proportion_filtered:.3g}%) outside "
+            f"[{min_value}, {max_value}] replaced by NaN in column "
+            f"'{column_name}'. Use return_filtered=True to get these rows.",
+            UserWarning, stacklevel=2)
+    else:
+        print(f"No data was found outside the [{min_value}, {max_value}] "
+            "range.")
 
+    if return_filtered:
+        return df, filtered_rows
     return df
 
 def weather_flags(

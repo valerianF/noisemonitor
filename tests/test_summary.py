@@ -274,6 +274,7 @@ class TestCalculations:
     """Internal validation: closed-form results on synthetic signals, or
     consistency with another noisemonitor function."""
 
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_periodic_custom_periods(self, one_loud_night_data):
         """Start hours are passed to core.lden and set the day start."""
         starts = dict(start_day=6, start_evening=18, start_night=22)
@@ -288,6 +289,7 @@ class TestCalculations:
         for col in ['Lden', 'Lday', 'Levening', 'Lnight']:
             assert result.loc[day, col] == expected[col][0]
 
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_freq_lden_custom_periods(self, sample_octave_data):
         """Start hours are passed through to Lden in both freq functions."""
         starts = dict(start_day=6, start_evening=18, start_night=22)
@@ -316,6 +318,7 @@ class TestCalculations:
     @pytest.mark.parametrize("start_at_day", [False, True],
                             ids=['calendar', 'start_at_day'])
     @pytest.mark.parametrize("freq", ['D', 'W', 'MS'])
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_periodic_periods(self, accra_hourly, freq, start_at_day):
         """Leq and Lden (default periods) of each day, week (Monday to
         Sunday) or calendar month, starting at midnight or at start_day
@@ -347,6 +350,7 @@ class TestCalculations:
     @pytest.mark.slow
     @pytest.mark.parametrize("freq, count", [
         ('D', 'Number of Days'), ('W', 'Number of Weeks'), ('MS', 'Number of Months')])
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_nday_counts(self, accra_hourly, freq, count):
         """Number of days, weeks or months per bin, for each indicator: the
         values of summary.periodic counted in [lower, upper) bins, NaN left
@@ -380,6 +384,7 @@ class TestCalculations:
 
         assert list(result['Number of Days']) == [0, 0, 3, 0]
 
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_freq_periodic_bands(self, bruitparif_bands):
         """Each band (column names in mixed formats, unsorted) gives the
         values of summary.periodic on its own column, under its frequency;
@@ -418,6 +423,7 @@ class TestCalculations:
     @pytest.mark.parametrize("start_at_day", [False, True],
                             ids=['midnight', 'start_day'])
     @pytest.mark.parametrize("freq", ['D', 'W', 'MS'])
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_lf_periodic_levels(self, lf_bands, freq, start_at_day):
         """LA and LC are the Leq of summary.periodic applied to the weighted
         band sums of each sample, and C-A their difference."""
@@ -531,7 +537,8 @@ class TestSummaryEdgeCases:
         with pytest.raises((ValueError, IndexError, KeyError)):
             periodic(empty_df, freq='D')
 
-        result = lden(empty_df, column=0)
+        with pytest.warns(CoverageWarning, match="Lden is NaN"):
+            result = lden(empty_df, column=0)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
 
@@ -572,6 +579,7 @@ class TestCoverageCheck:
         ('D', '2024-01-01 12:00', '2024-01-03 12:00', 0.6),  # 50%, 100%, 50%
         ('W', '2024-01-03', '2024-01-17', 0.8),  # Wed to Wed: 5/7, 7/7, 2/7
     ], ids=['daily', 'weekly'])
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_periodic_cut_by_data_range(self, freq, start, end, threshold):
         """The first and last periods, cut by the start and end of the data,
         count their missing samples as missing: below the threshold, their
@@ -700,6 +708,90 @@ class TestCoverageCheck:
         # Check that the sum of 'Number of Days' equals 2 (days 1 and 3)
         total_days = result['Number of Days'].sum()
         assert total_days == 2
+
+    @pytest.fixture
+    def evenings_missing(self):
+        """Three days at 1 min, with no value on the evenings of the first
+        two days."""
+        index = pd.date_range('2024-01-01', periods=3 * 1440, freq='min')
+        df = pd.DataFrame({'63': 50.0, '125': 55.0}, index=index)
+        evening = (index.hour >= 19) & (index.hour < 23) & (index.day < 3)
+        df.loc[evening] = np.nan
+        return df
+
+    @pytest.mark.parametrize("coverage", [
+        {}, dict(coverage_check=True, coverage_threshold=0.0),
+        dict(coverage_check=True)], ids=['no_check', 'threshold_0', 'check'])
+    @pytest.mark.parametrize("no_sample", [False, True],
+                            ids=['all_nan', 'no_sample'])
+    def test_lden_period_without_data(self, no_sample, coverage):
+        """A period without any value gives a NaN Lden with a single
+        CoverageWarning, with or without coverage check (an all-NaN period
+        passes a threshold of 0); the other periods keep their levels."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = pd.DataFrame({'LAeq': 50.0}, index=index)
+        evening = (index.hour >= 19) & (index.hour < 23)
+        if no_sample:
+            df = df[~evening]
+        else:
+            df.loc[evening] = np.nan
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = lden(df, **coverage)
+
+        assert [w.category for w in caught] == [CoverageWarning]
+        assert 'Lden' in str(caught[0].message)
+        assert result[['Lden', 'Levening']].isna().all(axis=None)
+        assert_close(result[['Lday', 'Lnight']].to_numpy(), [[50.0, 50.0]])
+
+    @pytest.mark.filterwarnings("error")
+    def test_lden_complete_periods_no_warning(self):
+        """Gaps leaving at least one value in each period: no warning."""
+        index = pd.date_range('2024-01-01', periods=1440, freq='min')
+        df = pd.DataFrame({'LAeq': 50.0}, index=index)
+        df.iloc[::2] = np.nan
+
+        assert_close(lden(df)['Lden'].iloc[0],
+                     10 * np.log10((12 * 10 ** 5 + 4 * 10 ** 5.5 + 8 * 10 ** 6) / 24),
+                    tol=0.0051)  # rounded to 0.01
+
+    @pytest.mark.parametrize("func, kwargs, last_day, n_warnings", [
+        (periodic, {}, 3, 1),
+        (freq_periodic, {}, 3, 1),
+        # Leq without any value too (evening hours), then Lden
+        (freq_indicators, dict(hour1=19, hour2=23), 2, 2),
+    ], ids=['periodic', 'freq_periodic', 'freq_indicators'])
+    def test_warns_once_per_call(self, evenings_missing, func, kwargs,
+                                last_day, n_warnings):
+        """Several periods or bands without a value: each warning once per
+        call (freq_indicators pools the days, so they all lack the
+        evening)."""
+        df = evenings_missing[evenings_missing.index.day <= last_day]
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            func(df, **kwargs)
+
+        assert [w.category for w in caught] == [CoverageWarning] * n_warnings
+        assert len({str(w.message) for w in caught}) == n_warnings
+
+    @pytest.mark.parametrize("coverage_check", [False, True],
+                            ids=['no_check', 'check'])
+    @pytest.mark.parametrize("indicator, warns", [
+        ('Leq', False), ('Lday', False), ('Lden', True), ('Levening', True)])
+    def test_nday_lden_warning_if_counted(self, evenings_missing, indicator,
+                                        warns, coverage_check):
+        """nday only warns of missing Lden values (no value, or coverage
+        below the threshold) if the indicator counted is missing in some
+        period: the day's Leq (83 % coverage) and the Lday are complete."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            counts, _ = nday(evenings_missing, indicator=indicator, column=0,
+                            coverage_check=coverage_check)
+
+        assert [w.category for w in caught] == ([CoverageWarning] if warns else [])
+        assert counts['Number of Days'].sum() == (1 if warns else 3)
 
 @pytest.mark.behaviour
 class TestLfPeriodic:

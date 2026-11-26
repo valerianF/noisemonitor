@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import warnings
 
+import noisemonitor as nm
 from noisemonitor.util.core import (
     equivalent_level,
     get_interval,
@@ -24,9 +25,8 @@ from noisemonitor.util.core import (
 from tests.conftest import (
     ACCRA_COLUMNS, ACCRA_PERIODS, BANDS, HARMONICA_INDICATORS,
     ISO_266_CALCULATED, ISO_266_PREFERRED, LF_BANDS, SOURCE_COVERAGE,
-    TOL_HARMONICA, assert_close, band_frame, lday_06_22
+    T0, TOL_HARMONICA, assert_close, band_frame, lday_06_22
 )
-
 
 
 @pytest.mark.external
@@ -111,7 +111,7 @@ class TestExternalBands:
     """External validation of the band labels against ISO 266:1997."""
 
     @pytest.mark.parametrize("unit, factor", [('', 1), ('k', 1000)],
-                             ids=['Hz', 'kHz'])
+                            ids=['Hz', 'kHz'])
     def test_parse_freq_columns_iso_266(self, unit, factor):
         """The calculated frequencies of ISO 266, Table 1, read in Hz and in
         kHz, are labelled with their preferred frequencies."""
@@ -126,6 +126,7 @@ class TestCalculations:
     """Internal validation: closed-form results on synthetic signals, or
     consistency with another noisemonitor function."""
 
+    @pytest.mark.filterwarnings("ignore::noisemonitor.util.core.CoverageWarning")
     def test_lden_default_periods(self, accra_daily, accra_days):
         """Default periods of the EU Directive (07h-19h-23h), on each Accra
         calendar day: Lday, Levening and Lnight are the Leq of hours 7-18,
@@ -251,6 +252,36 @@ class TestCalculations:
         assert result[('C-A', method)].iloc[0] == lc - la
         assert result[('Lowfreq_Flag', method)].iloc[0] == expected
 
+    @pytest.mark.parametrize("func", [
+        lambda df: harmonica(df, 0, use_chunks=False),
+        lambda df: nm.profile.periodic(df, hour1=0, hour2=1,
+                                    roughness_indicators=True),
+        lambda df: nm.profile.nne(df, hour1=0, hour2=2, background_type='L90'),
+        # 2 h of a day: coverage 0.083 (0.15 on a 2-s grid)
+        lambda df: nm.summary.periodic(df, coverage_check=True,
+                                    coverage_threshold=0.1),
+    ], ids=['harmonica', 'profile_periodic', 'profile_nne', 'summary_periodic'])
+    def test_missing_rows_as_nan(self, laeq1s_data, func):
+        """Data whose index misses samples (e.g., rows removed after
+        loading): same results and warnings as with these samples as rows of
+        NaN, the interval being the step of the data, not the step between
+        the first samples."""
+        two_hours = laeq1s_data.loc['2025-03-22 00:00':'2025-03-22 01:59:59']
+        missing = two_hours.drop(two_hours.index[[1, 3]])
+        with_nan = two_hours.copy()
+        with_nan.iloc[[1, 3]] = np.nan
+
+        with warnings.catch_warnings(record=True) as expected_warnings:
+            warnings.simplefilter('always')
+            expected = func(with_nan)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = func(missing)
+
+        pd.testing.assert_frame_equal(result, expected)
+        assert ([w.category for w in caught]
+                == [w.category for w in expected_warnings])
+
 
 @pytest.mark.behaviour
 class TestCheckCoverage:
@@ -296,11 +327,12 @@ class TestEquivalentLevel:
 class TestGetInterval:
     """Test the get_interval function."""
 
-    def test_get_interval_insufficient_data(self):
-        """Test with insufficient data (less than 3 rows)."""
-        dates = pd.date_range('2023-01-01 00:00:00', periods=2, freq='1s')
-        df = pd.DataFrame({'value': [1, 2]}, index=dates)
-        with pytest.raises(ValueError, match="DataFrame index must have at least three entries"):
+    @pytest.mark.parametrize("seconds", [[0], [0, 0]], ids=['one', 'same_twice'])
+    def test_get_interval_insufficient_data(self, seconds):
+        """Fewer than two distinct timestamps: ValueError."""
+        df = pd.DataFrame({'value': 50.0},
+                        index=T0 + pd.to_timedelta(seconds, unit='s'))
+        with pytest.raises(ValueError, match="at least two distinct timestamps"):
             get_interval(df)
 
     @pytest.mark.parametrize("freq, seconds", [
@@ -313,6 +345,23 @@ class TestGetInterval:
         dates = pd.date_range('2023-01-01 00:00:00', periods=5, freq=freq)
         df = pd.DataFrame({'value': [1, 2, 3, 4, 5]}, index=dates)
         assert get_interval(df) == seconds
+
+    @pytest.mark.parametrize("seconds, interval", [
+        ([0, 60, 180, 240, 300], 60),
+        ([37, 60, 120, 180], 60),
+        ([0, 60, 240, 300, 480, 540, 720], 60),
+        ([0, 1, 1, 2, 2, 3], 1),
+        ([3, 1, 0, 2], 1),
+        ([0, 5], 5),
+    ], ids=['missing_third_sample', 'first_step_out_of_line',
+            'two_samples_of_four', 'duplicates', 'unsorted', 'two_samples'])
+    def test_get_interval_irregular(self, seconds, interval):
+        """Index without frequency: the most common step between distinct
+        timestamps (the shortest one when two are as common), whatever the
+        steps between the first samples."""
+        df = pd.DataFrame({'value': 50.0},
+                        index=T0 + pd.to_timedelta(seconds, unit='s'))
+        assert get_interval(df) == interval
 
 
 @pytest.mark.behaviour
@@ -343,7 +392,7 @@ class TestHarmonicaValidation:
     def test_harmonica_empty_dataframe(self):
         """Test harmonica with empty DataFrame."""
         df = pd.DataFrame()
-        with pytest.raises(IndexError):
+        with pytest.raises(ValueError, match="at least two distinct timestamps"):
             harmonica(df, 0)
 
 

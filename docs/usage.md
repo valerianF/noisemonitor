@@ -83,7 +83,7 @@ df_freq = nm.load(
 
 **Time zones:** `timezone` applies to timestamps written with a UTC offset only, and converts them to the local time of the given timezone (without timezone information). Timestamps without offset are already local times: leave `timezone` unset. Exports spanning a change to or from daylight saving time hold two UTC offsets and need `timezone`. When daylight saving time ends, one hour of local time occurs twice: its first occurrence is kept and the second is dropped, with a warning. When it starts, the hour skipped by the clocks appears as rows without values.
 
-**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Equivalent levels ($L_{eq}$, $L_{den}$) are valid at any refresh rate, e.g., from $L_{Aeq,1min}$ or hourly values. Statistical levels ($L_{10}$, $L_{50}$, $L_{90}$, other $L_n$, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on $L_{Aeq,1s}$: sub-second data are first averaged energetically over each second.
+**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Its interval is the most common step between samples, so missing samples, gaps or an irregular first sample do not change it, and missing samples become rows without values. Samples off the grid (e.g., after an adjustment of the clock) are moved to its nearest time, with a warning, and among samples sharing a timestamp, the first one is kept, with a warning. Equivalent levels ($L_{eq}$, $L_{den}$) are valid at any refresh rate, e.g., from $L_{Aeq,1min}$ or hourly values. Statistical levels ($L_{10}$, $L_{50}$, $L_{90}$, other $L_n$, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on $L_{Aeq,1s}$: sub-second data are first averaged energetically over each second.
 
 **Note:** Reading large files with datetime parsing can be computationally intensive. Parallel processing is enabled by default (can be deactivated) to reduce loading time.
 
@@ -109,9 +109,15 @@ df_filtered = nm.filter.extreme_values(
 )
 ```
 
+`extreme_values()` gives a warning when values are replaced. An extreme level can be a genuine noise event rather than a measurement error, so check these values before excluding them. With `return_filtered=True`, the function also returns the rows concerned, with their original values:
+
+```python
+df_filtered, removed = nm.filter.extreme_values(df_1m, return_filtered=True)
+```
+
 ## Time conventions
 
-**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only fo $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions, and to the date range of `noisemonitor.filter.all_data`.
+**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only for $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions, and to the date range of `noisemonitor.filter.all_data`.
 
 **Hours:** two conventions coexist.
 - `noisemonitor.summary` functions (e.g., `leq()`, `freq_indicators()`) and `noisemonitor.profile.nne()` take `hour1` and `hour2` from 0 to 24, `hour2` being the excluded end of the period: `hour1=0, hour2=24` is the whole day.
@@ -627,7 +633,7 @@ with_coverage_leq = nm.summary.leq(
 
 Coverage counts the samples present in the data, so gaps should be NaN rows (as `nm.load()` gives them). For the daily, weekly or monthly periods of `nm.summary.periodic()` (and so `nday()` and `freq_periodic()`) and the windows of `nm.profile.nne()`, the samples missing because the data start or end within a period also count as missing: a first or last period only partly covered by the data is filtered out like any other period with gaps.
 
-Whatever `coverage_check`, a window or period without any value (all NaN, or no sample) returns NaN with a single `CoverageWarning` per call, in `nm.summary.leq()` and in `nm.profile.periodic()`, `series()` and `nne()`.
+Whatever `coverage_check`, a window or period without any value (all NaN, or no sample) returns NaN with a single `CoverageWarning` per call, in `nm.summary.leq()` and in `nm.profile.periodic()`, `series()` and `nne()`. The same applies to $L_{den}$ when its day, evening or night period has no value, in `nm.summary.lden()`, `periodic()`, `freq_indicators()`, `freq_periodic()`, and `nday()` when the indicator counted (other than `'Leq'`) is missing in some period.
 
 ## Weather Integration
 
@@ -652,7 +658,7 @@ stations = nm.weather.weathercan.get_historical_stations(
 )
 ```
 
-Stations are identified by their Environment Canada climate ID, given in the `id` row of the result (e.g., `'702S006'` for Montréal/Pierre Elliott Trudeau International Airport).
+The result has one column per station, labelled by its Environment Canada climate ID (e.g., `'702S006'` for Montréal/Pierre Elliott Trudeau International Airport), nearest first, with its name, province, proximity (km) and the date ranges of its hourly, daily and monthly data. Stations are identified by this climate ID, also given in the `id` row: several stations can share a name.
 
 ### Merging weather data
 

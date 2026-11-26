@@ -324,27 +324,46 @@ def _record_warnings(func: Callable, *args, **kwargs) -> Tuple:
     return result, [(w.category, str(w.message)) for w in caught]
 
 def get_interval(df):
-    """Compute the interval in seconds between rows 2 and 3, as a float
-    (e.g., 0.5 for 500 ms data, 86400 for daily data).
-
-    In some datasets, the first row index may not be representative
-    of the interval.
+    """Compute the sampling interval of the data in seconds, as a float
+    (e.g., 0.5 for 500 ms data, 86400 for daily data): the most common step
+    between consecutive timestamps, so that missing samples, gaps or a first
+    sample out of step do not change it.
 
     Parameters
     ----------
     df: pd.DataFrame
-        DataFrame with a datetime index of at least three rows.
+        DataFrame with a datetime index of at least two distinct timestamps.
 
     Returns
     ----------
-    float: interval between rows 2 and 3, in seconds.
+    float: sampling interval, in seconds.
     """
-    if len(df.index) < 3:
+    return _interval(df.index).total_seconds()
+
+def _interval(index) -> pd.Timedelta:
+    """Sampling interval of a datetime index: the most common step between
+    consecutive distinct timestamps (sorted), the shortest one if several are
+    as common. A fixed frequency set on the index (e.g., by load) is used
+    directly. ValueError below two distinct timestamps."""
+    index = pd.DatetimeIndex(index)
+    if index.hasnans:
+        index = index.dropna()
+    if len(index) > 1 and isinstance(index.freq, pd.offsets.Tick):
+        return pd.Timedelta(index.freq)
+
+    values = index.values
+    if not index.is_monotonic_increasing:
+        values = np.sort(values)
+    steps = np.diff(values)
+    steps = steps[steps > np.timedelta64(0, 'ns')]
+    if steps.size == 0:
         raise ValueError(
-            "DataFrame index must have at least three entries "
-            "to compute interval."
-        )
-    return (df.index[2] - df.index[1]).total_seconds()
+            "The index must have at least two distinct timestamps to compute "
+            "the sampling interval.")
+    if steps.min() == steps.max():
+        return pd.Timedelta(steps[0])
+    # mode() gives all the most common steps, sorted: the shortest first
+    return pd.Timedelta(pd.Series(steps).mode().iloc[0])
 
 def _laeq_1s(levels: pd.Series) -> pd.Series:
     """Average sub-second levels energetically over each whole second
@@ -450,7 +469,7 @@ def harmonica(
     DataFrame: DataFrame with EVT, BGN, and HARMONICA indicators.
     """
     # Check interval
-    interval = (df.index[1] - df.index[0]).total_seconds()
+    interval = get_interval(df)
     if interval > 1:
         raise ValueError("Computing the HARMONICA indicator requires "
                     "an integration time equal to or below 1s. "
@@ -567,9 +586,15 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
         'HARMONICA': harmonica
         }
 
+_LDEN_NO_DATA = ("No valid data in the day, evening or night period: the "
+                "Lden is NaN.")
+_LDEN_LOW_COVERAGE = ("Insufficient data coverage detected for Lden "
+                    "computation. Some periods will be filtered and return "
+                    "NaN.")
+
 def lden(
-    df: pd.DataFrame, 
-    column: Union[int, str], 
+    df: pd.DataFrame,
+    column: Union[int, str],
     values: bool = False,
     coverage_check: bool = False,
     coverage_threshold: float = 0.5,
@@ -599,7 +624,9 @@ def lden(
         and night values in addition to the lden.
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
-        with insufficient data coverage and emit warnings.
+        with insufficient data coverage and emit warnings. Without any value
+        in the day, evening or night period (all NaN, or no sample), the
+        Lden is NaN in any case, with a CoverageWarning.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -657,6 +684,7 @@ def lden(
             + t_night * np.power(10, (lnight + 10) / 10)
         ) / 24)
     
+    low_coverage = False
     if coverage_check:
         passes_threshold_day = check_coverage(
             day,
@@ -673,12 +701,8 @@ def lden(
 
         if not (passes_threshold_day and passes_threshold_evening and 
                     passes_threshold_night):
-            warnings.warn(
-                f"Insufficient data coverage detected for Lden computation. "
-                "Some periods will be filtered and return NaN.",
-                CoverageWarning,
-                stacklevel=3
-                )
+            warnings.warn(_LDEN_LOW_COVERAGE, CoverageWarning, stacklevel=3)
+            low_coverage = True
             lden = np.nan
             if not passes_threshold_day:
                 lday = np.nan
@@ -686,6 +710,9 @@ def lden(
                 levening = np.nan
             if not passes_threshold_night:
                 lnight = np.nan
+    # A period without any value passes a threshold of 0
+    if not low_coverage and np.isnan([lday, levening, lnight]).any():
+        warnings.warn(_LDEN_NO_DATA, CoverageWarning, stacklevel=3)
 
     if values:
         return pd.DataFrame({

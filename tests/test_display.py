@@ -63,19 +63,39 @@ def harmonica_profile():
     np.random.seed(42)
     return pd.DataFrame(
         {'HARMONICA': np.random.randint(1, 10, 24),
-         'BGN': np.random.uniform(2, 8, 24)},
+        'BGN': np.random.uniform(2, 8, 24)},
         index=pd.date_range('2023-01-01', periods=24, freq='h').time)
 
 
 class TestBasicPlotFunctions:
     """Test basic plotting functions that don't require special data."""
 
+    @pytest.mark.parametrize("freq, background, check", [
+        ('h', True, lambda ax: 'Night' in [
+            t.get_text() for t in ax.get_legend().get_texts()]),
+        ('D', False,
+        lambda ax: ax.xaxis.get_major_formatter().fmt == '%Y-%m-%d'),
+    ], ids=['hourly_background', 'daily_labels'])
+    def test_line_first_step_out_of_line(self, freq, background, check):
+        """Samples missing after the first (first step of 20 h or 20 days):
+        hourly data keep the day/evening/night background, without warning,
+        and daily data their date labels (not month labels)."""
+        index = pd.date_range('2023-01-01', periods=60, freq=freq).delete(
+            range(1, 20))
+        df = pd.DataFrame({'Leq': 50.0}, index=index)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ax = line(df, 'Leq', fill_background=background, show=False)
+
+        assert check(ax)
+        plt.close('all')
+
     @patch('matplotlib.pyplot.show')
     def test_line_kwargs(self, mock_show, laeq1m_data):
         """Matplotlib kwargs reach the line; ylim and title set the axes."""
         ax = line(laeq1m_data.iloc[:100], laeq1m_data.columns[0], color='red',
-                  linewidth=3, alpha=0.7, linestyle='--', ylim=(40, 80),
-                  title='Custom Title')
+                linewidth=3, alpha=0.7, linestyle='--', ylim=(40, 80),
+                title='Custom Title')
 
         assert len(ax.lines) == 1
         line_obj = ax.lines[0]

@@ -389,7 +389,7 @@ def line(
 
     if fill_background:
         if len(x) > 1:
-            interval_hours = (x[1] - x[0]).total_seconds() / 3600
+            interval_hours = core._interval(x).total_seconds() / 3600
             if interval_hours >= 4:
                 warnings.warn("Background filling is only applied for data with "
                             "refresh rates < 4 hours (more than 6 points per day).")
@@ -874,7 +874,7 @@ def _format_time_axis(ax, x, df) -> None:
         span = x[-1] - x[0]
         if span.days < 7:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %I%p'))
-        elif (x[1] - x[0]).days < 15:
+        elif core._interval(x).days < 15:
             # Data at intervals under 15 days (e.g., hourly or daily values)
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         else:

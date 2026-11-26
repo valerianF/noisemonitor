@@ -149,22 +149,29 @@ class TestStations:
         '2013-02-14|2026-11-17', '|'),
         ('OTTAWA CDA', 'ON', 99.5, '6105976', '|', '1889-11-01|2026-11-17',
         '1889-01-01|2006-12-01')],
+        # Two stations of the same name, as the two BEAUHARNOIS stations
+        # (climate IDs 7020564 and 7020562) found 100 km around Montréal
+        [('BEAUHARNOIS', 'QC', 31.2, '7020564', '|', '1951-01-01|1971-12-31',
+        '1951-01-01|1971-12-01'),
+        ('BEAUHARNOIS', 'QC', 31.9, '7020562', '|', '1971-01-01|1994-12-31',
+        '1971-01-01|1994-12-01')],
         [],
-    ], ids=['two_stations', 'none'])
+    ], ids=['two_stations', 'same_name', 'none'])
     def test_stations_page(self, monkeypatch, stations):
-        """One column per station (its name), with its province, proximity,
-        climate ID and data ranges, from its small-screen form (the
-        wide-screen ones are ignored). No station: an empty frame."""
+        """One column per station (its climate ID), in the order of the page,
+        with its name, province, proximity, climate ID and data ranges, from
+        its small-screen form (the wide-screen ones are ignored). Stations
+        sharing a name are all listed. No station: an empty frame."""
         monkeypatch.setattr(weathercan.requests, 'get',
                             _FakeRequests(_stations_page(stations)).get)
 
         df = weathercan.get_historical_stations(COORDINATES)
 
-        assert list(df.columns) == [s[0] for s in stations]
-        assert list(df.index) == (['prov', 'proximity', 'id', 'hlyRange', 'dlyRange',
-                                'mlyRange'] if stations else [])
-        for name, prov, proximity, *values in stations:
-            assert list(df[name]) == [prov, proximity, *values]
+        assert list(df.columns) == [s[3] for s in stations]
+        assert list(df.index) == (['name', 'prov', 'proximity', 'id', 'hlyRange',
+                                'dlyRange', 'mlyRange'] if stations else [])
+        for station in stations:
+            assert list(df[station[3]]) == list(station)
 
     @pytest.mark.parametrize("radius, valid", [
         (24, False), (25, True), (100, True), (101, False)])
@@ -235,16 +242,18 @@ class TestMergeWeather:
     """Weather rows merged onto the noise data."""
 
     @pytest.mark.filterwarnings("error")
-    @pytest.mark.parametrize("freq, start, periods, rain", [
-        ('h', '2023-06-10', 5 * 24, '2023-06-11 06:00'),   # hourly noise data
-        ('20min', '2023-06-10', 5 * 72, '2023-06-11 06:00'),
-        ('h', '2023-06-11', 3 * 24, '2023-06-10 20:00'),   # rain before the data
-    ], ids=['hourly', '20_min', 'rain_before_data'])
-    def test_rain_flag_window(self, monkeypatch, freq, start, periods, rain):
+    @pytest.mark.parametrize("freq, start, periods, rain, missing", [
+        ('h', '2023-06-10', 5 * 24, '2023-06-11 06:00', []),   # hourly noise data
+        ('20min', '2023-06-10', 5 * 72, '2023-06-11 06:00', []),
+        ('h', '2023-06-11', 3 * 24, '2023-06-10 20:00', []),   # rain before the data
+        ('h', '2023-06-10', 5 * 24, '2023-06-11 06:00', [2]),  # third sample missing
+    ], ids=['hourly', '20_min', 'rain_before_data', 'hourly_missing_sample'])
+    def test_rain_flag_window(self, monkeypatch, freq, start, periods, rain,
+                            missing):
         """A sample at t is flagged for rain recorded in (t - 48 h, t] (from
         the hourly row nearest to t), even when the rain falls before the
-        first sample, without warning."""
-        index = pd.date_range(start, periods=periods, freq=freq)
+        first sample or a sample is missing, without warning."""
+        index = pd.date_range(start, periods=periods, freq=freq).delete(missing)
 
         merged = _merge(monkeypatch, index, _weather_session([rain], {rain: 'Rain'}))
 
@@ -454,15 +463,15 @@ class TestLive:
         with hourly data over the dates of the other live tests."""
         df = weathercan.get_historical_stations(COORDINATES, radius=25)
 
-        assert list(df.index) == ['prov', 'proximity', 'id', 'hlyRange', 'dlyRange',
-                                'mlyRange']
+        assert list(df.index) == ['name', 'prov', 'proximity', 'id', 'hlyRange',
+                                'dlyRange', 'mlyRange']
         assert 0 < df.shape[1] <= 25
+        assert list(df.columns) == list(df.loc['id'])
         proximity = df.loc['proximity'].astype(float)
         assert proximity.is_monotonic_increasing and proximity.between(0, 25).all()
         ranges = df.loc[['hlyRange', 'dlyRange', 'mlyRange']].stack()
         assert ranges.str.fullmatch(r'(\d{4}-\d\d-\d\d)?\|(\d{4}-\d\d-\d\d)?').all()
-        [hourly] = df.loc['hlyRange', df.loc['id'] == LIVE_STATION]
-        first, last = hourly.split('|')
+        first, last = df.loc['hlyRange', LIVE_STATION].split('|')
         assert first <= '2022-12-01' and last >= '2023-07-31'
 
     @pytest.mark.parametrize("timeframe, start, stop, freq, index_name, ranges", [

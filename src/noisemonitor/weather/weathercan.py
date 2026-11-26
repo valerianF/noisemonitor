@@ -14,7 +14,7 @@ import warnings
 import numpy as np
 from typing import List, Optional, Union
 
-from ..util.core import _column_to_index, get_interval
+from ..util.core import _column_to_index, _interval
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
@@ -62,9 +62,12 @@ def get_historical_stations(
 
     Returns
     ----------
-    DataFrame: includes all available weather stations, their proximity to the
-    point in kilometers, id number, and the time range of covered data and 
-    associated time granulation (hourly, daily or monthly).
+    DataFrame: one column per station, labelled by its climate ID and
+    ordered by proximity, with rows 'name', 'prov' (province), 'proximity'
+    (distance to the point in kilometers), 'id' (climate ID, as taken by
+    get_historical_data and merge_weather) and 'hlyRange', 'dlyRange',
+    'mlyRange' (first and last dates of the hourly, daily and monthly data,
+    as 'start|end'). Stations sharing a name are all listed.
     """
     if radius < 25 or radius > 100:
         raise ValueError(
@@ -111,13 +114,14 @@ def get_historical_stations(
         "string-length(@id) - string-length('-sm') +1)]"
     )
 
-    stations = {}
+    # A list, not a dict keyed by name: stations sharing a name are all kept
+    stations = []
     for station_req_form in station_req_forms:
         station = {}
         station_table = station_req_form.xpath(
             './/div[@class="col-md-10 col-sm-8 col-xs-8"]'
         )
-        station_name = station_table[0].text
+        station["name"] = station_table[0].text
         station["prov"] = station_table[1].text
         station["proximity"] = float(station_table[2].text)
         station["id"] = station_req_form.find(
@@ -132,9 +136,11 @@ def get_historical_stations(
         station["mlyRange"] = station_req_form.find(
             "input[@name='mlyRange']"
         ).attrib.get("value")
-        stations[station_name] = station
+        stations.append(station)
 
-    return pd.DataFrame(stations)
+    return pd.DataFrame(
+        stations, index=[station["id"] for station in stations]
+    ).T
 
 async def get_historical_data(
     station_id: Union[int, str],
@@ -264,14 +270,13 @@ async def merge_weather(
     DataFrame: Merged DataFrame with weather data and flags.
     """
     # Interval of df (unknown below 3 samples, then merged as hourly data)
-    interval = pd.Timedelta(seconds=get_interval(df) if len(df) > 2 else 0)
+    interval = _interval(df.index) if len(df) > 2 else pd.Timedelta(0)
     averaged = interval > pd.Timedelta(hours=1)
     # Period [t, t + period) of each sample: the frequency of df (e.g., a
     # month), else its interval
     period = interval
     if averaged:
-        period = (pd.DatetimeIndex(df.index, freq='infer').freq
-                or df.index.to_series().diff().mode()[0])
+        period = pd.DatetimeIndex(df.index, freq='infer').freq or interval
 
     # Import from the start of the rolling window of the first sample, 
     # with a margin for the nearest merge and the shift from LST

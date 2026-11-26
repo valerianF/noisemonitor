@@ -117,6 +117,10 @@ def data_with_time_gaps(laeq1s_data):
     return test_data
 
 
+# Start of the synthetic indexes built from times in seconds
+T0 = pd.Timestamp('2023-01-02 10:00')
+
+
 # External data: Clark et al. (2021), Accra (data/external/README.md)
 
 EXT_PATH = Path(__file__).parent / "data" / "external"

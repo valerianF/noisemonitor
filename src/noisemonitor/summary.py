@@ -118,7 +118,9 @@ def periodic(
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage and emit warnings. Samples of a
         period missing from the data (first or last period cut by the start
-        or end of the data) count as missing.
+        or end of the data) count as missing. Without any value in its day,
+        evening or night period, the Lden of a period is NaN in any case,
+        with a single CoverageWarning per call.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -154,7 +156,8 @@ def periodic(
         rules[freq], closed='left', label='left')
 
     coverage_warning_issued = False
-    interval = pd.Timedelta(seconds=core.get_interval(df))
+    lden_warnings = {}
+    interval = core._interval(df.index)
     length = pd.tseries.frequencies.to_offset(rules[freq])
 
     for period, group in resampled:
@@ -185,7 +188,8 @@ def periodic(
             else:
                 leq_value = core.equivalent_level(array)
 
-            lden_values = core.lden(
+            lden_values, caught = core._record_warnings(
+                core.lden,
                 group,
                 column=column,
                 values=values,
@@ -195,6 +199,7 @@ def periodic(
                 start_evening=start_evening,
                 start_night=start_night
             )
+            lden_warnings.update(dict.fromkeys(caught))
             result = {
                 'Period': period + offset,
                 'Leq': leq_value,
@@ -207,6 +212,10 @@ def periodic(
                     'Lnight': lden_values['Lnight'][0]
                 })
             results.append(result)
+
+    # The Lden warnings of all periods, once per call
+    for category, message in lden_warnings:
+        warnings.warn(message, category, stacklevel=2)
 
     result_df = pd.DataFrame(results).set_index('Period')
     return result_df
@@ -268,13 +277,12 @@ def freq_periodic(
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
 
-    results = {
-        col: periodic(df, column=df.columns.get_loc(col), freq=freq, values=values,
-                    coverage_check=coverage_check, coverage_threshold=coverage_threshold,
-                    start_day=start_day, start_evening=start_evening,
-                    start_night=start_night, start_at_day=start_at_day)
-        for col in df.columns
-    }
+    # The warnings of all bands are emitted once per category
+    results = core._map_bands(
+        periodic, df, False, coverage_check, freq=freq, values=values,
+        coverage_threshold=coverage_threshold, start_day=start_day,
+        start_evening=start_evening, start_night=start_night,
+        start_at_day=start_at_day)
 
     combined_results = pd.concat(results, axis=1, keys=results.keys())
 
@@ -401,7 +409,9 @@ def lden(
     coverage_check: bool, default False
         if set to True, assess data coverage and automatically filter periods
         with insufficient data coverage. Coverage counts the samples present
-        in the data.
+        in the data. Without any value in the day, evening or night period
+        (all NaN, or no sample), the Lden is NaN in any case, with a
+        CoverageWarning.
     coverage_threshold: float, default 0.5
         minimum data coverage ratio required (0.0 to 1.0).
     start_day: int, default 7
@@ -602,36 +612,21 @@ def freq_indicators(
 
     df = core._parse_freq_columns(df).sort_index(axis=1)
 
+    # Overall Leq and Lden of each band; the warnings of all bands are
+    # emitted once per category, for each of the two
+    leq_results = core._map_bands(
+        leq, df, False, coverage_check, hour1=hour1, hour2=hour2, day1=day1,
+        day2=day2, stats=stats, coverage_threshold=coverage_threshold)
+    lden_results = core._map_bands(
+        lden, df, False, coverage_check, day1=day1, day2=day2, values=values,
+        coverage_threshold=coverage_threshold, start_day=start_day,
+        start_evening=start_evening, start_night=start_night)
+
     # Initialize a dictionary to store results for each frequency band
     results = {}
 
-    for col_idx in range(df.shape[1]):
-        # Compute overall Leq
-        leq_result = leq(
-            df,
-            hour1=hour1,
-            hour2=hour2,
-            day1=day1,
-            day2=day2,
-            column=col_idx,
-            stats=stats,
-            coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold
-        )
-
-        # Compute overall Lden
-        lden_result = lden(
-            df,
-            day1=day1,
-            day2=day2,
-            column=col_idx,
-            values=values,
-            coverage_check=coverage_check,
-            coverage_threshold=coverage_threshold,
-            start_day=start_day,
-            start_evening=start_evening,
-            start_night=start_night
-        )
+    for band in df.columns:
+        leq_result, lden_result = leq_results[band], lden_results[band]
 
         # Combine results for this frequency band
         combined_result = {
@@ -654,7 +649,7 @@ def freq_indicators(
             })
 
         # Store the combined result for this frequency band
-        results[df.columns[col_idx]] = combined_result
+        results[band] = combined_result
 
     # Convert the results dictionary into a DataFrame
     results_df = pd.DataFrame(results)
@@ -723,7 +718,8 @@ def nday(
         bins = [40, 45, 50, 55, 60, 65, 70, 75, 80]
 
     # Compute daily or weekly indicators
-    indicators_df = periodic(
+    indicators_df, caught = core._record_warnings(
+        periodic,
         df,
         freq=freq,
         column=column,
@@ -740,6 +736,15 @@ def nday(
     if indicator not in indicators_df.columns:
         raise ValueError("Invalid indicator. Choose from "
             f"{indicators_df.columns.tolist()}")
+
+    # The Lden warnings only matter if the indicator counted is NaN in some
+    # period (Lday, Levening and Lnight are NaN where the Lden warns)
+    lden_messages = (core._LDEN_NO_DATA, core._LDEN_LOW_COVERAGE)
+    lden_missing = (indicator != 'Leq'
+                    and indicators_df[indicator].isna().any())
+    for category, message in caught:
+        if lden_missing or message not in lden_messages:
+            warnings.warn(message, category, stacklevel=2)
 
     # Count the number of days for each decibel range
     counts = pd.cut(

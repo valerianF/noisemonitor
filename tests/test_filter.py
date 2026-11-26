@@ -115,8 +115,9 @@ class TestExtremeValues:
         input DataFrame is left unchanged. The column is the first one by
         default, or given by index or name."""
         before = laeq1m_data.copy()
-        result = extreme_values(laeq1m_data, column=column, min_value=40,
-                                max_value=90)
+        with pytest.warns(UserWarning, match="replaced by NaN"):
+            result = extreme_values(laeq1m_data, column=column, min_value=40,
+                                    max_value=90)
 
         pd.testing.assert_frame_equal(laeq1m_data, before)
         assert result['LEQ dB -A'].min() >= 40
@@ -125,32 +126,69 @@ class TestExtremeValues:
         original_count = laeq1m_data['LEQ dB -A'].notna().sum()
         filtered_count = result['LEQ dB -A'].notna().sum()
         assert filtered_count < original_count
+        assert capsys.readouterr().out == ""
 
-        captured = capsys.readouterr()
-        assert "Proportion of values filtered out:" in captured.out
+    @pytest.mark.filterwarnings("error")
+    def test_no_extreme_values(self, capsys):
+        """Nothing outside the range: no warning, a message giving the
+        range, the data unchanged and an empty frame of removed rows."""
+        index = pd.date_range('2023-01-01', periods=3, freq='h')
+        df = pd.DataFrame({'LEQ dB -A': [45.0, 50, 55]}, index=index)
 
-    def test_no_extreme_values(self):
-        """Test when no values are filtered out."""
-        # Create data within normal range
-        index = pd.date_range('2023-01-01', periods=10, freq='h')
-        df = pd.DataFrame({'LEQ dB -A': [45, 50, 55, 60, 65] * 2}, index=index)
+        result, removed = extreme_values(df, min_value=40, max_value=90,
+                                        return_filtered=True)
 
-        result = extreme_values(df.copy(), min_value=40, max_value=90)
+        pd.testing.assert_frame_equal(result, df)
+        assert removed.empty
+        assert list(removed.columns) == list(df.columns)
+        assert capsys.readouterr().out == (
+            "No data was found outside the [40, 90] range.\n")
 
-        # No values should be filtered
-        assert result['LEQ dB -A'].notna().sum() == df['LEQ dB -A'].notna().sum()
+    @pytest.mark.parametrize("values, expected, message", [
+        ([29.9, 30, 65, np.nan, 100, 100.1], [np.nan, 30, 65, np.nan, 100, np.nan],
+        r"2 value\(s\) \(40%\)"),
+        ([120.0] * 3, [np.nan] * 3, r"3 value\(s\) \(100%\)"),
+    ], ids=['some', 'all'])
+    def test_warning_counts_replaced_values(self, values, expected, message):
+        """The warning counts the values outside the range among the valid
+        ones (the limits are kept, missing values are not counted), in plain
+        notation up to 100%."""
+        index = pd.date_range('2023-01-01', periods=len(values), freq='h')
+        df = pd.DataFrame({'LEQ dB -A': values}, index=index)
+
+        with pytest.warns(UserWarning, match=message) as record:
+            result = extreme_values(df)
+
+        assert len(record) == 1
+        np.testing.assert_array_equal(result['LEQ dB -A'], expected)
+
+    def test_return_filtered(self):
+        """return_filtered=True also gives the replaced rows, whole and with
+        their original values."""
+        index = pd.date_range('2023-01-01', periods=5, freq='h')
+        df = pd.DataFrame({'LEQ dB -A': [20.0, 50, np.nan, 60, 110],
+                        'LEQ dB -C': [40.0, 60, 70, 75, 115]}, index=index)
+        before = df.copy()
+
+        with pytest.warns(UserWarning, match="replaced by NaN"):
+            result, removed = extreme_values(df, return_filtered=True)
+
+        pd.testing.assert_frame_equal(df, before)
+        pd.testing.assert_frame_equal(removed, df.iloc[[0, 4]])
+        assert result['LEQ dB -A'].isna().sum() == 3
+        pd.testing.assert_series_equal(result['LEQ dB -C'], df['LEQ dB -C'])
 
     @pytest.mark.filterwarnings("error")
     def test_all_nan_column(self, capsys):
-        """A column without any value: nothing to filter, 0% reported,
-        without a division by zero."""
+        """A column without any value: nothing to filter, without a division
+        by zero."""
         index = pd.date_range('2023-01-01', periods=10, freq='h')
         df = pd.DataFrame({'LEQ dB -A': np.nan}, index=index)
 
         result = extreme_values(df, min_value=40, max_value=90)
 
         assert result['LEQ dB -A'].isna().all()
-        assert "Proportion of values filtered out: 0.00%" in capsys.readouterr().out
+        assert "No data was found outside" in capsys.readouterr().out
 
 
 class TestWeatherFlags:
