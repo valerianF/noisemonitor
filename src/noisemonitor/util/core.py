@@ -60,6 +60,13 @@ _LF_METHODS = {
                 'inclusive': True},
 }
 
+# Missing samples warning messages for Lden
+_LDEN_NO_DATA = ("No valid data in the day, evening or night period: the "
+                "Lden is NaN.")
+_LDEN_LOW_COVERAGE = ("Insufficient data coverage detected for Lden "
+                    "computation. Some periods will be filtered and return "
+                    "NaN.")
+
 
 class CoverageWarning(UserWarning):
     """Warning emitted when data coverage is insufficient."""
@@ -585,12 +592,6 @@ def hourly_harmonica(hour, group, column, interval, previous_data):
         'BGN': bgn, 
         'HARMONICA': harmonica
         }
-
-_LDEN_NO_DATA = ("No valid data in the day, evening or night period: the "
-                "Lden is NaN.")
-_LDEN_LOW_COVERAGE = ("Insufficient data coverage detected for Lden "
-                    "computation. Some periods will be filtered and return "
-                    "NaN.")
 
 def lden(
     df: pd.DataFrame,

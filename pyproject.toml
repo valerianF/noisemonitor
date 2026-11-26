@@ -33,6 +33,7 @@ weather = [
 [project.urls]
 "Homepage" = "https://github.com/valerianF/noisemonitor"
 "Bug Tracker" = "https://github.com/valerianF/noisemonitor/issues"
+"Changelog" = "https://github.com/valerianF/noisemonitor/blob/main/docs/CHANGELOG.md"
 
 [build-system]
 requires = ["setuptools >= 77", "wheel"]

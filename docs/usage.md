@@ -167,7 +167,7 @@ overall_lden = nm.summary.lden(df_1m)
 
 | Lden | Lday  | Levening | Lnight |
 |------|-------|----------|--------|
-| 56.1 | 51.75 | 50.08    | 49.23  |
+| 56.1 | 51.75 | 50.09    | 49.22  |
 
 ```python
 # Weekdays only
@@ -774,9 +774,33 @@ Proportion of values filtered out: 44.44%
 ## Software testing and external validation
 
 The test suite (pytest, in `tests/`) runs on every pull request and push to the main branch. Each test belongs to one of three categories, selected with pytest markers:
-- `external`: comparison with reference values computed outside noisemonitor (table below). The data files and how they were prepared are described [here](../tests/data/external/README.md).
+- `external`: comparison with reference values computed outside noisemonitor ([Reference data](#reference-data)). The data files and how they were prepared are described [here](../tests/data/external/README.md).
 - `internal`: comparison with results known in closed form on synthetic signals, or with another validated noisemonitor function (e.g., each band of `profile.freq_periodic` against `profile.periodic` applied to that band alone).
 - `behaviour`: no reference value: output structure, options, errors and warnings, coverage rules, and edge cases (data gaps, windows past midnight, daylight saving time, sub-second data, file formats, separators and decimal commas).
+
+### Validation status by function
+
+- **External**: matches reference values computed outside noisemonitor (see [Reference data](#reference-data)).
+- **Derived**: applies an externally validated computation to other periods, windows or columns, and is tested against it.
+- **Definition only**: no published reference values were found; tested against its definition on synthetic signals.
+
+| Function | Indicators | Status |
+|---|---|---|
+| `summary.leq`, `summary.lden`, `core.equivalent_level`, `core.lden` | $L_{eq}$, $L_{10}$, $L_{50}$, $L_{90}$, $L_{den}$, $L_{day}$, $L_{night}$ | External |
+| `summary.periodic` | $L_{eq}$, $L_{den}$ | External (daily), derived (weekly, monthly) |
+| `summary.harmonica_periodic`, `core.harmonica` | HARMONICA, BGN, EVT | External |
+| `profile.periodic`, `profile.series` | $L_{eq}$, $L_n$ | External (windows of the reference data), derived (other windows) |
+| `profile.periodic` | TNI | Derived (formula on the validated $L_{10}$ and $L_{90}$) |
+| `profile.periodic` | NPL, roughness indicators | Definition only |
+| `profile.nne`, `core.noise_events` | Number of Noise Events | External |
+| `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` | `'montano'` and `'barcelona'` methods | External |
+| `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` | `'botsford'` method | Definition only (same computation as the validated methods, other bands and threshold) |
+| `summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series` | All, per frequency band | Derived (each band equals the single-column function) |
+| `summary.nday` | Number of days per level range | Derived (counts of the validated daily values) |
+| `weather.weathercan` | Weather data and flags | Environment Canada station data as reference ([Weather functions](#weather-functions)) |
+| `load`, `filter`, `display` | – | Behaviour tests only |
+
+### Reference data
 
 | Reference | Function | Indicators | Tolerance |
 |---|---|---|---|
@@ -786,18 +810,9 @@ The test suite (pytest, in `tests/`) runs on every pull request and push to the 
 | Montano & Gushiken (2023)[^4] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='montano'`) | $C_{LF}$, $A_{LF}$, $C_{LF} - A_{LF}$ | 0.0501 dB (values published to 0.1 dB) |
 | Generalitat de Catalunya (2012)[^5] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='barcelona'`) | $L_{Aeq}$ and $L_{Ceq}$ of the 20–160 Hz bands, $L_f$ | 0.0501 dB (values published to 0.1 dB) |
 
-**Validated through the functions above** (tests marked `internal`). These functions apply the externally validated computations to other selections of the data, and each test compares them with the validated function on the same selection:
-- other periods and windows of the functions in the table (weekly and monthly periods, sliding windows);
-- frequency-band functions (`summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series`): each band gives the same values as the single-column function applied to it alone;
-- `summary.nday`: counts of the validated daily values;
-- TNI of `profile.periodic`: $4(L_{10} - L_{90}) + L_{90} - 30$ from the validated $L_{10}$ and $L_{90}$, matching the formula applied to Bruitparif's hourly $L_{10}$ and $L_{90}$.
+### Weather functions
 
-**Not validated against reference values.** These rely on definitions or steps for which no published values were found; tests only check that the implementation matches its definition on synthetic signals with closed-form results:
-- NPL of `profile.periodic` ($L_{eq} + 2.56\sigma$, $\sigma$ being the sample standard deviation of the levels in the window);
-- roughness indicators of `profile.periodic` (DeFrance et al., 2010);
-- the Botsford low-frequency criterion (`method='botsford'`): same computation as the validated `'montano'` and `'barcelona'` methods, but over 20 Hz–20 kHz and with its own threshold.
-
-**Weather functions.** The reference values are the Environment Canada station data themselves. The tests check that these values are retrieved and merged as reported (tests marked `live`, against the Environment Canada service: merged values equal the station's hourly rows after conversion from Local Standard Time). They also check that the flags follow their documented rules (offline tests on simulated Environment Canada responses). Live tests are skipped unless pytest is run with `--live`; a separate workflow runs them on every pull request.
+The reference values are the Environment Canada station data themselves. The tests check that these values are retrieved and merged as reported (tests marked `live`, against the Environment Canada service: merged values equal the station's hourly rows after conversion from Local Standard Time). They also check that the flags follow their documented rules (offline tests on simulated Environment Canada responses). Live tests are skipped unless pytest is run with `--live`; a separate workflow runs them on every pull request to the main branch.
 
 ## References
 
