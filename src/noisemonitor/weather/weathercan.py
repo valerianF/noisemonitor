@@ -12,19 +12,17 @@ import lxml.html
 import pandas as pd
 import warnings
 import numpy as np
-from typing import Optional, Union
+from typing import List, Optional, Union
 
-from ..util.core import _column_to_index
+from ..util.core import _column_to_index, _interval
 
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from io import StringIO
 
-from typing import List, Optional
-
 from noisemonitor.summary import leq, lden
 
-USER_AGENT = "noisemonitor/1.0.2"
+USER_AGENT = "noisemonitor/1.1.0"
 
 STATIONS_URL = (
     "https://climate.weather.gc.ca/historical_data/"
@@ -64,9 +62,12 @@ def get_historical_stations(
 
     Returns
     ----------
-    DataFrame: includes all available weather stations, their proximity to the
-    point in kilometers, id number, and the time range of covered data and 
-    associated time granulation (hourly, daily or monthly).
+    DataFrame: one column per station, labelled by its climate ID and
+    ordered by proximity, with rows 'name', 'prov' (province), 'proximity'
+    (distance to the point in kilometers), 'id' (climate ID, as taken by
+    get_historical_data and merge_weather) and 'hlyRange', 'dlyRange',
+    'mlyRange' (first and last dates of the hourly, daily and monthly data,
+    as 'start|end'). Stations sharing a name are all listed.
     """
     if radius < 25 or radius > 100:
         raise ValueError(
@@ -113,13 +114,14 @@ def get_historical_stations(
         "string-length(@id) - string-length('-sm') +1)]"
     )
 
-    stations = {}
+    # A list, not a dict keyed by name: stations sharing a name are all kept
+    stations = []
     for station_req_form in station_req_forms:
         station = {}
         station_table = station_req_form.xpath(
             './/div[@class="col-md-10 col-sm-8 col-xs-8"]'
         )
-        station_name = station_table[0].text
+        station["name"] = station_table[0].text
         station["prov"] = station_table[1].text
         station["proximity"] = float(station_table[2].text)
         station["id"] = station_req_form.find(
@@ -134,25 +136,14 @@ def get_historical_stations(
         station["mlyRange"] = station_req_form.find(
             "input[@name='mlyRange']"
         ).attrib.get("value")
-        stations[station_name] = station
+        stations.append(station)
 
-    return pd.DataFrame(stations)
+    return pd.DataFrame(
+        stations, index=[station["id"] for station in stations]
+    ).T
 
-def flip_daterange(f):
-    def wrapper(*args, **kwargs):
-        if kwargs.get("daterange") in globals():
-            if kwargs.get("daterange")[0] > kwargs.get("daterange")[1]:
-                kwargs["daterange"] = (
-                    kwargs.get("daterange")[1],
-                    kwargs.get("daterange")[0],
-                )
-        return f(*args, **kwargs)
-
-    return wrapper
-
-@flip_daterange
 async def get_historical_data(
-    station_id: int,
+    station_id: Union[int, str],
     daterange=(
         _ONE_YEAR_AGO,
         _TODAY,
@@ -165,10 +156,11 @@ async def get_historical_data(
 
     Parameters
     ----------
-    station_id: int
-        the ID of the station found with get_historical_stations
+    station_id: str
+        the climate ID of the station, as given in the 'id' row of
+        get_historical_stations (e.g., '702S006').
     daterange: tuple of datetime
-        the dates between which the data are retrieved
+        the dates between which the data are retrieved, in either order
     timeframe: str
         selection of granularity : 'hourly' or 'daily'
 
@@ -176,7 +168,7 @@ async def get_historical_data(
     ----------
     DataFrame: All data in the range
     """
-    startdate, stopdate = pd.to_datetime(daterange)
+    startdate, stopdate = sorted(pd.to_datetime(daterange))
     months = monthlist(daterange=daterange)
     _tf = {"hourly": 1, "daily": 2}
     timeframe = _tf[timeframe]
@@ -227,22 +219,37 @@ async def get_historical_data(
 
 async def merge_weather(
     df: pd.DataFrame, 
-    station_id: int,
+    station_id: Union[int, str],
     wind_speed_flag: int = 18,
     temp_range_flag: tuple = (-10, 30),
     hum_flag: int = 90,
-    rolling_window_hours: int = 48
+    rolling_window_hours: int = 48,
+    timezone: Optional[str] = 'America/Toronto'
 ) -> pd.DataFrame:
     """
-    Async function. Merge weather data with the input DataFrame based on the 
-    datetime index. Will also include flags for weather conditions.
+    Async function. Merge hourly Environment Canada weather data into df
+    and add weather flags (True when their condition is met).
+
+    Samples at 1 h or less take the nearest hourly row. Coarser samples
+    (e.g., daily levels) take the hourly rows of their own period, with a
+    UserWarning: values are averaged (precipitation summed) and the rain
+    and snow flags are raised if raised in any hour.
+
+    Rain and snow are flagged in hours with precipitation whose 'Weather'
+    condition names rain (drizzle and ice pellets included) or snow. A
+    UserWarning is given when drizzle or ice pellets alone raise the rain
+    flag, when a condition without a precipitation amount is flagged
+    alone, when precipitation without a condition is not flagged, and when
+    a station reporting no condition gets rain (>= 0 °C) or snow (< 0 °C)
+    from the temperature. Details: usage guide, Weather Integration.
 
     Parameters
     ----------
     df: DataFrame
         Input DataFrame with a datetime index.
-    station_id: int
-        The ID of the weather station.
+    station_id: str
+        The climate ID of the weather station, as given in the 'id' row of
+        get_historical_stations (e.g., '702S006').
     wind_speed_flag: int, default 18
         Threshold for wind speed flag.
     temp_range_flag: tuple, default (-10, 30)
@@ -251,110 +258,144 @@ async def merge_weather(
         Threshold for relative humidity flag.
     rolling_window_hours: int, default 48
         Size of the rolling window for rain and snow flags in hours.
+    timezone: str, optional
+        Time zone of the times of df (default: 'America/Toronto').
+        Environment Canada times are in Local Standard Time (LST) all year;
+        they are converted to the local time of this zone, daylight saving
+        time included (the repeated hour at its end keeps its first row).
+        If None, they are kept in LST.
 
     Returns
     ----------
     DataFrame: Merged DataFrame with weather data and flags.
     """
-    # Ensure the index is a DatetimeIndex
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
+    # Interval of df (unknown below 3 samples, then merged as hourly data)
+    interval = _interval(df.index) if len(df) > 2 else pd.Timedelta(0)
+    averaged = interval > pd.Timedelta(hours=1)
+    # Period [t, t + period) of each sample: the frequency of df (e.g., a
+    # month), else its interval
+    period = interval
+    if averaged:
+        period = pd.DatetimeIndex(df.index, freq='infer').freq or interval
 
-    # Retrieve weather data
-    weather_df = await get_historical_data(
-        station_id=station_id,
-        daterange=(df.index.min(), df.index.max()),
-        timeframe="hourly"
-    )
+    # Import from the start of the rolling window of the first sample, 
+    # with a margin for the nearest merge and the shift from LST
+    margin = pd.Timedelta(hours=2)
+    hourly = await get_historical_data(station_id, daterange=(
+        df.index[0] - pd.Timedelta(hours=rolling_window_hours) - margin,
+        df.index[-1] + period + margin))
 
-    # Ensure the index of weather_df is a DatetimeIndex
-    if not isinstance(weather_df.index, pd.DatetimeIndex):
-        weather_df.index = pd.to_datetime(weather_df.index)
-
-    # Determine the time granularity of the input DataFrame
-    time_diff = df.index.to_series().diff().dropna().mode()[0]
-    if time_diff >= pd.Timedelta(days=1):
-        rolling_window = rolling_window_hours // 24
+    # Rain and snow: precipitation with the condition reported in 'Weather',
+    # or, from a station reporting no condition, at or above / below 0 °C
+    precip = hourly['Precip. Amount (mm)'] > 0
+    if hourly['Weather'].isna().all():
+        if precip.any():
+            warnings.warn(
+                "No weather condition reported by the station: rain and snow "
+                "are inferred from the temperature (precipitation at or above "
+                "0 °C is rain, below 0 °C snow). Check them against other "
+                "weather archives.", UserWarning, stacklevel=2)
+        rain, snow = hourly['Temp (°C)'] >= 0, hourly['Temp (°C)'] < 0
     else:
-        rolling_window = rolling_window_hours
+        unreported = (precip & hourly['Weather'].isna()).sum()
+        if unreported:
+            warnings.warn(
+                f"No weather condition reported for {unreported} hour(s) with "
+                "precipitation: not flagged as rain or snow.",
+                UserWarning, stacklevel=2)
+        text = hourly['Weather'].fillna('')
+        # Rain includes drizzle (e.g., 'Freezing Drizzle') and ice pellets
+        rain = text.str.contains('Rain|Drizzle|Ice Pellets')
+        snow = text.str.contains('Snow')
+        # Rain or snow reported without a precipitation amount (stations
+        # reporting conditions only): flagged from the condition alone
+        no_amount = hourly['Precip. Amount (mm)'].isna() & (rain | snow)
+        if no_amount.any():
+            warnings.warn(
+                f"No precipitation amount reported for {no_amount.sum()} "
+                "hour(s) with rain or snow: flagged from the weather "
+                "condition alone.", UserWarning, stacklevel=2)
+        precip = precip | no_amount
+        other_rain = (precip & rain & ~text.str.contains('Rain')).sum()
+        if other_rain:
+            warnings.warn(
+                f"{other_rain} hour(s) flagged as rain from a drizzle or ice "
+                "pellets condition, without rain reported.",
+                UserWarning, stacklevel=2)
+    window = pd.Timedelta(hours=rolling_window_hours)
+    for flag, condition in (('Rain_Flag', rain), ('Snow_Flag', snow)):
+        hourly[flag] = precip & condition
+        # Raised in any hour of the last rolling_window_hours hours
+        hourly[f'{flag}_Roll'] = hourly[flag].rolling(window).max().astype(bool)
 
-    # Create flags
-    weather_df['Wind_Spd_Flag'] = (
-        weather_df['Wind Spd (km/h)'] >= wind_speed_flag
-    ).astype(bool)
-    if all(weather_df['Weather'].isna()):
-        weather_df['Rain_Flag'] = (
-            (weather_df['Precip. Amount (mm)'] > 0) & 
-            (weather_df['Temp (°C)'] >= 0)
-        ).astype(bool)
-        weather_df['Snow_Flag'] = (
-            (weather_df['Precip. Amount (mm)'] > 0) & 
-            (weather_df['Temp (°C)'] < 0)
-        ).astype(bool)
-    else: 
-        weather_df['Rain_Flag'] = (
-            (weather_df['Precip. Amount (mm)'] > 0) & 
-            weather_df['Weather'].fillna('').str.contains('Rain')
-        ).astype(bool)
-        weather_df['Snow_Flag'] = (
-            (weather_df['Precip. Amount (mm)'] > 0) & 
-            weather_df['Weather'].fillna('').str.contains('Snow')
-        ).astype(bool)
-    weather_df['Temp_Flag'] = (
-        (weather_df['Temp (°C)'] < temp_range_flag[0]) | 
-        (weather_df['Temp (°C)'] > temp_range_flag[1])
-    ).astype(bool)
-    weather_df['Rel_Hum_Flag'] = (
-        weather_df['Rel Hum (%)'] > hum_flag
-    ).astype(bool)
+    if timezone is not None:
+        # LST is the standard UTC offset of the zone all year: through UTC,
+        # weather times become local clock times
+        first = hourly.index[0].tz_localize(
+            timezone, ambiguous=True, nonexistent='shift_forward')
+        lst = first.utcoffset() - first.dst()
+        hourly.index = ((hourly.index - lst).tz_localize('UTC')
+                        .tz_convert(timezone).tz_localize(None))
 
-    # Apply rolling window for the past 48 hours (or days if daily data)
-    weather_df['Rain_Flag_Roll'] = (
-        weather_df['Rain_Flag'].rolling(window=rolling_window, min_periods=1)
-        .max().astype(bool)
-    )
-    weather_df['Snow_Flag_Roll'] = (
-        weather_df['Snow_Flag'].rolling(window=rolling_window, min_periods=1)
-        .max().astype(bool)
-    )
+    flags = ['Rain_Flag', 'Snow_Flag', 'Rain_Flag_Roll', 'Snow_Flag_Roll']
+    hourly = hourly[['Wind Spd (km/h)', 'Precip. Amount (mm)', 'Weather',
+                    'Temp (°C)', 'Rel Hum (%)'] + flags]
+    if averaged:
+        warnings.warn(
+            f"The data are at intervals of {interval}, longer than the hourly "
+            "weather data: weather values are averaged over each sample "
+            "(precipitation summed).", UserWarning, stacklevel=2)
+        # Hourly rows of [t, t + period) of each sample t (and before the next)
+        start = pd.DatetimeIndex(
+            pd.Series(df.index, index=df.index).asof(hourly.index))
+        inside = hourly.index < start + period
+        weather = hourly[inside].groupby(start[inside]).agg({
+            'Wind Spd (km/h)': 'mean',
+            'Precip. Amount (mm)': lambda p: p.sum(min_count=1),
+            # Distinct conditions in order (e.g., 'Rain,Fog'), NaN if none
+            'Weather': lambda w: ','.join(
+                dict.fromkeys(','.join(w.dropna()).split(','))) or np.nan,
+            'Temp (°C)': 'mean',
+            'Rel Hum (%)': 'mean',
+            **{flag: 'any' for flag in flags}}).reindex(df.index)
+        weather[flags] = weather[flags].eq(True)  # no weather row: not raised
+    else:
+        # The local hour repeated at the end of daylight saving time keeps
+        # its first row, as in noisemonitor.load
+        weather = pd.merge_asof(df[[]], hourly[~hourly.index.duplicated()],
+                                left_index=True, right_index=True,
+                                direction='nearest')
 
-    # Select relevant columns
-    weather_columns = [
-        "Wind Spd (km/h)", 
-        "Precip. Amount (mm)", 
-        "Weather", 
-        "Temp (°C)", 
-        "Rel Hum (%)",
-        "Wind_Spd_Flag", 
-        "Rain_Flag", 
-        "Snow_Flag", 
-        "Temp_Flag", 
-        "Rel_Hum_Flag",
-        "Rain_Flag_Roll", 
-        "Snow_Flag_Roll"
-    ]
-    weather_df_selected = weather_df[weather_columns]
+    # Thresholds, on the hourly or averaged values
+    weather['Wind_Spd_Flag'] = weather['Wind Spd (km/h)'] >= wind_speed_flag
+    weather['Temp_Flag'] = ((weather['Temp (°C)'] < temp_range_flag[0])
+                            | (weather['Temp (°C)'] > temp_range_flag[1]))
+    weather['Rel_Hum_Flag'] = weather['Rel Hum (%)'] > hum_flag
 
-    # Merge the input DataFrame with the weather data
-    merged_df = pd.merge_asof(
-        df.sort_index(),
-        weather_df_selected.sort_index(),
-        left_index=True,
-        right_index=True,
-        direction='nearest'
-    )
-
-    # Store the flag thresholds in the merged DataFrame
-    merged_df.attrs['wind_speed_flag'] = wind_speed_flag
-    merged_df.attrs['temp_range_flag'] = temp_range_flag
-    merged_df.attrs['hum_flag'] = hum_flag
-    merged_df.attrs['rolling_window_hours'] = rolling_window_hours
-
+    merged_df = df.join(weather[[
+        'Wind Spd (km/h)', 'Precip. Amount (mm)', 'Weather', 'Temp (°C)',
+        'Rel Hum (%)', 'Wind_Spd_Flag', 'Rain_Flag', 'Snow_Flag', 'Temp_Flag',
+        'Rel_Hum_Flag', 'Rain_Flag_Roll', 'Snow_Flag_Roll']])
+    merged_df.attrs.update(
+        wind_speed_flag=wind_speed_flag, temp_range_flag=temp_range_flag,
+        hum_flag=hum_flag, rolling_window_hours=rolling_window_hours,
+        timezone=timezone)
     return merged_df
 
-@flip_daterange
 def monthlist(daterange):
-    startdate, stopdate = pd.to_datetime(daterange)
+    """List the months requested from Environment Canada for a date range.
+
+    Parameters
+    ----------
+    daterange: tuple of datetime
+        the dates of the range, in either order.
+
+    Returns
+    ----------
+    list of tuple: (year, month, 1) of each month from the month of the
+        first date to the month of the last date.
+    """
+    startdate, stopdate = sorted(pd.to_datetime(daterange))
 
     def total_months(dt):
         return dt.month + 12 * dt.year
@@ -371,12 +412,16 @@ def contingency_weather_flags(
     include_wind_flag: bool = True, 
     include_rain_flag: bool = True, 
     include_temp_flag: bool = False,
-    include_rel_hum_flag: bool = False, 
-    include_snow_flag: bool = False
+    include_rel_hum_flag: bool = False,
+    include_snow_flag: bool = False,
+    start_day: int = 7,
+    start_evening: int = 19,
+    start_night: int = 23
 ) -> pd.DataFrame:
     """
-    Create a contingency table for LAeq, Lden, Lday, Levening, and Lnight 
-    with and without the different weather flags.
+    Create a contingency table for LAeq, Lden, Lday, Levening, and Lnight
+    with and without the different weather flags. Lden follows the
+    Directive 2002/49/EC (see noisemonitor.summary.lden).
 
     Parameters
     ----------
@@ -395,13 +440,23 @@ def contingency_weather_flags(
         Whether to include the Relative Humidity Flag in the contingency table.
     include_snow_flag: bool, default False
         Whether to include the Snow Flag in the contingency table.
+    start_day: int, default 7
+        hour (0-23) at which the Lden day period starts.
+    start_evening: int, default 19
+        hour (0-23) at which the Lden evening period starts.
+    start_night: int, default 23
+        hour (0-23) at which the Lden night period starts.
 
     Returns
     ----------
     pd.DataFrame:
-        Contingency table with LAeq,24h, Lden, Lday, Levening,
-        Lnight, and other indicators. 
-    and the proportion of data covered from the initial dataset.
+        Contingency table with the Leq and Lden of all the data, of the
+        rows with and without each included flag, of the rows with any
+        included flag raised ('Any Flag') and of those with none ('No
+        Flag'), their differences from all the data, and the proportion of
+        the data in each row. Rows with fewer than 3 samples are left out.
+        The Lden of a row without data in the day, evening or night period
+        (e.g., a flag raised only at night) is NaN, and its Leq is kept.
     """
     column = _column_to_index(df, column)
 
@@ -424,8 +479,10 @@ def contingency_weather_flags(
         subsets[f'No {flag}'] = df[~df[flag]]
         subsets[flag] = df[df[flag]]
 
-    subsets['All Flags'] = df[df[list(_active_flags.keys())].any(axis=1)]
-    subsets['Neither Flags'] = df[~df[list(_active_flags.keys())].any(axis=1)]
+    # Rows with at least one active flag raised, and rows with none
+    any_flag = df[list(_active_flags.keys())].any(axis=1)
+    subsets['Any Flag'] = df[any_flag]
+    subsets['No Flag'] = df[~any_flag]
 
     results = {}
 
@@ -447,7 +504,13 @@ def contingency_weather_flags(
                 hour1=0, 
                 hour2=24
                 )
-            ov_lden = lden(df=datafr, column=column)
+            ov_lden = lden(
+                df=datafr,
+                column=column,
+                start_day=start_day,
+                start_evening=start_evening,
+                start_night=start_night
+                )
             results[key] = {
                 'Leq': ov_leq['Leq'][0],
                 'Lden': ov_lden['Lden'][0]
@@ -492,7 +555,7 @@ def contingency_weather_flags(
         'No Snow_Flag_Roll': 'No Flag - Snow'
     }
 
-    contingency_table.rename(index=row_rename_map, inplace=True)
+    contingency_table = contingency_table.rename(index=row_rename_map)
 
     # Reorder rows
     row_order = [
@@ -510,10 +573,11 @@ def contingency_weather_flags(
         'No Flag - Temperature',
         'No Flag - Humidity',
         'No Flag - Snow',
-        'All Flags',
-        'Neither Flags'
+        'Any Flag',
+        'No Flag'
     ]
 
     contingency_table = contingency_table.reindex(row_order)
 
-    return contingency_table.dropna()
+    # Rows without any level: fewer than 3 samples, or flags not included
+    return contingency_table.dropna(subset=['Leq', 'Lden'], how='all')

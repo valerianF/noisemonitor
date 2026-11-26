@@ -48,13 +48,13 @@ df = nm.load('data.csv', datetimeindex=0, valueindexes=1, header=0, sep=',')
 df_filtered = nm.filter_data(df, start='2025-01-01', end='2025-01-31')
 ```
 
-**After:**
+**After (1.1.0)**
 ```python
 from datetime import datetime
 df_filtered = nm.filter.all_data(
     df,
     start_datetime=datetime(2025, 1, 1),
-    end_datetime=datetime(2025, 1, 31)
+    end_datetime=datetime(2025, 2, 1)   # excluded: January whole
 )
 ```
 
