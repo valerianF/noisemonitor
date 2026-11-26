@@ -353,11 +353,11 @@ The `nm.profile` module computes **time-varying noise profiles** using rolling w
 Compute rolling average $L_{eq}$, $L_{10}$, $L_{50}$, and $L_{90}$ across the entire dataset with the `noisemonitor.profile.series()` function.
 
 ```python
-# Hourly sliding averages with 20-minute steps
+# Hourly sliding averages with 20-minute steps, on 1 s data (statistical levels)
 time_series = nm.profile.series(
-    df_1m,
-    win=7200,           # Window size in seconds (2 hour)
-    step=2400,          # Step size in seconds (40 minutes)
+    df_1s,
+    win=3600,           # Window size in seconds (1 hour)
+    step=1200,          # Step size in seconds (20 minutes)
     start_at_midnight=True  # Option to start rolling windows at midnight (typically for computing LAeq,24h levels)
 )
 
@@ -373,7 +373,7 @@ nm.display.line(
 
 With `start_at_midnight=True`, the first window starts at the first sample at or after the first midnight of the data. If less than one full window of data follows that midnight, a `ValueError` is raised.
 
-**Note:** $L_{10}$, $L_{50}$, and $L_{90}$ are shown for the example but shouldn't be computed with refresh times above one second. 
+**Note:** statistical levels ($L_{10}$, $L_{50}$, $L_{90}$) should be computed from data at 1 s or finer; on coarser data, plot $L_{eq}$ only.
 
 ### Daily/Weekly Profiles
 
@@ -381,10 +381,19 @@ Compute average profiles representing daily or weekly patterns with the `noisemo
 
 Each window pools the samples of all the selected days that fall within its time of day, and its levels are computed over these pooled samples, not as the mean of daily values. For example, over two weeks of weekdays, the $L_{90}$ of the 08:00–09:00 window is the 10th percentile of the samples from 08:00 to 09:00 of all ten days, and its $L_{eq}$ is their energetic mean.
 
+These examples plot $L_{90}$, so they need 1 s data covering weekdays and weekend days. They use the Bruitparif $L_{Aeq,1s}$ of the [reference data](#reference-data).
+
 ```python
+df_bp = nm.load(
+    'tests/data/external/ext_data_bruitparif_s.csv.xz',
+    datetimeindex='ts',
+    valueindexes='LAeq_1s',
+    timezone='Europe/Paris'  # Local time
+)
+
 # Weekday profile (Mon-Fri)
 weekday_profile = nm.profile.periodic(
-    df_1m,
+    df_bp,
     hour1=23, # hour1 > hour2: from the window starting at 23:00, past midnight,
     hour2=22, # to the one starting at 22:00 (the whole day, from 23:00)
     day1='monday',   # Use day names, not numbers
@@ -395,7 +404,7 @@ weekday_profile = nm.profile.periodic(
 
 # Weekend profile (Sat-Sun), over the same hours as the weekday profile
 weekend_profile = nm.profile.periodic(
-    df_1m,
+    df_bp,
     hour1=23,
     hour2=22,
     day1='saturday',
@@ -624,6 +633,7 @@ with_coverage_leq = nm.summary.leq(
     df_1m,
     hour1=12,
     hour2=16,
+    stats=False,  # 1-min data: equivalent level only
     coverage_check=True,
     coverage_threshold=0.8  # Minimum 80% data coverage required
 )
