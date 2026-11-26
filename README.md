@@ -5,6 +5,7 @@ A python package for sound level data analysis.
 [![PyPI](https://img.shields.io/pypi/v/noisemonitor.svg)](https://pypi.python.org/pypi/noisemonitor)
 [![Conda Version](https://img.shields.io/conda/vn/conda-forge/noisemonitor.svg)](https://anaconda.org/conda-forge/noisemonitor)
 [![License](https://img.shields.io/pypi/l/noisemonitor.svg)](https://github.com/valerianF/noisemonitor/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24572668.svg)](https://doi.org/10.5281/zenodo.24572668)
 
 **Documentation:** [Usage Guide](https://github.com/valerianF/noisemonitor/blob/main/docs/usage.md) · [API Reference](https://github.com/valerianF/noisemonitor/blob/main/docs/api.md) · [Migration Guide](https://github.com/valerianF/noisemonitor/blob/main/docs/migration.md) · [Changelog](https://github.com/valerianF/noisemonitor/blob/main/docs/CHANGELOG.md)
 
