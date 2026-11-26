@@ -7,7 +7,7 @@ This guide provides detailed examples for using noisemonitor's key features.
 - [Data Filtering](#data-filtering)
 - [Time Conventions](#time-conventions)
 - [Summary Indicators](#summary-indicators)
-- [Profile Indicators](#profile-indicators)
+- [Profile Indicators](#profile-indicators-time-series)
 - [Coverage Checking](#coverage-checking)
 - [Weather Integration (Canada only)](#weather-integration)
 - [Software testing and external validation](#software-testing-and-external-validation)
@@ -127,7 +127,7 @@ In both cases, `hour1 > hour2` wraps past midnight (e.g., `hour1=22, hour2=6`). 
 
 ## Summary Indicators
 
-The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators)) but rather return aggregate indicators.
+The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators-time-series)) but rather return aggregate indicators.
 
 ### Equivalent level and statistical levels
 
@@ -346,7 +346,7 @@ nm.display.nday(
 
 ## Profile indicators (Time Series)
 
-The `nm.profile` module computes **time-varying noise profiles** using rolling windows. In contrast with `noisemonitor.summary` (see - [Summary indicators](#summary-indicators-discrete-values)), these functions return time serie (DataFrames with datetime or time index) showing how noise levels evolve over time.
+The `nm.profile` module computes **time-varying noise profiles** using rolling windows. In contrast with `noisemonitor.summary` (see [Summary indicators](#summary-indicators)), these functions return time series (DataFrames with datetime or time index) showing how noise levels evolve over time.
 
 ### Complete Time Series
 

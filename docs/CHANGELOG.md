@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.1.0
+## 1.1.0 - 2026/11/26
+
+Major feature update including several new functions for low frequency noise analysis, external validation against independent implementations, API improvements including better handling of timestamps and warnings, as well as various other features improvements and bug fixes. 
 
 - **External validation.** Most indicators now match reference values from outside the package: they are validated against independent implementations ([status of each function](https://github.com/valerianF/noisemonitor/blob/main/docs/usage.md#software-testing-and-external-validation)).
 - **Some results change.** Several fixes change computed values. If you used one of the functions below with previous versions, run it again.
