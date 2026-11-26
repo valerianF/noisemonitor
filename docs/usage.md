@@ -393,11 +393,11 @@ weekday_profile = nm.profile.periodic(
     step=1200
 )
 
-# Weekend profile (Sat-Sun)
+# Weekend profile (Sat-Sun), over the same hours as the weekday profile
 weekend_profile = nm.profile.periodic(
     df_1m,
-    hour1=0,
-    hour2=23,
+    hour1=23,
+    hour2=22,
     day1='saturday',
     day2='sunday',
     win=3600,
