@@ -2,11 +2,13 @@
 dataframes. 
 """
 
+import warnings
+
 import pandas as pd
 import numpy as np
 
 from datetime import datetime, time
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 from . import core
 
 def all_data(
@@ -15,39 +17,43 @@ def all_data(
     end_datetime: datetime, 
     between: bool = False
 ) -> pd.DataFrame:
-    """Filter a datetime index DataFrame (typically the output of load_data())
-    between two particular dates. By setting between = True, you can filter 
-    out the times that are between the two dates.
+    """Filter a DataFrame (typically the output of noisemonitor.load())
+    with a datetime index between two particular dates. By setting
+    between = True, you can filter out the times that are between the two
+    dates. The range is half-open, [start_datetime, end_datetime), as
+    every period of the package: a timestamp marks the start of its
+    integration period, so a sample stamped end_datetime lies after the
+    range (e.g., start_datetime=datetime(2025, 6, 1) and
+    end_datetime=datetime(2025, 8, 1) keep June and July whole).
 
     Parameters
-    ---------- 
+    ----------
     df: DataFrame
-        a compatible DataFrame (typically generated with functions load_data(),
-        NoiseMonitor.daily() or NoiseMonitor.weekly() ),
-        with a datetime, time or pandas.Timestamp index.
+        a DataFrame with a datetime index (e.g., the output of
+        noisemonitor.load() or noisemonitor.summary.periodic()).
     start_datetime: datetime object
-        first date from which to filter the data. 
+        start of the range (included).
         Must be earlier than end_datetime.
     end_datetime: datetime object
-        second date from which to filter the data. 
+        end of the range (excluded).
         Must be later than start_datetime.
     between: bool, default False
         If set to True, will filter out data that is between the two dates.
         Else and by default, will filter data that is outside the two dates.
 
     Returns
-    ---------- 
+    ----------
     DataFrame: input dataframe filtered to the specified dates range.
     """
     try:
         if between:
             return df.loc[
                 (df.index < start_datetime) |
-                (df.index > end_datetime)
+                (df.index >= end_datetime)
             ]
         return df.loc[
             (df.index >= start_datetime) &
-            (df.index <= end_datetime)
+            (df.index < end_datetime)
         ]
     except TypeError as e:
         raise TypeError(
@@ -58,12 +64,16 @@ def all_data(
 def extreme_values(
     df: pd.DataFrame, 
     column: Optional[Union[int, str]] = None, 
-    min_value: int = 30, 
-    max_value: int = 100
-) -> pd.DataFrame:
+    min_value: int = 30,
+    max_value: int = 100,
+    return_filtered: bool = False
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame]]:
     """
-    Replace values in the specified column that are below min_value or 
-    above max_value with NaN.
+    Replace values in the specified column that are below min_value or
+    above max_value with NaN. A UserWarning gives the number of values
+    replaced, if any (otherwise a message is printed): an extreme level can
+    be a genuine noise event rather than a measurement error, so these
+    values should be checked.
 
     Parameters
     ----------
@@ -76,28 +86,47 @@ def extreme_values(
         The minimum value threshold.
     max_value: int, default 100
         The maximum value threshold.
+    return_filtered: bool, default False
+        If True, also return the rows whose value was replaced, with their
+        original values.
 
     Returns
     ----------
-    pd.DataFrame: DataFrame with extreme values replaced by NaN.
+    pd.DataFrame: copy of df with extreme values replaced by NaN (df is
+    left unchanged). With return_filtered=True, a tuple of two DataFrames:
+    this copy and the rows of df whose value was replaced.
     """
     if column is None:
         column = 0
-    
+
     column = core._column_to_index(df, column)
     column_name = df.columns[column]
 
-    initial_count = df[column_name].notna().sum()
-    df[column_name] = df[column_name].apply(
-        lambda x: x if min_value <= x <= max_value else np.nan
-    )
+    values = df[column_name]
+    extreme = values.notna() & ~values.between(min_value, max_value)
+    filtered_rows = df.loc[extreme].copy()
 
-    filtered_count = df[column_name].notna().sum()
-    filtered_out = initial_count - filtered_count
-    proportion_filtered = (filtered_out / initial_count) * 100
+    df = df.copy()
+    df[column_name] = values.where(~extreme)
 
-    print(f"Proportion of values filtered out: {proportion_filtered:.2f}%")
+    initial_count = values.notna().sum()
+    filtered_out = int(extreme.sum())
+    # A column without any value has nothing to filter out
+    proportion_filtered = (
+        (filtered_out / initial_count) * 100 if initial_count else 0.0)
 
+    if filtered_out:
+        warnings.warn(
+            f"{filtered_out} value(s) ({proportion_filtered:.3g}%) outside "
+            f"[{min_value}, {max_value}] replaced by NaN in column "
+            f"'{column_name}'. Use return_filtered=True to get these rows.",
+            UserWarning, stacklevel=2)
+    else:
+        print(f"No data was found outside the [{min_value}, {max_value}] "
+            "range.")
+
+    if return_filtered:
+        return df, filtered_rows
     return df
 
 def weather_flags(
@@ -119,7 +148,7 @@ def weather_flags(
     column: Union[int, str], default None
         The column name or index to use for calculations. 
         If None, the first column will be used.
-    filter_wind_flag: bool, default False
+    filter_wind_flag: bool, default True
         Whether to filter data with Wind Speed Flag.
     filter_rain_flag: bool, default True
         Whether to filter data with Rain Flag.
@@ -158,10 +187,12 @@ def weather_flags(
 
     filtered_count = df[column_name].notna().sum()
     filtered_out = initial_count - filtered_count
-    proportion_filtered = (filtered_out / initial_count) * 100
+    # A column without any value has nothing to filter out
+    proportion_filtered = (
+        (filtered_out / initial_count) * 100 if initial_count else 0.0)
 
     print(f"Proportion of values filtered out: "
-          f"{proportion_filtered:.2f}%")
+        f"{proportion_filtered:.2f}%")
 
     return df
 
@@ -214,14 +245,14 @@ def _days(
 
         if d1 <= d2:
             filtered_df = df.loc[
-                (df.index.dayofweek >= d1) & (df.index.dayofweek <= d2)]
+                (df.index.day_of_week >= d1) & (df.index.day_of_week <= d2)]
         else:
             filtered_df = df.loc[
-                (df.index.dayofweek >= d1) | (df.index.dayofweek <= d2)]
+                (df.index.day_of_week >= d1) | (df.index.day_of_week <= d2)]
         
         if filtered_df.empty:
             raise ValueError(f"No data found for the specified day range "
-                           f"({day1.lower()} to {day2.lower()}). ")
+                        f"({day1.lower()} to {day2.lower()}). ")
         
         return filtered_df
     else:
@@ -232,7 +263,9 @@ def _hours(
     hour1: int, 
     hour2: int
     ) -> pd.DataFrame:
-    """Filter the DataFrame based on the specified hours.
+    """Filter the DataFrame based on the specified hours, over the
+    half-open interval [hour1, hour2): a timestamp marks the start of its
+    integration period, so a sample at hour2 is excluded.
 
     Parameters
     ----------
@@ -241,27 +274,24 @@ def _hours(
     hour1: int
         Hour for the starting time of the daily average.
     hour2: int
-        Hour for the ending time of the daily average.
+        Hour for the ending time of the daily average. If
+        hour1 > hour2, the interval wraps past midnight. hour1=0 and
+        hour2=24 keep the full day.
 
     Returns
     ----------
     pd.Series: Filtered Series based on the specified hours.
     """
-    
+
     if not (0 <= hour1 <= 24) or not (0 <= hour2 <= 24):
-        raise ValueError("Hours must be between 0 and 24.")  
+        raise ValueError("Hours must be between 0 and 24.")
 
-    if hour1 == 24:
-        t1 = time(hour=23, minute=59, second=59)
-        t2 = time(hour=hour2)
-    elif hour2 == 24:
-        t1 = time(hour=hour1)
-        t2 = time(hour=23, minute=59, second=59)
-    else:
-        t1 = time(hour=hour1)
-        t2 = time(hour=hour2)
+    # 0 and 24 both map to midnight; [0, 24) is the full day
+    if hour1 != hour2 and hour1 % 24 == hour2 % 24:
+        return df
 
-    return df.between_time(t1, t2)
+    return df.between_time(
+        time(hour=hour1 % 24), time(hour=hour2 % 24), inclusive='left')
 
 
 

@@ -3,9 +3,7 @@ Automated API documentation generator for noisemonitor package.
 Extracts docstrings from source code and generates markdown documentation.
 """
 
-import os
 import ast
-import inspect
 from pathlib import Path
 
 

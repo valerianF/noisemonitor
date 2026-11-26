@@ -2,20 +2,39 @@
 for analysis.
 """
 
+import csv
 import os
-import locale
-import pandas as pd
+import re
 import numpy as np
-import sys
+import pandas as pd
 import warnings
-import multiprocessing
 
-from datetime import datetime
+from datetime import date, datetime, time
 from dateutil import parser
-from xlrd import XLRDError
 from typing import Optional, List, Union
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+
+from . import core
+
+# Number of rows inspected to detect the separator, empty unnamed columns
+# and decimal commas.
+_SAMPLE_ROWS = 100
+# First bytes of Excel workbooks: OLE2 (.xls) and ZIP (.xlsx).
+_EXCEL_SIGNATURES = (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1', b'PK\x03\x04')
+_MIXED_OFFSETS = (
+    "The timestamps have several UTC offsets (e.g. a change to or from "
+    "daylight saving time). Pass the timezone of the measurement site "
+    "(e.g. timezone='Europe/Paris') to convert them to local time."
+)
+# Compressions of text files (.csv, .txt), decompressed by pandas.read_csv.
+_COMPRESSIONS = ('.xz', '.gz', '.bz2', '.zip')
+# Separators tried, in this order, when sep is None: tab- and
+# semicolon-separated files can hold commas (decimal commas), not the reverse.
+_SEPARATORS = ('\t', ';', ',', '|')
+# read_csv arguments that change which lines of a file are read.
+_LINE_KWARGS = ('encoding', 'encoding_errors', 'compression', 'skiprows',
+                'comment')
 
 def load(
     path: Union[str, List[str]], 
@@ -24,26 +43,47 @@ def load(
     dateindex: Optional[Union[int, str]] = None, 
     valueindexes: Optional[Union[int, str, List[Union[int, str]]]] = 1, 
     header: Optional[int] = 0, 
-    sep: str = ',', 
-    slm_type: Optional[str] = None, 
+    sep: Optional[str] = None,
     timezone: Optional[str] = None,
     use_chunks: bool = True,
     chunksize: int = 10000,
     **kwargs
 ) -> pd.DataFrame:
     """Take one or several datasheets with date and time indicators
-    in combined in one column or across two columns, and sound level measured 
-    with a sound level monitor as input and return a DataFrame suitable for 
-    sound level averaging and descriptors computation provided in
-    the LevelMonitor class. Date and time are automatically parsed with 
-    dateutil package. 
+    combined in one column or across two columns, and sound level measured 
+    with a sound level monitor as input (e.g., equivalent levels and/or
+    third-octave levels) and return a pandas DataFrame suitable for 
+    use in the noisemonitor package. Date and time given as text are
+    automatically parsed with dateutil package; date and time cells of
+    Excel files are also accepted. Numeric timestamps (e.g. Unix epoch or
+    Excel serial numbers) are not supported and raise a ValueError.
+
+    Columns with an empty header (e.g., trailing column created by a 
+    separator at the end of each line) are dropped when their first 100 rows 
+    are empty; otherwise they are kept and a UserWarning is issued. 
+    Value columns read as text are converted to floats.
+
+    The data are put on a regular time grid: its interval is the most
+    common step between consecutive timestamps, and its times the most
+    common position of the samples within this interval, so that missing
+    samples, gaps or a first sample out of step do not change it. Missing
+    samples are rows of NaN. Samples off the grid (e.g., timestamps with
+    jitter, or after an adjustment of the clock) are moved to the nearest
+    grid time, with a UserWarning; a sample whose nearest grid time holds a
+    sample closer to it is dropped, with a UserWarning. Of the samples
+    sharing a timestamp, the first one is kept, with a UserWarning.
 
     Parameters
-    ---------- 
+    ----------
     path: str or list of str
-        absolute or relative pathname (or list of pathnames) to convert as a 
-        sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx, 
-        or .txt
+        absolute or relative pathname (or list of pathnames) to convert as a
+        sound level DataFrame. File(s) format can either be .csv, .xls, .xlsx,
+        or .txt; .csv and .txt files can be compressed (.xz, .gz, .bz2 or
+        .zip, e.g. 'data.csv.xz'). Files with an .xls extension are read as
+        Excel workbooks or as text files (e.g. NoiseSentry exports),
+        depending on their content. When several files are given, they must
+        share the same format (typically, files exported by the same
+        instrument).
     datetimeindex: int or str
         column index or column name for date and time if combined in a single 
         column. Not to be indicated if date and time are in different columns.
@@ -61,21 +101,31 @@ def load(
         sound levels values, either weighted or unweighted and integrated over 
         a period corresponding to the refresh rate of the sound level meter 
         (typically between 1 second and several minutes, though the module will 
-        work with smaller or higher refresh rates). If None, all columns are loaded.
+        work with smaller or higher refresh rates, e.g. 100 ms). If None, all
+        columns are loaded.
         Example of relevant indices: LAeq, LCeq, LZeq, LAmax, LAmin, LCpeak, etc. 
     header: int, None, default 0
-        row index for datasheet header. If None, the datasheet has 
-        no header.
-    sep: str, default ','
-        separator if reading .csv file(s).
-    slm_type: str, default None
-        performs specific parsing operation for known sound level monitor
-        manufacturers. For now will only respond to 'NoiseSentry' as input, 
-        replacing the commas by dots in the sound level data to convert sound
-        levels to floats.
+        row index for datasheet header. If None, the datasheet has
+        no header. Blank lines are not counted in text files (.csv, .txt,
+        and text files with an .xls extension) but are counted in Excel
+        files.
+    sep: str, default None
+        separator of text files (.csv, .txt, and text files with an .xls
+        extension). If None, it is detected in each file from its first
+        100 lines from the header row: the first of tab, ';', ',' and '|'
+        found on each of these lines and the same number of times on each
+        data line; ',' if none is.
     timezone: str, default None
-        when indicated, will convert the datetime index from the specified 
-        timezone to a timezone unaware format.
+        timezone of the measurement site (e.g. 'Europe/Paris'), for
+        timestamps written with a UTC offset (e.g. 
+        '2026-10-25T02:00:00+01:00'): they are converted to the local time
+        of this timezone, without timezone information. Timestamps without
+        a UTC offset are already local times: leave timezone to None. 
+        Timestamps with several UTC offsets (e.g., an export spanning a 
+        change to or from daylight saving time) require a timezone. 
+        When daylight saving time ends, one hour of local time occurs twice: 
+        only its first occurrence is kept, with a UserWarning. When it starts, 
+        the hour skipped by the clocks gives rows without values.
     use_chunks: bool, default True
         whether to process the data in chunks for large datasets.
     chunksize: int, default 10000
@@ -88,9 +138,9 @@ def load(
 
     Returns
     ---------- 
-    DataFrame: dataframe formatted for sound level analysis when associated
-    with a LevelMonitor class. Contains a datetime (or pandas Timestamp) array
-    as index and corresponding equivalent sound level as first column.
+    DataFrame: dataframe for sound level analysis with noisemonitor
+    functions: a DatetimeIndex on a regular time grid (missing samples are
+    rows of NaN) and the selected sound level columns.
     """
 
     # Check for conflicting parameters
@@ -145,23 +195,37 @@ def load(
     else:
         usecols = None
 
-    for fp in path:   
-        ext = os.path.splitext(fp)[-1].lower()
+    for fp in path:
+        name, ext = os.path.splitext(fp)
+        ext = ext.lower()
+        if ext in _COMPRESSIONS:
+            compression = ext
+            ext = os.path.splitext(name)[-1].lower()
+            if ext not in ['.csv', '.txt']:
+                raise ValueError(
+                    f"Unsupported file extension: {ext}{compression} "
+                    "(only .csv and .txt files can be compressed).")
+
+        text = (ext in ['.csv', '.txt']
+                or (ext == '.xls' and not _is_excel_file(fp)))
+        file_sep = sep
+        if text and sep is None:
+            file_sep = _detect_sep(fp, header, kwargs)
 
         # Reading datasheet with pandas
         if ext == '.xls':
-            try:
+            if not text:
                 temp = pd.read_excel(
-                    fp, 
-                    engine='xlrd', 
+                    fp,
+                    engine='calamine',
                     header=header,
                     usecols=usecols,
                     **kwargs
                     )
-            except XLRDError:
+            else:
                 temp = pd.read_csv(
                     fp, 
-                    sep=sep, 
+                    sep=file_sep, 
                     header=header,
                     usecols=usecols,
                     **kwargs
@@ -177,7 +241,7 @@ def load(
         elif ext in ['.csv', '.txt']:
             temp = pd.read_csv(
                 fp, 
-                sep=sep, 
+                sep=file_sep, 
                 header=header,
                 engine='c',
                 usecols=usecols,
@@ -188,6 +252,22 @@ def load(
         
         if not temp.empty:
             df = pd.concat([df, temp])
+
+    # Refer to the datetime, date and time columns by label from now on.
+    if uses_ints:
+        positions = (
+            sorted(set(usecols)) if usecols is not None
+            else range(len(df.columns))
+        )
+        labels = dict(zip(positions, df.columns))
+        datetimeindex, dateindex, timeindex = (
+            labels.get(idx) for idx in (datetimeindex, dateindex, timeindex)
+        )
+    index_labels = [
+        idx for idx in (datetimeindex, dateindex, timeindex) if idx is not None
+    ]
+    df = _drop_unnamed_columns(df, index_labels, header)
+    df = _convert_decimal_comma(df, index_labels)
 
     if use_chunks:
         try:
@@ -205,8 +285,7 @@ def load(
                         df.iloc[start:stop],
                         datetimeindex, 
                         timeindex, 
-                        dateindex, 
-                        slm_type, 
+                        dateindex,
                         timezone
                     ) for start, stop in slices
                 ]
@@ -219,95 +298,259 @@ def load(
                 RuntimeWarning
             )
             df = _parse_data(
-                df, 
-                datetimeindex, 
-                timeindex, 
-                dateindex, 
-                slm_type, 
+                df,
+                datetimeindex,
+                timeindex,
+                dateindex,
                 timezone)
     else:
         df = _parse_data(
-            df, 
-            datetimeindex, 
-            timeindex, 
-            dateindex, 
-            slm_type, 
+            df,
+            datetimeindex,
+            timeindex,
+            dateindex,
             timezone)
 
+    if not isinstance(df.index, pd.DatetimeIndex):
+        # Chunks with different UTC offsets do not form a DatetimeIndex
+        raise ValueError(_MIXED_OFFSETS)
+    # Timestamps repeated in the data, before the conversion to local time
+    # (which repeats one hour when daylight saving time ends)
+    duplicates = int(df.index.duplicated().sum())
+    if timezone is not None:
+        local = df.index.tz_localize(None)
+        # Local times repeated when daylight saving time ends
+        repeated = local.duplicated() & ~df.index.duplicated()
+        if repeated.any():
+            warnings.warn(
+                f"{repeated.sum()} timestamps occur twice in local time "
+                f"({timezone}), when daylight saving time ends: only their "
+                "first occurrence is kept (from "
+                f"{local[repeated].min()} to {local[repeated].max()}).",
+                UserWarning,
+                stacklevel=2
+            )
+        df.index = local
+
+    if duplicates:
+        warnings.warn(
+            f"{duplicates} duplicate timestamp(s): only the first sample at "
+            "each of them is kept.", UserWarning, stacklevel=2)
     # Ensure the index is unique and sorted
     if not df.index.is_unique:
         df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index()
 
-    # Resample the data to fill gaps based on the interval between rows.
-    # The interval is taken between index[1] and index[2] because some
-    # devices report a wrong interval for the first two data points.
+    # Regular time grid: its interval is the most common step between samples
+    # and its times the most common position of the samples within it, so
+    # that missing samples, gaps, a first sample out of step or a clock shift
+    # do not change it. Gaps become rows of NaN.
     if len(df) > 2:
-        interval = df.index[2] - df.index[1]
-        resample_freq = f'{int(interval.total_seconds())}s'
-        df = df.resample(resample_freq, origin=df.index[2]).asfreq()
-        
+        interval = core._interval(df.index)
+        unit = df.index.unit
+        t = df.index.asi8
+        step = interval // pd.Timedelta(1, unit=unit)
+        position = (t - t[0]) % step
+        if position.any():
+            # Samples off the grid go to its nearest time (the later one at
+            # mid-step); of the samples reaching the same time, the closest
+            # to it is kept (the first one on a tie)
+            # Most common position, the smallest one on a tie (mode() sorts)
+            origin = t[0] + pd.Series(position).mode().iloc[0]
+            grid = origin + (t - origin + step // 2) // step * step
+            shift = grid - t
+            order = np.lexsort((np.abs(shift), grid))
+            first = np.ones(len(order), dtype=bool)
+            first[1:] = grid[order][1:] != grid[order][:-1]
+            keep = np.sort(order[first])
+
+            seconds = interval.total_seconds()
+            moved = np.abs(shift[keep][shift[keep] != 0])
+            if moved.size:
+                largest = pd.Timedelta(int(moved.max()), unit=unit).total_seconds()
+                warnings.warn(
+                    f"{moved.size} sample(s) off the time grid of the data "
+                    f"(every {seconds:g} s) moved to its nearest time, by up "
+                    f"to {largest:g} s.", UserWarning, stacklevel=2)
+            dropped = len(t) - len(keep)
+            if dropped:
+                warnings.warn(
+                    f"{dropped} sample(s) off the time grid of the data (every "
+                    f"{seconds:g} s) dropped: their nearest grid time holds a "
+                    "sample closer to it.", UserWarning, stacklevel=2)
+            df = df.iloc[keep]
+            df = df.set_axis(
+                df.index + shift[keep].astype(f'timedelta64[{unit}]'), axis=0)
+        df = df.resample(interval, origin=df.index[0]).asfreq()
+
     return df
 
-def _parse_data(chunk, datetimeindex, timeindex, dateindex,
-                    slm_type, timezone):
+def _parse_data(chunk, datetimeindex, timeindex, dateindex, timezone):
     """Process a chunk of data to convert it into a DataFrame suitable for
-    sound level analysis."""
-    try:
-        # Only try to remove Unnamed columns if columns are string type
-        if hasattr(chunk.columns, 'str'):
-            chunk = chunk.loc[:, ~chunk.columns.str.contains('^Unnamed')].copy()
-    except (TypeError, AttributeError):
-        pass
-
-    # Convert column names (strings) to column indices (integers)
-    if datetimeindex is not None and isinstance(datetimeindex, str):
-        datetimeindex = chunk.columns.get_loc(datetimeindex)
-    if dateindex is not None and isinstance(dateindex, str):
-        dateindex = chunk.columns.get_loc(dateindex)
-    if timeindex is not None and isinstance(timeindex, str):
-        timeindex = chunk.columns.get_loc(timeindex)
+    sound level analysis. Datetime, date and time columns are given by
+    column label. With a timezone, the index is returned in local time of
+    this timezone."""
+    chunk = chunk.copy()
 
     if datetimeindex is not None:
-        if not isinstance(chunk.iloc[0, datetimeindex], pd.Timestamp):
-            chunk[chunk.columns[datetimeindex]] = chunk[chunk.columns[datetimeindex]].map(
-                lambda a: parser.parse(a))
-    elif all(ind is not None for ind in [dateindex, timeindex]): 
-        chunk[chunk.columns[dateindex]] = chunk[chunk.columns[dateindex]].map(
-            lambda a: parser.parse(a).date())
-        chunk[chunk.columns[timeindex]] = chunk[chunk.columns[timeindex]].map(
-            lambda a: parser.parse(a).time())
-        chunk[chunk.columns[dateindex]] = chunk.apply(
-            lambda a: datetime.combine(
-                a.iloc[dateindex], a.iloc[timeindex]), axis=1)
-        datetimeindex = dateindex
-        chunk = chunk.drop(columns=chunk.columns[timeindex])
+        datetime_col = datetimeindex
+        column = chunk[datetime_col]
+        if not pd.api.types.is_datetime64_any_dtype(column):
+            chunk[datetime_col] = column.map(_parse_value)
+    elif all(ind is not None for ind in [dateindex, timeindex]):
+        datetime_col = dateindex
+        dates = chunk[dateindex].map(_parse_value).map(
+            lambda a: a.date() if isinstance(a, datetime) else a)
+        times = chunk[timeindex].map(_parse_value).map(
+            lambda a: a.time() if isinstance(a, datetime) else a)
+        chunk[datetime_col] = [
+            datetime.combine(d, t) for d, t in zip(dates, times)]
+        chunk = chunk.drop(columns=timeindex)
     else:
         raise Exception("You must provide either a datetime "
                         "index or time and date indexes.")
-    
-    chunk = chunk.rename(columns={chunk.columns[datetimeindex]: 'datetime'})
 
-    # Convert datetime column to avoid dtype inference
-    chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+    chunk = chunk.rename(columns={datetime_col: 'datetime'})
+
+    # UTC offsets of the timestamps (None for timestamps without offset)
+    if pd.api.types.is_datetime64_any_dtype(chunk['datetime']):
+        # A single timezone, or none, for the whole column
+        naive = chunk['datetime'].dt.tz is None
+        mixed = False
+    else:
+        offsets = set(chunk['datetime'].map(lambda a: a.utcoffset()))
+        naive = None in offsets
+        mixed = len(offsets) > 1
+
+    if timezone is None:
+        if mixed:
+            raise ValueError(_MIXED_OFFSETS)
+        # Convert datetime column to avoid dtype inference
+        chunk['datetime'] = pd.to_datetime(chunk['datetime'])
+    else:
+        if naive:
+            raise ValueError(
+                "timezone converts timestamps written with a UTC offset "
+                "(e.g. '2026-10-25T02:00:00+01:00') to local time, but "
+                "some timestamps have none: they are already local times. "
+                "Leave timezone to None."
+            )
+        chunk['datetime'] = pd.to_datetime(
+            chunk['datetime'], utc=True).dt.tz_convert(timezone)
     chunk = chunk.set_index('datetime')
 
-    if timezone is not None:
-        chunk.index = chunk.index.tz_convert(
-            timezone).tz_localize(None)
-
-    # Apply NoiseSentry formatting only to value columns, not datetime
-    if slm_type == 'NoiseSentry':
-        for col in chunk.columns:
-            # Convert European decimal format only for numeric columns
-            chunk[col] = chunk[col].map(
-                lambda a: (
-                    locale.atof(str(a).replace(',', '.'))
-                    if pd.notna(a) else a
-                )
-            )
-
     return chunk
+
+def _parse_value(value):
+    """Parse one date, time or datetime value: text is parsed with
+    dateutil, and datetime, date and time objects (e.g. Excel cells read
+    by pandas) are returned unchanged. Numbers (e.g. Unix epoch or Excel
+    serial numbers) and empty values raise a ValueError."""
+    if isinstance(value, str):
+        return parser.parse(value)
+    if isinstance(value, (datetime, date, time)):
+        return value
+    raise ValueError(
+        f"Cannot read {value!r} ({type(value).__name__}) as a date or "
+        "time. Dates and times must be text or date/time cells; numeric "
+        "timestamps (e.g. Unix epoch or Excel serial numbers) are not "
+        "supported and must be converted to dates first."
+    )
+
+def _is_excel_file(path):
+    """Tell Excel workbooks from text files by their first bytes. Some
+    instruments (e.g. NoiseSentry) export tab-separated text files with an
+    .xls extension; an .xlsx workbook renamed .xls is also detected."""
+    with open(path, 'rb') as f:
+        return f.read(8).startswith(_EXCEL_SIGNATURES)
+
+def _detect_sep(path, header, kwargs):
+    """Separator of a text file: the first of _SEPARATORS found on each of
+    its first lines from the header row, and the same number of times on
+    each data line (a header row may lack the trailing separator of the data
+    lines); ',' if none is. The lines are read as pandas.read_csv would
+    (compression, encoding, skipped rows and blank lines) from the read_csv
+    arguments in kwargs."""
+    start = 0 if header is None else header
+    lines = pd.read_csv(
+        path,
+        sep='\x1f',
+        header=None,
+        nrows=start + _SAMPLE_ROWS + 1,
+        dtype=str,
+        quoting=csv.QUOTE_NONE,
+        keep_default_na=False,
+        engine='c',
+        **{k: v for k, v in kwargs.items() if k in _LINE_KWARGS}
+    ).iloc[start:, 0]
+    lines = [line for line in lines if line.strip()]
+    data = lines if header is None else lines[1:]
+
+    for candidate in _SEPARATORS:
+        if (data and all(candidate in line for line in lines)
+                and len({line.count(candidate) for line in data}) == 1):
+            return candidate
+    return ','
+
+def _drop_unnamed_columns(df, index_labels, header):
+    """Drop columns with an empty header (named 'Unnamed: N' by pandas)
+    whose first rows are empty, e.g. the trailing column created by a
+    separator at the end of each line. Only the first rows are inspected to
+    keep the check inexpensive. Unnamed columns holding data are kept with
+    a warning; datetime, date and time columns are always kept."""
+    unnamed = [
+        col for col in df.columns
+        if isinstance(col, str) and re.fullmatch(r'Unnamed: \d+', col)
+    ]
+    if not unnamed:
+        return df
+
+    if header is not None and len(unnamed) == len(df.columns):
+        raise ValueError(
+            f"All loaded columns have an empty header: row {header} may not "
+            "be the header row. Note that blank lines are not counted in "
+            "text files (.csv, .txt) but are counted in Excel files."
+        )
+
+    head = df.iloc[:_SAMPLE_ROWS]
+    empty = []
+    for col in unnamed:
+        if col in index_labels:
+            continue
+        if head[col].isna().all():
+            empty.append(col)
+        else:
+            warnings.warn(
+                f"Column '{col}' has an empty header but contains data; "
+                "it is kept as a value column.",
+                UserWarning
+            )
+    return df.drop(columns=empty)
+
+def _convert_decimal_comma(df, index_labels):
+    """Convert value columns read as text that hold numbers with a decimal
+    comma (e.g. '63,723268') to floats. A column is converted when all
+    non-empty values of its first rows are numbers with at most one comma,
+    so that different formats (e.g. '59,120,932') are never read as
+    decimal commas."""
+    for col in df.columns:
+        if col in index_labels or pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        head = df[col].iloc[:_SAMPLE_ROWS].dropna()
+        head = head[head.map(lambda a: isinstance(a, str))].astype(str)
+        if (head.empty
+                or not head.str.contains(',', regex=False).any()
+                or not head.str.fullmatch(r'\s*[+-]?\d+(,\d+)?\s*').all()):
+            continue
+        try:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(',', '.', regex=False))
+        except ValueError as e:
+            raise ValueError(
+                f"Column '{col}' holds numbers with a decimal comma but some "
+                f"values could not be converted: {e}"
+            ) from e
+    return df
 
 
 

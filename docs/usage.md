@@ -5,10 +5,12 @@ This guide provides detailed examples for using noisemonitor's key features.
 ## Table of Contents
 - [Data Loading](#data-loading)
 - [Data Filtering](#data-filtering)
+- [Time Conventions](#time-conventions)
 - [Summary Indicators](#summary-indicators)
-- [Profile Indicators](#profile-indicators)
+- [Profile Indicators](#profile-indicators-time-series)
 - [Coverage Checking](#coverage-checking)
 - [Weather Integration (Canada only)](#weather-integration)
+- [Software testing and external validation](#software-testing-and-external-validation)
 - [References](#references)
 
 ## Data Loading
@@ -20,10 +22,19 @@ import noisemonitor as nm
 
 # Basic loading
 df_1s = nm.load(
-    'tests/data/test_data_laeq1s.csv', # Example dataset with 1-second LAeq data
+    'tests/data/internal/test_data_laeq1s.csv.xz', # Example dataset with 1-second LAeq data
     datetimeindex=0,      # Column index for datetime
     valueindexes=1,       # Column index for sound levels
     header=0,             # Header row index
+    sep=','
+)
+
+# Example dataset with 1-minute LAeq data over one week
+df_1m = nm.load(
+    'tests/data/internal/test_data_laeq1m.csv',
+    datetimeindex=0,
+    valueindexes=1,
+    header=0,
     sep=','
 )
 
@@ -36,27 +47,43 @@ df2 = nm.load(
     sep=','
 )
 
-# Separate date and time columns
+# Separate date and time columns (text, or Excel date and time cells)
 df3 = nm.load(
     'data.xlsx',
     dateindex=0,              # Separate date column
     timeindex=1,              # Separate time column
     valueindexes=2,
-    timezone='CET',           # Convert from specified timezone
     header=0
+)
+
+# Timestamps written with a UTC offset (e.g., '2026-10-25T02:00:00+01:00'),
+# converted to the local time of the measurement site
+df4 = nm.load(
+    'export_with_offsets.csv',
+    datetimeindex=0,
+    valueindexes=1,
+    timezone='Europe/Paris'   # Timezone of the measurement site
 )
 
 # Multiple columns (e.g., octave band levels, LAeq vs. LCeq, etc.)
 df_freq = nm.load(
-    'tests/data/test_data_freq.csv', # Load data with octave bands levels
+    'tests/data/internal/test_data_third_octave.csv.xz', # 1-min Z-weighted one-third-octave band levels, 6.3 Hz to 20 kHz
     datetimeindex=0, # Column index for datetime
-    valueindexes=list(range(1, 9)), # Columns with octave band levels
+    valueindexes=list(range(1, 37)), # Columns with one-third-octave band levels
     header=0,
     sep=','
 )
 ```
 
-**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`
+**Supported formats:** `.csv`, `.xls`, `.xlsx`, `.txt`; `.csv` and `.txt` files can be compressed (`.xz`, `.gz`, `.bz2`, `.zip`, e.g. `data.csv.xz`). Files with an `.xls` extension can be Excel workbooks or text files (e.g., old NoiseSentry exports): the format is detected from the file content.
+
+**Separators:** the separator of text files (tab, `;`, `,` or `|`) is detected from their first lines, so `sep` is optional; when given, it is used as is.
+
+**Dates and times:** text is parsed with dateutil; date, time and datetime cells of Excel files are also accepted. Numeric timestamps (Unix epoch, Excel serial numbers) are not supported: convert them to dates first.
+
+**Time zones:** `timezone` applies to timestamps written with a UTC offset only, and converts them to the local time of the given timezone (without timezone information). Timestamps without offset are already local times: leave `timezone` unset. Exports spanning a change to or from daylight saving time hold two UTC offsets and need `timezone`. When daylight saving time ends, one hour of local time occurs twice: its first occurrence is kept and the second is dropped, with a warning. When it starts, the hour skipped by the clocks appears as rows without values.
+
+**Refresh rate:** data at any regular interval, including below one second (e.g., 100 ms), are loaded on a regular grid. Its interval is the most common step between samples, so missing samples, gaps or an irregular first sample do not change it, and missing samples become rows without values. Samples off the grid (e.g., after an adjustment of the clock) are moved to its nearest time, with a warning, and among samples sharing a timestamp, the first one is kept, with a warning. Equivalent levels ($L_{eq}$, $L_{den}$) are valid at any refresh rate, e.g., from $L_{Aeq,1min}$ or hourly values. Statistical levels ($L_{10}$, $L_{50}$, $L_{90}$, other $L_n$, TNI, NPL), roughness indicators and NNE should be computed from data sampled at 1 s or finer: they are computed from the samples as given, so their values depend on the integration time of the data, and a warning is issued above 1 s. HARMONICA requires data at 1 s or finer. HARMONICA and roughness indicators are defined on $L_{Aeq,1s}$: sub-second data are first averaged energetically over each second.
 
 **Note:** Reading large files with datetime parsing can be computationally intensive. Parallel processing is enabled by default (can be deactivated) to reduce loading time.
 
@@ -67,7 +94,7 @@ The `noisemonitor.filter` module provides functions to subset data by datetime r
 ```python
 from datetime import datetime
 
-# Filter by date range
+# Filter by date range: [start, end), from 23 March 00:00 up to 29 March 00:00
 df_filtered = nm.filter.all_data(
     df_1m,
     start_datetime=datetime(2025, 3, 23),
@@ -82,9 +109,25 @@ df_filtered = nm.filter.extreme_values(
 )
 ```
 
+`extreme_values()` gives a warning when values are replaced. An extreme level can be a genuine noise event rather than a measurement error, so check these values before excluding them. With `return_filtered=True`, the function also returns the rows concerned, with their original values:
+
+```python
+df_filtered, removed = nm.filter.extreme_values(df_1m, return_filtered=True)
+```
+
+## Time conventions
+
+**Integration periods:** A timestamp marks the start of its integration period (e.g., an $L_{Aeq,1s}$ stamped 07:00:00 covers 07:00:00–07:00:01). All time periods and windows are therefore half-open (e.g., `[start, end)`: `hour1=7, hour2=19` keeps samples from 07:00 up to, but excluding, 19:00, and a sample at 19:00 belongs to the evening only for $L_{den}$). This applies to `noisemonitor.summary` and `noisemonitor.profile` functions, and to the date range of `noisemonitor.filter.all_data`.
+
+**Hours:** two conventions coexist.
+- `noisemonitor.summary` functions (e.g., `leq()`, `freq_indicators()`) and `noisemonitor.profile.nne()` take `hour1` and `hour2` from 0 to 24, `hour2` being the excluded end of the period: `hour1=0, hour2=24` is the whole day.
+- `noisemonitor.profile.periodic()`, `freq_periodic()` and `lf_periodic()` take hours from 0 to 23, `hour2` being the start of the last window: `hour1=0, hour2=23` with 1 h windows is the whole day.
+
+In both cases, `hour1 > hour2` wraps past midnight (e.g., `hour1=22, hour2=6`). Similarly, `day1` and `day2` keep the days from `day1` to `day2`, wrapping past Sunday when `day1` comes later in the week (e.g., `day1='friday', day2='monday'`).
+
 ## Summary Indicators
 
-The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators)) but rather return aggregate indicators.
+The `noisemonitor.summary` module computes **discrete sound level indicators** that summarize the entire dataset or specific periods (days, weeks, months) with single values. These functions do not compute time series (which are provided in `noisemonitor.profile`, see [Profile Indicators](#profile-indicators-time-series)) but rather return aggregate indicators.
 
 ### Equivalent level and statistical levels
 
@@ -111,11 +154,11 @@ weekday_leq = nm.summary.leq(
 )
 ```
 
-**Note:** To be accurate, statistical levels (L10, L50, L90) require a minimum data refresh rate of 1 second.
+**Note:** To be accurate, statistical levels ($L_{10}$, $L_{50}$, $L_{90}$) require a minimum data refresh rate of 1 second. They are percentiles of the samples, computed by linear interpolation between samples (numpy's default method).
 
-### Day-Evening-Night Level (Lden)
+### Day-Evening-Night Level ($L_{den}$)
 
-The `noisemonitor.summary.lden()` function computes the Day-Evening-Night Level (Lden) following the 2002 European standard (European Parliament and Council, 2002).
+The `noisemonitor.summary.lden()` function computes the Day-Evening-Night Level ($L_{den}$) following the 2002 European standard (European Parliament and Council, 2002).
 
 ```python
 # Overall Lden
@@ -124,7 +167,7 @@ overall_lden = nm.summary.lden(df_1m)
 
 | Lden | Lday  | Levening | Lnight |
 |------|-------|----------|--------|
-| 56.1 | 51.75 | 50.08    | 49.23  |
+| 56.1 | 51.75 | 50.09    | 49.22  |
 
 ```python
 # Weekdays only
@@ -137,7 +180,7 @@ weekday_lden = nm.summary.lden(
 
 ### Periodic indicators
 
-The `noisemonitor.summary.periodic()` function computes Leq and Lden (with the option to compute day, evening, and night levels) and at a periodic rate (daily, weekly, or monthly).
+The `noisemonitor.summary.periodic()` function computes $L_{eq}$ and $L_{den}$ (with the option to compute day, evening, and night levels) and at a periodic rate (daily, weekly, or monthly).
 
 ```python
 # Daily Lden and Leq for each day in the dataset
@@ -158,9 +201,18 @@ nm.display.line(
 
 ![Daily Lden and Leq Levels](images/daily_leq_and_lden.png)
 
+**Calendar periods:** by default, days, weeks (Monday to Sunday) and months start at midnight, and each period is labelled by its start. The night of a calendar day then joins the end of one night (00:00 to `start_day`, 07:00 by default) and the start of the next one (`start_night`, 23:00, to 24:00). With `start_at_day=True`, periods start at `start_day` instead (e.g., 07:00 to 07:00 the next day), so that each daily $L_{den}$ holds one whole night:
+
+```python
+# Days from 07:00 to 07:00
+daily_summary = nm.summary.periodic(df_1m, freq='D', start_at_day=True)
+```
+
 ### HARMONICA indicator
 
 The `noisemonitor.summary.harmonica_periodic()` function computes and plots the HARMONICA index based on Mietlicki et al. (2015). Optionally, this can be computed for specific days of the week (e.g., weekdays only).
+
+Hourly values follow the Bruitparif implementation: $\mathrm{BGN} = 0.2 \, (L_{A95eq} - 30)$, $\mathrm{EVT} = 0.25 \, (L_{Aeq} - L_{A95eq})$ and $\mathrm{HARMONICA} = \mathrm{BGN} + \mathrm{EVT}$, where $L_{A95eq}$ is the equivalent level of one $L_{A95}$ per second, each computed over the 10 minutes before it from the values available. An hour with less than 80% of its values is NaN, and 10 minutes windows should contain more than 50% of values otherwise set to NaN. `harmonica_periodic()` then averages the hourly values of each hour of the day over the days (arithmetic mean). With `day1` and `day2`, only the hourly values of the selected days are averaged, but the 10 minutes before each selected day are still used for the $L_{A95}$ of its first seconds, as for any other hour. The index was designed on $L_{Aeq,1s}$: it requires data at 1 s or finer, and sub-second data are first averaged over each second.
 
 ```python
 # Hourly HARMONICA profile
@@ -169,9 +221,9 @@ harmonica_profile = nm.summary.harmonica_periodic(df_1s)
 
 | Time     | EVT  | BGN  | HARMONICA |
 |----------|------|------|-----------|
-| 00:00:00 | 2.64 | 0.50 | 3.13      |
-| 01:00:00 | 2.38 | 0.34 | 2.72      |
-| 02:00:00 | 2.27 | 0.33 | 2.59      |
+| 00:00:00 | 0.49 | 2.64 | 3.13      |
+| 01:00:00 | 0.34 | 2.38 | 2.72      |
+| 02:00:00 | 0.33 | 2.27 | 2.59      |
 
 ```python
 # Visualization
@@ -184,7 +236,9 @@ nm.display.harmonica(harmonica_profile)
 
 ### Frequency band analysis
 
-Summary indicators (e.g., Lden and Leq) can be computed along octave or third-octave sound levels using the `noisemonitor.summary.freq_indicators()` function.
+Summary indicators (e.g., $L_{den}$ and $L_{eq}$) can be computed along octave or third-octave sound levels using the `noisemonitor.summary.freq_indicators()` function.
+
+Band columns are named by their frequency (e.g. `'63'`, `'125 Hz'` or `'1.25k'`). Exact or base-2 one-third-octave mid-band frequencies (e.g. 31.62 or 31.25 Hz) are labelled with the preferred frequency of their band (31.5 Hz, ISO 266).
 
 ```python
 # Summary indicators per frequency band
@@ -195,7 +249,7 @@ freq_ind = nm.summary.freq_indicators(
 )
 
 # Visualize
-nm.display.freq_line(freq_ind, title="Frequency Levels")
+nm.display.freq_line(freq_ind, title="Frequency Levels", ylabel="Sound Level (dB)")
 ```
 
 ![Frequency Levels](images/freq_levels.png)
@@ -211,10 +265,47 @@ freq_per = nm.summary.freq_periodic(
 )
 
 # Visualize on heatmap
-nm.display.freq_map(freq_per["Leq"])
+nm.display.freq_map(freq_per["Leq"], cblabel="Sound Level (dB)")
 ```
 
-![LAeq,24h Frequency Heatmap](images/freq_heatmap.png)
+![Leq,24h Frequency Heatmap](images/freq_heatmap.png)
+
+### Low-frequency criteria
+
+The difference between the C- and A-weighted levels of a sound (C-A, $L_C - L_A$) indicates its low-frequency content. `noisemonitor.summary.lf_periodic()` computes it per day, week or month from Z-weighted (unweighted) one-third-octave band levels, for one or several methods:
+
+| `method` | Bands | Low-frequency content when | Reference |
+|---|---|---|---|
+| `'botsford'` | 20 Hz to 20 kHz (whole spectrum) | $L_C - L_A > 10$ dB | Berglund et al. (1999) |
+| `'montano'` (default) | 16 Hz to 200 Hz (low-frequency range of ISO 1996-2:2017) | $L_C - L_A > 15$ dB | Montano & Gushiken (2023) |
+| `'barcelona'` | 20 Hz to 160 Hz | $L_C - L_A \geq 20$ dB | Generalitat de Catalunya (2012) |
+
+The A- and C-weighted levels are computed from the band levels of each sample (weightings of IEC 61672-1:2013), so the band columns must hold Z-weighted levels, and each method needs every band of its range (other bands are ignored; a sample with a missing band is left out). Over the whole spectrum, mid and high frequencies raise the A-weighted level and can hide strong low-frequency content (unbalanced spectra, e.g. urban noise). Restricted to a low-frequency band range, C-A describes the shape of the spectrum within that range, not its level: it does not tell whether the low frequencies are audible. DIN 45680 screens indoor measurements on the whole-spectrum C-A (`'botsford'`) with 20 dB (DIN, 1997), lowered to 15 dB in its withdrawn 2013 draft (Kubicek, 2018).
+
+```python
+lowfreq = nm.summary.lf_periodic(
+    df_freq,
+    freq='D',
+    method=['botsford', 'montano', 'barcelona']
+)
+
+lowfreq['C-A']           # Daily C-A of each method
+lowfreq['Lowfreq_Flag']  # True when the criterion of the method is met
+```
+
+Columns are pairs (indicator, method): `LA` and `LC`, the A- and C-weighted equivalent levels of the bands of the method, `C-A`, their difference, and `Lowfreq_Flag`. Output (rounded to 0.1 dB):
+```
+Indicator        LA                         LC                        C-A                   Lowfreq_Flag
+Method     botsford montano barcelona botsford montano barcelona botsford montano barcelona     botsford montano barcelona
+Period
+2025-05-05     59.1    49.9      48.1     70.1    69.8      69.2     11.0    19.9      21.2         True    True      True
+2025-05-06     59.8    49.1      47.3     68.5    67.5      67.2      8.7    18.4      19.9        False    True     False
+2025-05-07     58.6    48.8      46.8     68.6    68.1      67.6     10.0    19.3      20.8         True    True      True
+2025-05-08     59.0    49.3      47.2     69.3    68.9      68.3     10.3    19.6      21.1         True    True      True
+2025-05-09     59.5    49.6      47.5     70.4    70.2      69.6     10.9    20.6      22.1         True    True      True
+2025-05-10     58.5    48.4      46.4     68.1    67.5      67.0      9.6    19.2      20.6        False    True      True
+2025-05-11     56.3    47.5      45.4     67.2    66.9      66.3     10.9    19.4      20.9         True    True      True
+```
 
 ### Sound level distribution histogram
 
@@ -226,11 +317,13 @@ histogram, bins = nm.summary.nday(
     df_1m,
     indicator='Lden', # Other options:  'Leq', 'Lday', 'Levening', and 'Lnight'
     bins=[50, 55, 60, 65, 70],  # Bin boundaries
-    freq='D',                    # Daily ('D') or weekly ('W')
+    freq='D',                    # Daily ('D'), weekly ('W') or monthly ('MS')
     column=0
 )
 histogram.head()
 ```
+
+The count column is named after `freq`: 'Number of Days', 'Number of Weeks' or 'Number of Months'.
 |   |	Decibel Range |	Number of Days |
 |---|-----------------|----------------|
 | 0	| [-inf, 50.0)    |	0              |
@@ -253,18 +346,18 @@ nm.display.nday(
 
 ## Profile indicators (Time Series)
 
-The `nm.profile` module computes **time-varying noise profiles** using rolling windows. In contrast with `noisemonitor.summary` (see - [Summary indicators](#summary-indicators-discrete-values)), these functions return time serie (DataFrames with datetime or time index) showing how noise levels evolve over time.
+The `nm.profile` module computes **time-varying noise profiles** using rolling windows. In contrast with `noisemonitor.summary` (see [Summary indicators](#summary-indicators)), these functions return time series (DataFrames with datetime or time index) showing how noise levels evolve over time.
 
 ### Complete Time Series
 
-Compute rolling average Leq, L10, L50, and L90 across the entire dataset with the `noisemonitor.profile.series()` function.
+Compute rolling average $L_{eq}$, $L_{10}$, $L_{50}$, and $L_{90}$ across the entire dataset with the `noisemonitor.profile.series()` function.
 
 ```python
-# Hourly sliding averages with 20-minute steps
+# Hourly sliding averages with 20-minute steps, on 1 s data (statistical levels)
 time_series = nm.profile.series(
-    df_1m,
-    win=7200,           # Window size in seconds (2 hour)
-    step=2400,          # Step size in seconds (40 minutes)
+    df_1s,
+    win=3600,           # Window size in seconds (1 hour)
+    step=1200,          # Step size in seconds (20 minutes)
     start_at_midnight=True  # Option to start rolling windows at midnight (typically for computing LAeq,24h levels)
 )
 
@@ -278,29 +371,42 @@ nm.display.line(
 ```
 ![Time series](images/profile_series.png)
 
-**Note:** L10, L50, and L90 are shown for the example but shouldn't be computed with refresh times above one second. 
+With `start_at_midnight=True`, the first window starts at the first sample at or after the first midnight of the data. If less than one full window of data follows that midnight, a `ValueError` is raised.
+
+**Note:** statistical levels ($L_{10}$, $L_{50}$, $L_{90}$) should be computed from data at 1 s or finer; on coarser data, plot $L_{eq}$ only.
 
 ### Daily/Weekly Profiles
 
 Compute average profiles representing daily or weekly patterns with the `noisemonitor.profile.periodic()` function.
 
+Each window pools the samples of all the selected days that fall within its time of day, and its levels are computed over these pooled samples, not as the mean of daily values. For example, over two weeks of weekdays, the $L_{90}$ of the 08:00–09:00 window is the 10th percentile of the samples from 08:00 to 09:00 of all ten days, and its $L_{eq}$ is their energetic mean.
+
+These examples plot $L_{90}$, so they need 1 s data covering weekdays and weekend days. They use the Bruitparif $L_{Aeq,1s}$ of the [reference data](#reference-data).
+
 ```python
+df_bp = nm.load(
+    'tests/data/external/ext_data_bruitparif_s.csv.xz',
+    datetimeindex='ts',
+    valueindexes='LAeq_1s',
+    timezone='Europe/Paris'  # Local time
+)
+
 # Weekday profile (Mon-Fri)
 weekday_profile = nm.profile.periodic(
-    df_1m,
-    hour1=23, # If hour1 > hour2, profile will be computed outside those hours
-    hour2=22,
+    df_bp,
+    hour1=23, # hour1 > hour2: from the window starting at 23:00, past midnight,
+    hour2=22, # to the one starting at 22:00 (the whole day, from 23:00)
     day1='monday',   # Use day names, not numbers
     day2='friday',
     win=3600,
     step=1200
 )
 
-# Weekend profile (Sat-Sun)
+# Weekend profile (Sat-Sun), over the same hours as the weekday profile
 weekend_profile = nm.profile.periodic(
-    df_1m,
-    hour1=0,
-    hour2=24,
+    df_bp,
+    hour1=23,
+    hour2=22,
     day1='saturday',
     day2='sunday',
     win=3600,
@@ -331,28 +437,46 @@ nm.display.compare(
 
 ### Number of Noise Events (NNE)
 
-The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day.
+The function `noisemonitor.profile.nne()` can compute the Number of Noise Events (NNE) following the algorithm proposed in (Brown and De Coensel, 2018). The function computes the average NNE using rolling windows, computing daily or weekly profiles. Note that this function is computationally expensive as noise NNEs are separately computed for each individual day and then averaged since background levels are relative to each day. For noise events, data should be sampled at 1 s or finer (Brown and De Coensel used 125 ms time histories). Events are detected on the samples as given, so their number depends on the time weighting and sampling rate of the data. Each window is counted as a record of its own, with its own threshold: its first exceedance is an event even when the window starts within it, and a following exceedance is a new event if the level stayed at or below the threshold for at least `min_gap` seconds since the previous one ended. Counts computed this way match those of Baclet and Rumpler's (2024) implementation exactly.
+
+Each day is one record from `hour1` to `hour2`. When `hour1 > hour2`, the record runs past midnight, so that a night is a single continuous record (e.g., `hour1=22, hour2=6` runs from 22:00 to 06:00 the next day). `day1` and `day2` select the day on which the record starts: `day1=day2='friday'` with `hour1=22, hour2=6` gives the night from Friday 22:00 to Saturday 06:00. A window without any data has no count and is left out of the average, with a `CoverageWarning`. With the coverage check (on by default for NNEs, 80%), the samples of a window missing because the data start or end within it count as missing.
 
 ```python
 # Average daily noise event profile
 nne_profile = nm.profile.nne(
     df_1s,
-    hour1=23,
-    hour2=22,
-    background_type='L50',     # Use L50 as background reference
-    exceedance=5,              # Events must exceed background by 10 dB
-    min_gap=5,                 # Minimum 5 seconds between events
+    hour1=0,
+    hour2=24,                  # Whole day
+    background_type='L50',     # Threshold: L50 of each window...
+    exceedance=5,              # ...plus 5 dB
+    min_gap=5,                 # At least 5 s at or below the threshold between two events
     win=3600,
     step=1200
 )
+```
 
-# Visualize event frequency
+The threshold can follow the background level of each window (`'Leq'`, `'L50'` or `'L90'`, plus `exceedance`) or be a fixed level in dB (an int). Profiles computed with several thresholds can be compared on the same plot:
+
+```python
+import pandas as pd
+
+thresholds = {
+    'L50 + 5 dB': dict(background_type='L50', exceedance=5),
+    'L90 + 10 dB': dict(background_type='L90', exceedance=10),
+    'Leq + 3 dB': dict(background_type='Leq', exceedance=3),
+    '55 dB(A)': dict(background_type=55),
+}
+nne_profiles = pd.DataFrame({
+    label: nm.profile.nne(df_1s, hour1=0, hour2=24, min_gap=5, win=3600,
+                          step=1200, **kwargs)['Average NNEs']
+    for label, kwargs in thresholds.items()
+})
+
 nm.display.line(
-    nne_profile, 
-    'Average NNEs',
+    nne_profiles,
+    *thresholds,
     title='Noise Events Profile',
-    ylabel='Noise Events (L50 + 5dBA)',
-    fill_background=True
+    ylabel='Noise events per hour'
 )
 ```
 ![Number of Noise Events Profile](images/nne_profile.png)
@@ -361,7 +485,11 @@ nm.display.line(
 
 ### Advanced indicators
 
-Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971).
+Other advanced acoustic indicators can be computed with the `noisemonitor.profile.periodic()` function, such as roughness indicators (DeFrance et al., 2010), Traffic Noise Index (Griffiths and Langdon, 1968) as well as the Noise Pollution Level (Robinson, 1971). Roughness indicators are defined on the differences between consecutive $L_{Aeq,1s}$ values: sub-second data are first averaged over each second.
+
+- **Roughness:** from the absolute differences $|\delta L|$ between consecutive $L_{Aeq,1s}$ values, $\delta L_{av}$ is their mean, $\delta L_{max,1}$ the mean of the largest 1 %, and $\delta L_{min,90}$ the mean of the lowest 90 %.
+- **TNI** is computed for each window: $\mathrm{TNI} = 4\,(L_{10} - L_{90}) + L_{90} - 30$. Griffiths and Langdon (1968) defined it on the means of 24 hourly $L_{10}$ and $L_{90}$ values. Since the formula is linear, their daily TNI is the mean of the 24 hourly TNI values given by 1 h windows over one day.
+- **NPL** is also computed for each window: $\mathrm{NPL} = L_{eq} + 2.56\,\sigma$, where $\sigma$ is the standard deviation of the levels of the window (sample standard deviation, $n - 1$).
 
 ```python
 # Daily profile with advanced indicators
@@ -411,7 +539,8 @@ freq_series = nm.profile.freq_series(
 )
 
 # Visualize as heatmap
-nm.display.freq_map(freq_series['Leq'], title="Frequency Evolution Over Time")
+nm.display.freq_map(freq_series['Leq'], title="Frequency Evolution Over Time",
+                    cblabel="Sound Level (dB)")
 ```
 ![Frequency Bands Time Series](images/freq_series_heatmap.png)
 
@@ -426,12 +555,48 @@ freq_daily = nm.profile.freq_periodic(
 )
 
 # Visualize daily frequency patterns
-nm.display.freq_map(freq_daily['Leq'], title="Daily Frequency Profile")
+nm.display.freq_map(freq_daily['Leq'], title="Daily Frequency Profile",
+                    cblabel="Sound Level (dB)")
 ```
 
 ![Frequency Bands Daily Profile](images/freq_daily_profile.png)
 
 **Note:** being computationnaly expensive, these functions use parallel processing by default. For big datasets, we recommend using `noisemonitor.summary.freq_indicators()` over `noisemonitor.profile.freq_series()`.
+
+### Low-frequency criteria over time
+
+C-A can also be followed over time (`noisemonitor.profile.lf_series()`) or as a weekly or daily profile (`noisemonitor.profile.lf_periodic()`), with the methods of `noisemonitor.summary.lf_periodic()`.
+
+```python
+# C-A over consecutive 1 h windows
+lowfreq_series = nm.profile.lf_series(
+    df_freq,
+    method=['botsford', 'montano', 'barcelona'],
+    win=3600
+)
+
+nm.display.line(lowfreq_series['C-A'], 'botsford', 'montano', 'barcelona',
+                title='Low-Frequency Criteria Time Series',
+                ylabel='C-A (dB)', threshold=15)
+```
+
+![Low-frequency criteria time series](images/lf_series.png)
+
+```python
+# Daily profile, windows pooled over the days
+lowfreq_daily = nm.profile.lf_periodic(
+    df_freq,
+    hour1=0,
+    hour2=23,
+    method=['botsford', 'montano', 'barcelona']
+)
+
+nm.display.line(lowfreq_daily['C-A'], 'botsford', 'montano', 'barcelona',
+                title='Low-Frequency Criteria Daily Profile',
+                ylabel='C-A (dB)', threshold=15)
+```
+
+![Low-frequency criteria daily profile](images/lf_daily_profile.png)
 
 ### Custom statistical levels
 
@@ -468,12 +633,17 @@ with_coverage_leq = nm.summary.leq(
     df_1m,
     hour1=12,
     hour2=16,
+    stats=False,  # 1-min data: equivalent level only
     coverage_check=True,
     coverage_threshold=0.8  # Minimum 80% data coverage required
 )
 ```
 
-**Note:** A warning is raised if data coverage is not met for any of the computed periods. For Lden computation, coverage is assessed separately for each period (day, evening, and night).
+**Note:** A warning is raised if data coverage is not met for any of the computed periods. For $L_{den}$ computation, coverage is assessed separately for each period (day, evening, and night).
+
+Coverage counts the samples present in the data, so gaps should be NaN rows (as `nm.load()` gives them). For the daily, weekly or monthly periods of `nm.summary.periodic()` (and so `nday()` and `freq_periodic()`) and the windows of `nm.profile.nne()`, the samples missing because the data start or end within a period also count as missing: a first or last period only partly covered by the data is filtered out like any other period with gaps.
+
+Whatever `coverage_check`, a window or period without any value (all NaN, or no sample) returns NaN with a single `CoverageWarning` per call, in `nm.summary.leq()` and in `nm.profile.periodic()`, `series()` and `nne()`. The same applies to $L_{den}$ when its day, evening or night period has no value, in `nm.summary.lden()`, `periodic()`, `freq_indicators()`, `freq_periodic()`, and `nday()` when the indicator counted (other than `'Leq'`) is missing in some period.
 
 ## Weather Integration
 
@@ -498,30 +668,39 @@ stations = nm.weather.weathercan.get_historical_stations(
 )
 ```
 
+The result has one column per station, labelled by its Environment Canada climate ID (e.g., `'702S006'` for Montréal/Pierre Elliott Trudeau International Airport), nearest first, with its name, province, proximity (km) and the date ranges of its hourly, daily and monthly data. Stations are identified by this climate ID, also given in the `id` row: several stations can share a name.
+
 ### Merging weather data
 
 ```python
 # Merge weather data (async function)
 df_with_weather = await nm.weather.weathercan.merge_weather(
     df_1m,
-    station_id=30165,
+    station_id='702S006',       # climate ID
     wind_speed_flag=18,
     temp_range_flag=(-10, 30),
     hum_flag=90,
-    rolling_window_hours=48
+    rolling_window_hours=48,
+    timezone='America/Toronto'  # time zone of the noise data (Montréal)
 )
 df_with_weather.head()
 ```
 
 | datetime | LEQ dB -A | Wind Spd (km/h) | Precip. Amount (mm) | Weather | Temp (°C) | Rel Hum (%) | Wind_Spd_Flag | Rain_Flag | Snow_Flag | Temp_Flag | Rel_Hum_Flag | Rain_Flag_Roll | Snow_Flag_Roll |
 |----------|-----------|-----------------|---------------------|---------|-----------|-------------|---------------|-----------|-----------|-----------|--------------|----------------|----------------|
-| 2025-03-21 00:00:00 | 47.36 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:01:00 | 48.36 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:02:00 | 47.60 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:03:00 | 48.74 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
-| 2025-03-21 00:04:00 | 49.75 | 12.0 | 0.0 | NaN | 6.6 | 81.0 | True | False | False | False | False | False | False |
+| 2025-03-21 00:00:30 | 47.36 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:01:30 | 48.36 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:02:30 | 47.60 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:03:30 | 48.74 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
+| 2025-03-21 00:04:30 | 49.75 | 17.0 | 0.2 | NaN | 6.2 | 86.0 | False | True | False | False | False | True | False |
 
-The merged DataFrame now includes weather data together with boolean flags indicating whether inclusion criteria are fulfilled for each row (e.g., wind speed below 18 km/h).
+The merged DataFrame now includes weather data together with boolean flags, True when their condition is met (e.g., `Wind_Spd_Flag` for a wind speed of 18 km/h or more). This station reports no `Weather` condition, so rain and snow are inferred from the temperature here, with a warning.
+
+Environment Canada gives its hourly data in Local Standard Time (LST) all year. Weather times are converted to the local clock time of `timezone` (default `'America/Toronto'`, daylight saving time included) before merging, so that they match noise data in local time. For a station in another time zone, give its own zone (e.g., `'America/Vancouver'`); with `timezone=None`, weather times are merged in LST, which leaves weather and noise data one hour apart during daylight saving time if the noise data are in local time.
+
+Noise data at intervals of 1 h or less take the nearest hourly weather row. Coarser noise data (e.g., daily or monthly levels) take the weather of their whole period, with a warning: wind speed, temperature and humidity are averaged and flagged from these averages, precipitation is summed, and the rain and snow flags are raised if rain or snow was recorded in any hour of the period.
+
+An hour is flagged for rain or snow when it has precipitation and its `Weather` condition reports rain or snow (any condition naming them, e.g., `Freezing Rain` or `Blowing Snow`). Drizzle (freezing drizzle included) and ice pellets are counted as rain, with a warning giving the number of hours flagged from them alone, without rain reported. Precipitation without a condition is then not flagged, and a warning gives the number of such hours. Conversely, an hour reporting rain or snow without a precipitation amount is flagged from its condition alone, with a warning giving the number of such hours: some stations report conditions but no precipitation amounts (e.g., `'7025251'`, Montréal International Airport). Some stations report no condition at all: rain and snow are then inferred from the temperature (precipitation at or above 0 °C is rain, below 0 °C snow), with a warning. Check these flags against other weather archives.
 
 ### Weather contingency analysis
 
@@ -533,16 +712,20 @@ contingency = nm.weather.weathercan.contingency_weather_flags(
     df_with_weather
 )
 
-contingency.head()
+contingency
 ```
 
 | Condition | Leq | Lden | Diff Leq | Diff Lden | Covered data (%) |
 |-----------|-----|------|----------|-----------|------------------|
 | All Data | 50.76 | 56.10 | 0.00 | 0.00 | 100.0 |
-| Wind speed >= 18 km/h | 51.04 | 56.12 | 0.28 | 0.02 | 44.8 |
-| Rain in the last 48h | 51.37 | 56.65 | 0.61 | 0.55 | 61.9 |
-| No Flag - Wind | 50.53 | 56.14 | -0.23 | 0.04 | 55.2 |
-| No Flag - Rain | 49.54 | 55.08 | -1.22 | -1.02 | 38.1 |
+| Wind speed >= 18 km/h | 50.97 | 56.23 | 0.21 | 0.13 | 44.4 |
+| Rain in the last 48h | 51.13 | 56.36 | 0.37 | 0.26 | 76.3 |
+| No Flag - Wind | 50.59 | 56.06 | -0.17 | -0.04 | 55.6 |
+| No Flag - Rain | 49.30 | 55.15 | -1.46 | -0.95 | 23.7 |
+| Any Flag | 51.03 | 56.36 | 0.27 | 0.26 | 88.7 |
+| No Flag | 47.79 | 53.27 | -2.97 | -2.83 | 11.3 |
+
+The table ends with the rows with any of the included flags raised ('Any Flag') and with none ('No Flag'). A condition met only in some periods of the day (e.g., a flag raised only at night) has no $L_{den}$ (NaN) but keeps its $L_{eq}$.
 
 **Note:** Sound level differences below 1 dB are generally considered negligible.
 
@@ -593,16 +776,75 @@ df_filtered = nm.filter.weather_flags(
 
 Output:
 ```
-Proportion of values filtered out: 44.80%
+Proportion of values filtered out: 44.44%
 ```
 
 **Note:** Weather data retrieval is asynchronous. Use `await` with `merge_weather()` or run it in an async context.
 
+## Software testing and external validation
+
+The test suite (pytest, in `tests/`) runs on every pull request and push to the main branch. Each test belongs to one of three categories, selected with pytest markers:
+- `external`: comparison with reference values computed outside noisemonitor ([Reference data](#reference-data)). The data files and how they were prepared are described [here](../tests/data/external/README.md).
+- `internal`: comparison with results known in closed form on synthetic signals, or with another validated noisemonitor function (e.g., each band of `profile.freq_periodic` against `profile.periodic` applied to that band alone).
+- `behaviour`: no reference value: output structure, options, errors and warnings, coverage rules, and edge cases (data gaps, windows past midnight, daylight saving time, sub-second data, file formats, separators and decimal commas).
+
+### Validation status by function
+
+- **External**: matches reference values computed outside noisemonitor (see [Reference data](#reference-data)).
+- **Derived**: applies an externally validated computation to other periods, windows or columns, and is tested against it.
+- **Definition only**: no published reference values were found; tested against its definition on synthetic signals.
+
+| Function | Indicators | Status |
+|---|---|---|
+| `summary.leq`, `summary.lden`, `core.equivalent_level`, `core.lden` | $L_{eq}$, $L_{10}$, $L_{50}$, $L_{90}$, $L_{den}$, $L_{day}$, $L_{night}$ | External |
+| `summary.periodic` | $L_{eq}$, $L_{den}$ | External (daily), derived (weekly, monthly) |
+| `summary.harmonica_periodic`, `core.harmonica` | HARMONICA, BGN, EVT | External |
+| `profile.periodic`, `profile.series` | $L_{eq}$, $L_n$ | External (windows of the reference data), derived (other windows) |
+| `profile.periodic` | TNI | Derived (formula on the validated $L_{10}$ and $L_{90}$) |
+| `profile.periodic` | NPL, roughness indicators | Definition only |
+| `profile.nne`, `core.noise_events` | Number of Noise Events | External |
+| `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` | `'montano'` and `'barcelona'` methods | External |
+| `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` | `'botsford'` method | Definition only (same computation as the validated methods, other bands and threshold) |
+| `summary.freq_periodic`, `summary.freq_indicators`, `profile.freq_periodic`, `profile.freq_series` | All, per frequency band | Derived (each band equals the single-column function) |
+| `summary.nday` | Number of days per level range | Derived (counts of the validated daily values) |
+| `weather.weathercan` | Weather data and flags | Environment Canada station data as reference ([Weather functions](#weather-functions)) |
+| `load`, `filter`, `display` | – | Behaviour tests only |
+
+### Reference data
+
+| Reference | Function | Indicators | Tolerance |
+|---|---|---|---|
+| Clark et al. (2021)[^1] | `core.equivalent_level`, `core.lden`, `summary.periodic`, `summary.lden`, `summary.leq`, `profile.periodic`, `profile.series` | $L_{Aeq,24h}$, $L_{den}$, $L_{day}$, $L_{night}$, $L_{Aeq}$ 06–22 h and 22–06 h | 0.0001 dB (0.0051 dB for `summary.lden` and `summary.leq`, both rounded to 0.01 dB) |
+| Bruitparif (2026)[^2] | `core.equivalent_level`, `profile.periodic`, `profile.series`, `summary.leq`, `core.harmonica`, `summary.harmonica_periodic` | Hourly $L_{Aeq}$, $L_{10}$, $L_{50}$, $L_{90}$, HARMONICA index, BGN, EVT | 0.0001 dB (0.0051 dB for `summary.leq`, rounded to 0.01 dB); HARMONICA, BGN, EVT: 0.0001, or 0.005 for hours with a missing second |
+| Baclet & Rumpler (2024)[^3] | `profile.nne` (`core.noise_events`) | Hourly Number of Noise Events, 128 parameter sets | Exact |
+| Montano & Gushiken (2023)[^4] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='montano'`) | $C_{LF}$, $A_{LF}$, $C_{LF} - A_{LF}$ | 0.0501 dB (values published to 0.1 dB) |
+| Generalitat de Catalunya (2012)[^5] | `summary.lf_periodic`, `profile.lf_periodic`, `profile.lf_series` (`method='barcelona'`) | $L_{Aeq}$ and $L_{Ceq}$ of the 20–160 Hz bands, $L_f$ | 0.0501 dB (values published to 0.1 dB) |
+
+### Weather functions
+
+The reference values are the Environment Canada station data themselves. The tests check that these values are retrieved and merged as reported (tests marked `live`, against the Environment Canada service: merged values equal the station's hourly rows after conversion from Local Standard Time). They also check that the flags follow their documented rules (offline tests on simulated Environment Canada responses). Live tests are skipped unless pytest is run with `--live`; a separate workflow runs them on every pull request to the main branch.
+
 ## References
 
+- Baclet, S., & Rumpler, R. (2024). Performance of a generalised algorithm for the detection of noise events from road traffic in a real urban area: A simulation study. *Applied Acoustics*, 228, 110337. https://doi.org/10.1016/j.apacoust.2024.110337
+- Berglund, B., Lindvall, T., & Schwela, D. H. (Eds.). (1999). *Guidelines for community noise*. World Health Organization. https://www.who.int/publications/i/item/a68672
 - Brown, A. L., & De Coensel, B. (2018). A study of the performance of a generalized exceedance algorithm for detecting noise events caused by road traffic. *Applied Acoustics*, 138, 101-114. https://doi.org/10.1016/j.apacoust.2018.03.031
+- Clark, S. N. et al. (2021). Space-time characterization of community noise and sound sources in Accra, Ghana. *Scientific Reports*, 11, 11113. https://doi.org/10.1038/s41598-021-90454-6. 
 - DeFrance, J., Palacino. J., & Baulac, M. (2010). Auscultation acoustique des aménagements cyclables en milieu urbain. *Proceedings of the 10ème Congrès Français d’Acoustique*, Lyon, France. https://hal.science/hal-00551186v1
+- Deutsches Institut für Normung. (1997). *DIN 45680:1997-03 Messung und Bewertung tieffrequenter Geräuschimmissionen in der Nachbarschaft*.
 - European Parliament and Council. (2002). Directive 2002/49/EC of the European Parliament and of the Council of 25 June 2002 relating to the assessment and management of environmental noise. *EUR-Lex*. http://data.europa.eu/eli/dir/2002/49/2021-07-29
+- Generalitat de Catalunya. (2012). *Guies per a la gestió i avaluació de la contaminació acústica, 10. Motor que genera soroll a baixa freqüència (A6)*. Departament de Territori i Sostenibilitat. https://mediambient.repositori.gencat.cat/bitstream/handle/20.500.14343/794/2012_10._avaluacio_baixa_frequencia.pdf?sequence=1&isAllowed=y
 - Griffiths, I. M., & Langdon, F. J. (1968). Subjective response to road traffic noise. *Journal of Sound and Vibration*, 1, 16-32, 375-378. https://doi.org/10.1016/0022-460X(68)90191-0
+- International Electrotechnical Commission. (2013). *IEC 61672-1:2013 Electroacoustics - Sound level meters - Part 1: Specifications*.
+- International Organization for Standardization. (1997). *ISO 266:1997 Acoustics - Preferred frequencies*.
+- International Organization for Standardization. (2017). *ISO 1996-2:2017 Acoustics - Description, measurement and assessment of environmental noise - Part 2: Determination of sound pressure levels*.
+- Kubicek, R. (2018). Werden tieffrequente Anlagengeräuschimmissionen nach dem Entwurf der Neufassung der DIN 45680 (2013) strenger oder schwächer beurteilt im Vergleich zur derzeit gültigen DIN 45680 (1997)? https://laerm-luftwaermepumpen.de/wp-content/uploads/2018/09/Kubicek2.pdf
 - Mietlicki, C., Mietlicky, F., Ribeiro, C., and Gaudiber, P. (2015). The HARMONICA project, new tools to assess environmental noise and better inform the public. *Proceedings of Forum Acusticum*, Krakow, Poland. https://www.bruitparif.fr/pages/En-tete/500%20Innovation%20et%20recherche/700%20Publications%20scientifiques/2014%20-%20The%20HARMONICA%20project.pdf
+- Montano, W. A., & Gushiken, E. I. (2023). Summary of "Predicting and assessing low-frequency sound using its own bandwidth". *Proceedings of Meetings on Acoustics*, 52, 040010. https://doi.org/10.1121/2.0001880
 - Robinson, D. W. (1971). The Concept of Noise Pollution Level. *Journal of Occupational Medicine*, 13(12), 602. https://journals.lww.com/joem/toc/1971/12000
+
+[^1]: Data is available here: https://zenodo.org/records/11223686 (CC BY 4.0).
+[^2]: Data provided on request by Bruitparif (CC BY 4.0): $L_{Aeq,1s}$ of one station over two days, and Bruitparif's hourly indicators computed from it, including the HARMONICA index.
+[^3]: Data provided by the first author on request (CC BY 4.0): simulated $L_{Aeq,1s}$, and the event counts of the authors' implementation.
+[^4]: Data: Table 2 and Fig. 3.
+[^5]: Data: Tables 3 and 5.
